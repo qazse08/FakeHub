@@ -4373,12 +4373,6 @@ if IsLobbyLobby() then
         "2X XP Boost [2H]", "2X Luck [2H]", "2X Gold [2H]"
     }
 
-    local USE_BOOSTS_LIST = {
-        "2x XP Boost [30m]", "2x Luck Boost [30m]", "2x Gold Boost [30m]",
-        "2x XP Boost [1h]", "2x Luck Boost [1h]", "2x Gold Boost [1h]",
-        "2x XP Boost [2h]", "2x Luck Boost [2h]", "2x Gold Boost [2h]"
-    }
-
     local BOOST_MAP = {
         ["2X XP Boost [30M]"] = {type = "xp", duration = "30M", gemsId = 1, canesId = 1},
         ["2X XP Boost [1H]"] = {type = "xp", duration = "1H", gemsId = 2, canesId = 2},
@@ -4425,20 +4419,6 @@ if IsLobbyLobby() then
             boostTypeStr,
             id,
             purchaseAmount
-        }
-
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
-    end
-
-    -- ============================== USE ==============================
-    local function useBoost(boostName)
-
-        local args = {
-            "S_Inventory",
-            "Item",
-            boostName
         }
 
         return pcall(function()
@@ -4514,55 +4494,6 @@ if IsLobbyLobby() then
                     end
                 end
 
-                -- AUTO USE AFTER BUY
-                local autoUseEnabled = false
-
-                pcall(function()
-
-                    autoUseEnabled =
-                        Options.Boost_AutoUseToggle.Value
-                end)
-
-                if autoUseEnabled then
-
-                    task.wait(1.5)
-
-                    local useSelection = {}
-
-                    pcall(function()
-
-                        if Options
-                            and Options.Boost_UseDropdown
-                            and Options.Boost_UseDropdown.Value
-                        then
-                            useSelection =
-                                Options.Boost_UseDropdown.Value
-                        end
-                    end)
-
-                    -- LOOP BOOSTS
-                    for boostName, enabled in pairs(useSelection) do
-
-                        if enabled then
-
-                            -- 10 TIMES EACH
-                            for i = 1, 10 do
-
-                                useBoost(boostName)
-
-                                task.wait(0.15)
-                            end
-                        end
-                    end
-
-                    task.wait(0.3)
-
-                    pcall(function()
-
-                        Options.Boost_AutoUseToggle:SetValue(false)
-                    end)
-                end
-
                 task.wait(0.3)
 
                 pcall(function()
@@ -4575,16 +4506,42 @@ if IsLobbyLobby() then
 
     BoostGroup:AddDivider()
 
-    BoostGroup:AddDropdown("Boost_UseDropdown", {
-        Text = "Select Boosts to Use",
-        Values = USE_BOOSTS_LIST,
-        Default = {},
-        Multi = true,
-        Callback = function() end
-    })
+    -- ============================== USE ==============================
+    local ALL_USE_BOOSTS = {
+        "2x Gold Boost [2h]",
+        "2x Gold Boost [1h]",
+        "2x Gold Boost [30m]",
+        "2x Gold Boost [15m]",
+        "2x Gold Boost [5m]",
+
+        "2x XP Boost [2h]",
+        "2x XP Boost [1h]",
+        "2x XP Boost [30m]",
+        "2x XP Boost [15m]",
+        "2x XP Boost [5m]",
+
+        "2x Luck Boost [2h]",
+        "2x Luck Boost [1h]",
+        "2x Luck Boost [30m]",
+        "2x Luck Boost [15m]",
+        "2x Luck Boost [5m]"
+    }
+
+    local function useBoost(boostName)
+
+        local args = {
+            "S_Inventory",
+            "Item",
+            boostName
+        }
+
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
+    end
 
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
-        Text = "Auto Use Boost (10x each)",
+        Text = "Auto Use All Boosts (5x each)",
         Default = false,
 
         Callback = function(v)
@@ -4593,71 +4550,21 @@ if IsLobbyLobby() then
                 return
             end
 
-            -- IF PURCHASE ENABLED
-            -- LET PURCHASE HANDLE IT
-            local purchaseEnabled = false
-
-            pcall(function()
-
-                purchaseEnabled =
-                    Options.Boost_PurchaseToggle.Value
-            end)
-
-            if purchaseEnabled then
-                return
-            end
-
             task.spawn(function()
 
-                local currentSelection = {}
+                for _, boostName in ipairs(ALL_USE_BOOSTS) do
 
-                pcall(function()
+                    for i = 1, 10 do
 
-                    if Options
-                        and Options.Boost_UseDropdown
-                        and Options.Boost_UseDropdown.Value
-                    then
-                        currentSelection =
-                            Options.Boost_UseDropdown.Value
-                    end
-                end)
+                        useBoost(boostName)
 
-                if not next(currentSelection) then
-
-                    Library:Notify(
-                        "⚠️ No boost selected!",
-                        2
-                    )
-
-                    task.wait(0.3)
-
-                    pcall(function()
-
-                        Options.Boost_AutoUseToggle:SetValue(false)
-                    end)
-
-                    return
-                end
-
-                -- LOOP ALL SELECTED BOOSTS
-                for boostName, enabled in pairs(currentSelection) do
-
-                    if enabled then
-
-                        -- USE 10 TIMES EACH
-                        for i = 1, 10 do
-
-                            useBoost(boostName)
-
-                            task.wait(0.15)
-                        end
+                        task.wait(0.15)
                     end
                 end
 
                 task.wait(0.3)
 
                 pcall(function()
-
                     Options.Boost_AutoUseToggle:SetValue(false)
                 end)
             end)
