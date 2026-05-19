@@ -6465,6 +6465,38 @@ if Tabs.Webhook then
         
         local fields = {}
         
+        -- ========== ADD MISSION INFO (MAP, DIFFICULTY, OBJECTIVE, MODIFIERS) ==========
+        if data.Map then
+            local modsText = "None"
+            if data.Map.Modifiers and type(data.Map.Modifiers) == "table" then
+                local modList = {}
+                -- รองรับทั้ง table array และ table dictionary
+                for k, v in pairs(data.Map.Modifiers) do
+                    if type(k) == "number" then
+                        table.insert(modList, tostring(v))
+                    elseif type(v) == "boolean" and v then
+                        table.insert(modList, tostring(k))
+                    elseif type(v) == "string" then
+                        table.insert(modList, v)
+                    end
+                end
+                if #modList > 0 then
+                    modsText = table.concat(modList, ", ")
+                end
+            end
+            local mapValue = string.format("```Map: %s\nDifficulty: %s\nObjective: %s\nModifiers: %s```",
+                data.Map.Map or "Unknown",
+                data.Map.Difficulty or "Unknown",
+                data.Map.Objective or "Unknown",
+                modsText
+            )
+            table.insert(fields, {
+                name = "📍 Mission Info",
+                value = mapValue,
+                inline = false
+            })
+        end
+        
         if filters.Currency then
             table.insert(fields, {
                 name = "Currency",
