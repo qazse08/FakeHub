@@ -3614,45 +3614,6 @@ if Tabs.Lobby then
         }
     end
 
-    -- ============================== CREATE ==============================
-    local function CreateMission(
-        missionName,
-        objective,
-        difficulty
-    )
-
-        if not missionRunning then
-            return
-        end
-
-        GET:InvokeServer(
-            "S_Missions",
-            "Create",
-            {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName
-            }
-        )
-
-        task.wait(0.05)
-
-        if not missionRunning then
-            return
-        end
-
-        GET:InvokeServer(
-            "S_Missions",
-            "Create",
-            {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName,
-                Objective = objective
-            }
-        )
-    end
-
     -- ============================== APPLY MODIFIERS ==============================
     local function ApplyModifiers()
 
@@ -3706,6 +3667,45 @@ if Tabs.Lobby then
 
             task.wait(0.12)
         end
+    end
+
+    -- ============================== CREATE ==============================
+    local function CreateMission(
+        missionName,
+        objective,
+        difficulty
+    )
+
+        if not missionRunning then
+            return
+        end
+
+        GET:InvokeServer(
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = missionName
+            }
+        )
+
+        task.wait(0.05)
+
+        if not missionRunning then
+            return
+        end
+
+        GET:InvokeServer(
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = missionName,
+                Objective = objective
+            }
+        )
     end
 
     -- ============================== MAIN LOOP ==============================
@@ -3796,7 +3796,7 @@ if Tabs.Lobby then
                         break
                     end
 
-                    -- MODIFIERS
+                    -- APPLY MODIFIERS ALWAYS
                     ApplyModifiers()
 
                     task.wait(0.25)
@@ -3857,15 +3857,13 @@ if Tabs.Lobby then
                     currentDifficulty
                 )
 
-                task.wait(
-                    0.12 + MissionDelay
-                )
+                task.wait(0.12 + MissionDelay)
 
                 if not missionRunning then
                     break
                 end
 
-                -- MODIFIERS
+                -- APPLY MODIFIERS ALWAYS
                 ApplyModifiers()
 
                 task.wait(0.25)
