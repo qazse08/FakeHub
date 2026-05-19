@@ -4649,288 +4649,394 @@ end
 
 
 
--- ============================== HUD (รวม Timer + Stats) ==============================
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "FarmHUD"
-Gui.IgnoreGuiInset = true
-Gui.ResetOnSpawn = true
-Gui.Parent = PlayerGui
+-- ============================== MISC ==============================
+local MiscGroup =
+    Tabs.AutoFarm:AddLeftGroupbox("Misc")
 
--- ==================== MAIN FRAME ====================
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 210, 0, 112)
-Frame.Position = UDim2.new(0.5, -105, 0, 8)
-Frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
-Frame.BackgroundTransparency = 0.15
-Frame.BorderSizePixel = 0
-Frame.Parent = Gui
+-- ============================== PLAYER STATS ==============================
+local StatsGui = nil
+local StatsEnabled = false
 
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0, 10)
-Corner.Parent = Frame
+local function CreatePlayerStatsHUD()
 
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(80, 80, 120)
-Stroke.Thickness = 1
-Stroke.Transparency = 0.5
-Stroke.Parent = Frame
-
--- แถบ accent ด้านบน
-local AccentBar = Instance.new("Frame")
-AccentBar.Size = UDim2.new(1, 0, 0, 2)
-AccentBar.Position = UDim2.new(0, 0, 0, 0)
-AccentBar.BackgroundColor3 = Color3.fromRGB(100, 120, 255)
-AccentBar.BorderSizePixel = 0
-AccentBar.Parent = Frame
-
-local AccentCorner = Instance.new("UICorner")
-AccentCorner.CornerRadius = UDim.new(0, 10)
-AccentCorner.Parent = AccentBar
-
--- ==================== ส่วน TIMER ====================
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 16)
-Title.Position = UDim2.new(0, 0, 0, 6)
-Title.BackgroundTransparency = 1
-Title.Text = "FARM TIMER"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 9
-Title.TextColor3 = Color3.fromRGB(100, 110, 180)
-Title.TextXAlignment = Enum.TextXAlignment.Center
-Title.Parent = Frame
-
-local Label = Instance.new("TextLabel")
-Label.Size = UDim2.new(1, 0, 0, 28)
-Label.Position = UDim2.new(0, 0, 0, 18)
-Label.BackgroundTransparency = 1
-Label.Text = "00:00:00"
-Label.Font = Enum.Font.GothamBold
-Label.TextSize = 20
-Label.TextColor3 = Color3.fromRGB(230, 230, 255)
-Label.TextXAlignment = Enum.TextXAlignment.Center
-Label.Parent = Frame
-
--- เส้นคั่น
-local Divider = Instance.new("Frame")
-Divider.Size = UDim2.new(0.9, 0, 0, 1)
-Divider.Position = UDim2.new(0.05, 0, 0, 50)
-Divider.BackgroundColor3 = Color3.fromRGB(80, 80, 120)
-Divider.BackgroundTransparency = 0.6
-Divider.BorderSizePixel = 0
-Divider.Parent = Frame
-
--- ==================== ส่วน STATS ====================
-local StatsTitle = Instance.new("TextLabel")
-StatsTitle.Size = UDim2.new(1, 0, 0, 12)
-StatsTitle.Position = UDim2.new(0, 0, 0, 56)
-StatsTitle.BackgroundTransparency = 1
-StatsTitle.Text = "PLAYER STATS"
-StatsTitle.Font = Enum.Font.GothamBold
-StatsTitle.TextSize = 8
-StatsTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
-StatsTitle.TextXAlignment = Enum.TextXAlignment.Center
-StatsTitle.Parent = Frame
-
--- ==================== แถวที่ 1: Level / Gold ====================
-local Row1 = Instance.new("Frame")
-Row1.Size = UDim2.new(1, -10, 0, 22)
-Row1.Position = UDim2.new(0, 5, 0, 70)
-Row1.BackgroundTransparency = 1
-Row1.Parent = Frame
-
--- Level
-local LevelText = Instance.new("TextLabel")
-LevelText.Size = UDim2.new(0, 45, 1, 0)
-LevelText.Position = UDim2.new(0, 8, 0, 0)
-LevelText.BackgroundTransparency = 1
-LevelText.Text = "Level"
-LevelText.Font = Enum.Font.GothamBold
-LevelText.TextSize = 10
-LevelText.TextColor3 = Color3.fromRGB(180, 180, 220)
-LevelText.TextXAlignment = Enum.TextXAlignment.Left
-LevelText.Parent = Row1
-
-local LevelVal = Instance.new("TextLabel")
-LevelVal.Size = UDim2.new(0, 50, 1, 0)
-LevelVal.Position = UDim2.new(0, 53, 0, 0)
-LevelVal.BackgroundTransparency = 1
-LevelVal.Text = "0"
-LevelVal.Font = Enum.Font.GothamBold
-LevelVal.TextSize = 10
-LevelVal.TextColor3 = Color3.fromRGB(255, 200, 100)
-LevelVal.TextXAlignment = Enum.TextXAlignment.Left
-LevelVal.Parent = Row1
-
--- Gold
-local GoldText = Instance.new("TextLabel")
-GoldText.Size = UDim2.new(0, 40, 1, 0)
-GoldText.Position = UDim2.new(0, 108, 0, 0)
-GoldText.BackgroundTransparency = 1
-GoldText.Text = "Gold"
-GoldText.Font = Enum.Font.GothamBold
-GoldText.TextSize = 10
-GoldText.TextColor3 = Color3.fromRGB(180, 180, 220)
-GoldText.TextXAlignment = Enum.TextXAlignment.Left
-GoldText.Parent = Row1
-
-local GoldVal = Instance.new("TextLabel")
-GoldVal.Size = UDim2.new(0, 60, 1, 0)
-GoldVal.Position = UDim2.new(0, 148, 0, 0)
-GoldVal.BackgroundTransparency = 1
-GoldVal.Text = "0"
-GoldVal.Font = Enum.Font.GothamBold
-GoldVal.TextSize = 10
-GoldVal.TextColor3 = Color3.fromRGB(255, 215, 100)
-GoldVal.TextXAlignment = Enum.TextXAlignment.Left
-GoldVal.Parent = Row1
-
--- ==================== แถวที่ 2: Gems / Canes ====================
-local Row2 = Instance.new("Frame")
-Row2.Size = UDim2.new(1, -10, 0, 22)
-Row2.Position = UDim2.new(0, 5, 0, 92)
-Row2.BackgroundTransparency = 1
-Row2.Parent = Frame
-
--- Gems
-local GemsText = Instance.new("TextLabel")
-GemsText.Size = UDim2.new(0, 45, 1, 0)
-GemsText.Position = UDim2.new(0, 8, 0, 0)
-GemsText.BackgroundTransparency = 1
-GemsText.Text = "Gems"
-GemsText.Font = Enum.Font.GothamBold
-GemsText.TextSize = 10
-GemsText.TextColor3 = Color3.fromRGB(180, 180, 220)
-GemsText.TextXAlignment = Enum.TextXAlignment.Left
-GemsText.Parent = Row2
-
-local GemsVal = Instance.new("TextLabel")
-GemsVal.Size = UDim2.new(0, 50, 1, 0)
-GemsVal.Position = UDim2.new(0, 53, 0, 0)
-GemsVal.BackgroundTransparency = 1
-GemsVal.Text = "0"
-GemsVal.Font = Enum.Font.GothamBold
-GemsVal.TextSize = 10
-GemsVal.TextColor3 = Color3.fromRGB(100, 200, 255)
-GemsVal.TextXAlignment = Enum.TextXAlignment.Left
-GemsVal.Parent = Row2
-
--- Canes
-local CanesText = Instance.new("TextLabel")
-CanesText.Size = UDim2.new(0, 45, 1, 0)
-CanesText.Position = UDim2.new(0, 108, 0, 0)
-CanesText.BackgroundTransparency = 1
-CanesText.Text = "Canes"
-CanesText.Font = Enum.Font.GothamBold
-CanesText.TextSize = 10
-CanesText.TextColor3 = Color3.fromRGB(180, 180, 220)
-CanesText.TextXAlignment = Enum.TextXAlignment.Left
-CanesText.Parent = Row2
-
-local CanesVal = Instance.new("TextLabel")
-CanesVal.Size = UDim2.new(0, 60, 1, 0)
-CanesVal.Position = UDim2.new(0, 148, 0, 0)
-CanesVal.BackgroundTransparency = 1
-CanesVal.Text = "0"
-CanesVal.Font = Enum.Font.GothamBold
-CanesVal.TextSize = 10
-CanesVal.TextColor3 = Color3.fromRGB(255, 150, 180)
-CanesVal.TextXAlignment = Enum.TextXAlignment.Left
-CanesVal.Parent = Row2
-
--- ==================== TIMER LOGIC ====================
-getgenv().FarmStartTime = tick()
-
-local function FormatTime(sec)
-    return string.format("%02d:%02d:%02d",
-        math.floor(sec / 3600),
-        math.floor((sec % 3600) / 60),
-        math.floor(sec % 60))
-end
-
-task.spawn(function()
-    while true do
-        task.wait(1)
-        pcall(function()
-            local G = getgenv()
-            if G.FarmStartTime and G.FarmStartTime > 0 then
-                Label.Text = FormatTime(tick() - G.FarmStartTime)
-            else
-                Label.Text = "00:00:00"
-            end
-        end)
+    if StatsGui then
+        StatsGui:Destroy()
+        StatsGui = nil
     end
-end)
 
--- ==================== STATS UPDATE FUNCTION ====================
-local function FormatNumber(num)
-    if num >= 1000000 then
-        return string.format("%.1fM", num / 1000000)
-    elseif num >= 1000 then
-        return string.format("%.1fK", num / 1000)
-    else
-        return tostring(num)
+    local Players =
+        game:GetService("Players")
+
+    local ReplicatedStorage =
+        game:GetService("ReplicatedStorage")
+
+    local LocalPlayer =
+        Players.LocalPlayer
+
+    local PlayerGui =
+        LocalPlayer:WaitForChild("PlayerGui")
+
+    -- ==================== GUI ====================
+    local Gui = Instance.new("ScreenGui")
+    Gui.Name = "FakeHubPlayerStats"
+    Gui.IgnoreGuiInset = true
+    Gui.ResetOnSpawn = false
+    Gui.Parent = PlayerGui
+
+    StatsGui = Gui
+
+    -- ==================== MAIN FRAME ====================
+    local Frame = Instance.new("Frame")
+    Frame.Size = UDim2.new(0, 210, 0, 112)
+    Frame.Position = UDim2.new(0.5, -105, 0, 8)
+    Frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+    Frame.BackgroundTransparency = 0.15
+    Frame.BorderSizePixel = 0
+    Frame.Parent = Gui
+
+    local Corner = Instance.new("UICorner")
+    Corner.CornerRadius = UDim.new(0, 10)
+    Corner.Parent = Frame
+
+    local Stroke = Instance.new("UIStroke")
+    Stroke.Color = Color3.fromRGB(80, 80, 120)
+    Stroke.Thickness = 1
+    Stroke.Transparency = 0.5
+    Stroke.Parent = Frame
+
+    -- ==================== ACCENT ====================
+    local AccentBar = Instance.new("Frame")
+    AccentBar.Size = UDim2.new(1, 0, 0, 2)
+    AccentBar.BackgroundColor3 =
+        Color3.fromRGB(100, 120, 255)
+
+    AccentBar.BorderSizePixel = 0
+    AccentBar.Parent = Frame
+
+    -- ==================== TIMER TITLE ====================
+    local Title = Instance.new("TextLabel")
+    Title.Size = UDim2.new(1, 0, 0, 16)
+    Title.Position = UDim2.new(0, 0, 0, 6)
+    Title.BackgroundTransparency = 1
+    Title.Text = "FARM TIMER"
+    Title.Font = Enum.Font.GothamBold
+    Title.TextSize = 9
+    Title.TextColor3 =
+        Color3.fromRGB(100, 110, 180)
+
+    Title.Parent = Frame
+
+    -- ==================== TIMER ====================
+    local TimerLabel =
+        Instance.new("TextLabel")
+
+    TimerLabel.Size =
+        UDim2.new(1, 0, 0, 28)
+
+    TimerLabel.Position =
+        UDim2.new(0, 0, 0, 18)
+
+    TimerLabel.BackgroundTransparency = 1
+
+    TimerLabel.Text = "00:00:00"
+
+    TimerLabel.Font =
+        Enum.Font.GothamBold
+
+    TimerLabel.TextSize = 20
+
+    TimerLabel.TextColor3 =
+        Color3.fromRGB(230, 230, 255)
+
+    TimerLabel.Parent = Frame
+
+    -- ==================== DIVIDER ====================
+    local Divider = Instance.new("Frame")
+    Divider.Size = UDim2.new(0.9, 0, 0, 1)
+    Divider.Position = UDim2.new(0.05, 0, 0, 50)
+    Divider.BackgroundColor3 =
+        Color3.fromRGB(80, 80, 120)
+
+    Divider.BackgroundTransparency = 0.6
+    Divider.BorderSizePixel = 0
+    Divider.Parent = Frame
+
+    -- ==================== PLAYER STATS ====================
+    local StatsTitle =
+        Instance.new("TextLabel")
+
+    StatsTitle.Size =
+        UDim2.new(1, 0, 0, 12)
+
+    StatsTitle.Position =
+        UDim2.new(0, 0, 0, 56)
+
+    StatsTitle.BackgroundTransparency = 1
+    StatsTitle.Text = "PLAYER STATS"
+
+    StatsTitle.Font =
+        Enum.Font.GothamBold
+
+    StatsTitle.TextSize = 8
+
+    StatsTitle.TextColor3 =
+        Color3.fromRGB(100, 200, 255)
+
+    StatsTitle.Parent = Frame
+
+    -- ==================== VALUES ====================
+    local function MakeStat(name, x, y, color)
+
+        local Text =
+            Instance.new("TextLabel")
+
+        Text.Size =
+            UDim2.new(0, 50, 0, 16)
+
+        Text.Position =
+            UDim2.new(0, x, 0, y)
+
+        Text.BackgroundTransparency = 1
+        Text.Text = name
+
+        Text.Font =
+            Enum.Font.GothamBold
+
+        Text.TextSize = 10
+
+        Text.TextColor3 =
+            Color3.fromRGB(180, 180, 220)
+
+        Text.Parent = Frame
+
+        local Value =
+            Instance.new("TextLabel")
+
+        Value.Size =
+            UDim2.new(0, 60, 0, 16)
+
+        Value.Position =
+            UDim2.new(0, x + 40, 0, y)
+
+        Value.BackgroundTransparency = 1
+        Value.Text = "0"
+
+        Value.Font =
+            Enum.Font.GothamBold
+
+        Value.TextSize = 10
+
+        Value.TextColor3 = color
+        Value.Parent = Frame
+
+        return Value
     end
-end
 
--- ฟังก์ชันอัปเดตค่า Stats
-function UpdateStats(data)
-    pcall(function()
-        if data and data.Slots then
-            local slot = data.Current_Slot or "A"
-            local slotData = data.Slots[slot]
-            if slotData then
-                if slotData.Progression and slotData.Progression.Level then
-                    LevelVal.Text = tostring(slotData.Progression.Level)
-                end
-                
-                if slotData.Currency then
-                    if slotData.Currency.Gold then
-                        GoldVal.Text = FormatNumber(slotData.Currency.Gold)
-                    end
-                    if slotData.Currency.Gems then
-                        GemsVal.Text = FormatNumber(slotData.Currency.Gems)
-                    end
-                    if slotData.Currency.Canes then
-                        CanesVal.Text = FormatNumber(slotData.Currency.Canes)
-                    end
-                end
-            end
+    local LevelValue =
+        MakeStat(
+            "Level",
+            10,
+            72,
+            Color3.fromRGB(255, 200, 100)
+        )
+
+    local GoldValue =
+        MakeStat(
+            "Gold",
+            110,
+            72,
+            Color3.fromRGB(255, 215, 100)
+        )
+
+    local GemsValue =
+        MakeStat(
+            "Gems",
+            10,
+            92,
+            Color3.fromRGB(100, 200, 255)
+        )
+
+    local CanesValue =
+        MakeStat(
+            "Canes",
+            110,
+            92,
+            Color3.fromRGB(255, 150, 180)
+        )
+
+    -- ==================== TIMER ====================
+    getgenv().FarmStartTime =
+        getgenv().FarmStartTime or tick()
+
+    local function FormatTime(sec)
+
+        return string.format(
+            "%02d:%02d:%02d",
+            math.floor(sec / 3600),
+            math.floor((sec % 3600) / 60),
+            math.floor(sec % 60)
+        )
+    end
+
+    task.spawn(function()
+
+        while StatsEnabled
+            and Gui.Parent
+        do
+
+            task.wait(1)
+
+            TimerLabel.Text =
+                FormatTime(
+                    tick()
+                    - getgenv().FarmStartTime
+                )
         end
     end)
-end
 
--- ==================== AUTO FETCH DATA ====================
-local function FetchAndUpdate()
-    task.spawn(function()
+    -- ==================== FORMAT ====================
+    local function FormatNumber(num)
+
+        if num >= 1000000 then
+
+            return string.format(
+                "%.1fM",
+                num / 1000000
+            )
+
+        elseif num >= 1000 then
+
+            return string.format(
+                "%.1fK",
+                num / 1000
+            )
+        end
+
+        return tostring(num)
+    end
+
+    -- ==================== UPDATE ====================
+    local function UpdateStats(data)
+
         pcall(function()
-            local replicatedStorage = game:GetService("ReplicatedStorage")
-            local remoteGET = replicatedStorage:FindFirstChild("Assets")
-            if remoteGET then
-                remoteGET = remoteGET:FindFirstChild("Remotes")
-                if remoteGET then
-                    remoteGET = remoteGET:FindFirstChild("GET")
-                end
-            end
-            
-            if remoteGET then
-                local player = game:GetService("Players").LocalPlayer
-                local data = remoteGET:InvokeServer("Data", "Copy", player.UserId)
-                if data and type(data) == "table" then
-                    UpdateStats(data)
+
+            if data and data.Slots then
+
+                local slot =
+                    data.Current_Slot or "A"
+
+                local slotData =
+                    data.Slots[slot]
+
+                if slotData then
+
+                    if slotData.Progression
+                        and slotData.Progression.Level
+                    then
+
+                        LevelValue.Text =
+                            tostring(
+                                slotData.Progression.Level
+                            )
+                    end
+
+                    if slotData.Currency then
+
+                        if slotData.Currency.Gold then
+
+                            GoldValue.Text =
+                                FormatNumber(
+                                    slotData.Currency.Gold
+                                )
+                        end
+
+                        if slotData.Currency.Gems then
+
+                            GemsValue.Text =
+                                FormatNumber(
+                                    slotData.Currency.Gems
+                                )
+                        end
+
+                        if slotData.Currency.Canes then
+
+                            CanesValue.Text =
+                                FormatNumber(
+                                    slotData.Currency.Canes
+                                )
+                        end
+                    end
                 end
             end
         end)
+    end
+
+    -- ==================== FETCH ====================
+    local function FetchAndUpdate()
+
+        task.spawn(function()
+
+            pcall(function()
+
+                local remoteGET =
+                    ReplicatedStorage
+                    :WaitForChild("Assets")
+                    :WaitForChild("Remotes")
+                    :WaitForChild("GET")
+
+                local data =
+                    remoteGET:InvokeServer(
+                        "Data",
+                        "Copy",
+                        LocalPlayer.UserId
+                    )
+
+                if data
+                    and type(data) == "table"
+                then
+                    UpdateStats(data)
+                end
+            end)
+        end)
+    end
+
+    task.spawn(function()
+
+        while StatsEnabled
+            and Gui.Parent
+        do
+
+            task.wait(5)
+
+            FetchAndUpdate()
+        end
     end)
+
+    FetchAndUpdate()
 end
 
-task.spawn(function()
-    while true do
-        task.wait(5)
-        FetchAndUpdate()
-    end
-end)
+-- ============================== TOGGLE ==============================
+MiscGroup:AddToggle("PlayerStatsToggle", {
+    Text = "Player Stats",
+    Default = false,
 
-FetchAndUpdate()
+    Callback = function(v)
+
+        StatsEnabled = v
+
+        if v then
+
+            CreatePlayerStatsHUD()
+
+        else
+
+            if StatsGui then
+                StatsGui:Destroy()
+                StatsGui = nil
+            end
+        end
+    end
+})
 
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
