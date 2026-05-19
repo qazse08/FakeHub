@@ -3544,10 +3544,9 @@ if Tabs.Lobby then
     local missionBusy = false
     local sessionId = 0
 
-    -- ============================== HARDEST SYSTEM ==============================
-    local hardestCycleIndex = 0
+    -- ============================== HARDEST SYSTEM (FIXED) ==============================
+    local hardestCycleIndex = 1
     local hardestCycleList = {}
-    local hardestTimer = nil
 
     local function getPlayerLevel()
 
@@ -3588,30 +3587,10 @@ if Tabs.Lobby then
         return list
     end
 
-    -- ============================== RESOLVE DIFFICULTY ==============================
-    local function resolveDifficulty(diff)
-
-        if diff ~= "Hardest" then
-            return diff
-        end
-
-        if #hardestCycleList == 0 then
-            return "Easy"
-        end
-
-        local idx = (hardestCycleIndex % #hardestCycleList) + 1
-
-        return hardestCycleList[idx]
-    end
-
-    -- ============================== START HARDEST CYCLE ==============================
-    local function startHardestCycle()
-
-        hardestTimer = nil
+    local function buildHardestCycle()
 
         local level = getPlayerLevel()
 
-        -- 🔥 ถ้าเลเวลมากกว่า 80 เริ่ม Aberrant
         if level > 80 then
 
             hardestCycleList = {
@@ -3632,39 +3611,40 @@ if Tabs.Lobby then
             }
         end
 
-        hardestCycleIndex = 0
-
-        hardestTimer = task.spawn(function()
-
-            while missionRunning
-                and State.Difficulty == "Hardest"
-            do
-
-                -- 🔥 เปลี่ยนทุก 4 วิ
-                task.wait(4)
-
-                hardestCycleIndex =
-                    hardestCycleIndex + 1
-
-                -- 🔥 วนกลับ
-                if hardestCycleIndex >= #hardestCycleList then
-                    hardestCycleIndex = 0
-                end
-            end
-
-            hardestTimer = nil
-
-        end)
+        hardestCycleIndex = 1
     end
 
-    -- ============================== STOP HARDEST CYCLE ==============================
-    local function stopHardestCycle()
+    local function resolveDifficulty(diff)
 
-        hardestTimer = nil
+        if diff ~= "Hardest" then
+            return diff
+        end
+
+        if #hardestCycleList == 0 then
+            buildHardestCycle()
+        end
+
+        return hardestCycleList[hardestCycleIndex] or "Easy"
+    end
+
+    local function advanceHardest()
+
+        if #hardestCycleList == 0 then
+            return
+        end
+
+        hardestCycleIndex = hardestCycleIndex + 1
+
+        if hardestCycleIndex > #hardestCycleList then
+            hardestCycleIndex = 1
+        end
+    end
+
+    local function stopHardestCycle()
 
         hardestCycleList = {}
 
-        hardestCycleIndex = 0
+        hardestCycleIndex = 1
     end
 
     -- ============================== CREATE MISSION ==============================
@@ -3747,27 +3727,76 @@ if Tabs.Lobby then
 
             missionBusy = true
 
+            -- 🔥 ดึงค่าปัจจุบันจาก Dropdown ก่อนทุกครั้ง
+            local currentModifiers = {}
+
+            pcall(function()
+
+                if Options
+                    and Options.ModifiersDropdown
+                    and Options.ModifiersDropdown.Value
+                then
+
+                    currentModifiers = normalizeModifiers(
+                        Options.ModifiersDropdown.Value
+                    )
+                end
+            end)
+
             local locked = {
                 Name = State.Name,
                 Objective = State.Objective,
                 Difficulty = State.Difficulty,
-                Modifiers = normalizeModifiers(State.Modifiers)
+                Modifiers = currentModifiers
             }
+
+            -- 🔥 Sync State กัน desync
+            State.Modifiers = currentModifiers
 
             SyncCreate(locked)
 
-            -- 🔥 ถ้า Hardest รอ 4 วิ
             if locked.Difficulty == "Hardest" then
-                task.wait(4)
+
+                advanceHardest()
+
+                task.wait(0.25 + MissionDelay)
+
             else
+
                 task.wait(0.12 + MissionDelay)
             end
 
+            -- 🔥 Apply Modifiers ก่อน Start เสมอ
             ApplyModifiers(locked.Modifiers)
 
+            -- 🔥 รอให้ Modifier เข้า server ก่อน
             task.wait(
-                0.1 + (#locked.Modifiers * 0.05)
+                0.2 + (#locked.Modifiers * 0.08)
             )
+
+            -- 🔥 เช็ค Modifier ซ้ำก่อน Start
+            local verifiedModifiers = {}
+
+            pcall(function()
+
+                if Options
+                    and Options.ModifiersDropdown
+                    and Options.ModifiersDropdown.Value
+                then
+
+                    verifiedModifiers = normalizeModifiers(
+                        Options.ModifiersDropdown.Value
+                    )
+                end
+            end)
+
+            -- 🔥 ถ้ามี modifier ใหม่เพิ่มเข้ามาระหว่างรอ
+            if #verifiedModifiers > #locked.Modifiers then
+
+                ApplyModifiers(verifiedModifiers)
+
+                task.wait(0.15)
+            end
 
             GET:InvokeServer(
                 "S_Missions",
@@ -3908,9 +3937,8 @@ if Tabs.Lobby then
 
                 sessionId = sessionId + 1
 
-                -- 🔥 เริ่มระบบ Hardest
                 if State.Difficulty == "Hardest" then
-                    startHardestCycle()
+                    buildHardestCycle()
                 end
 
                 local mySession = sessionId
@@ -3939,6 +3967,10 @@ if Tabs.Lobby then
         end
     })
 end
+
+
+
+
 
 -- ============================== EQUIP SKILL ==============================
 if IsLobbyLobby() then
