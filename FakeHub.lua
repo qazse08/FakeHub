@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(0)
+task.wait(6)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -3542,10 +3542,7 @@ if Tabs.Lobby then
     local missionBusy = false
     local sessionId = 0
 
-    -- ============================== HARDEST SYSTEM ==============================
-    local hardestCycleIndex = 1
-    local hardestCycleList = {}
-
+    -- ============================== NORMALIZE MODIFIERS ==============================
     local function normalizeModifiers(modTable)
 
         local list = {}
@@ -3565,51 +3562,6 @@ if Tabs.Lobby then
         end
 
         return list
-    end
-
-    local function buildHardestCycle()
-
-        hardestCycleList = {
-            "Aberrant",
-            "Severe",
-            "Hard",
-            "Normal",
-            "Easy"
-        }
-
-        hardestCycleIndex = 1
-    end
-
-    local function resolveDifficulty(diff)
-
-        if diff ~= "Hardest" then
-            return diff
-        end
-
-        if #hardestCycleList == 0 then
-            buildHardestCycle()
-        end
-
-        return hardestCycleList[hardestCycleIndex] or "Easy"
-    end
-
-    local function advanceHardest()
-
-        if #hardestCycleList == 0 then
-            return
-        end
-
-        hardestCycleIndex = hardestCycleIndex + 1
-
-        if hardestCycleIndex > #hardestCycleList then
-            hardestCycleIndex = 1
-        end
-    end
-
-    local function stopHardestCycle()
-
-        hardestCycleList = {}
-        hardestCycleIndex = 1
     end
 
     -- ============================== CREATE MISSION ==============================
@@ -3636,14 +3588,11 @@ if Tabs.Lobby then
                 filtered[math.random(#filtered)]
         end
 
-        local difficulty =
-            resolveDifficulty(data.Difficulty)
-
         GET:InvokeServer(
             "S_Missions",
             "Create",
             {
-                Difficulty = difficulty,
+                Difficulty = data.Difficulty,
                 Type = "Missions",
                 Name = data.Name
             }
@@ -3655,7 +3604,7 @@ if Tabs.Lobby then
             "S_Missions",
             "Create",
             {
-                Difficulty = difficulty,
+                Difficulty = data.Difficulty,
                 Type = "Missions",
                 Name = data.Name,
                 Objective = objective
@@ -3716,53 +3665,134 @@ if Tabs.Lobby then
 
             State.Modifiers = currentModifiers
 
-            SyncCreate(locked)
-
+            -- ============================== HARDEST MODE ==============================
             if locked.Difficulty == "Hardest" then
 
-                advanceHardest()
+                local cycleList = {
+                    "Aberrant",
+                    "Severe",
+                    "Hard",
+                    "Normal",
+                    "Easy"
+                }
 
-                task.wait(0.25 + MissionDelay)
+                for _, diff in ipairs(cycleList) do
+
+                    if not missionRunning
+                        or sessionId ~= mySession
+                    then
+                        break
+                    end
+
+                    local objective =
+                        locked.Objective
+
+                    local objectiveList =
+                        MissionObjectives[locked.Name]
+                        or {"Skirmish"}
+
+                    if objective == "Random" then
+
+                        local filtered = {}
+
+                        for _, v in ipairs(objectiveList) do
+
+                            if v ~= "Random" then
+                                filtered[#filtered + 1] = v
+                            end
+                        end
+
+                        objective =
+                            filtered[
+                                math.random(#filtered)
+                            ]
+                    end
+
+                    -- CREATE
+                    GET:InvokeServer(
+                        "S_Missions",
+                        "Create",
+                        {
+                            Difficulty = diff,
+                            Type = "Missions",
+                            Name = locked.Name
+                        }
+                    )
+
+                    task.wait(0.05)
+
+                    GET:InvokeServer(
+                        "S_Missions",
+                        "Create",
+                        {
+                            Difficulty = diff,
+                            Type = "Missions",
+                            Name = locked.Name,
+                            Objective = objective
+                        }
+                    )
+
+                    task.wait(0.15)
+
+                    -- APPLY MODIFIERS
+                    ApplyModifiers(locked.Modifiers)
+
+                    task.wait(
+                        0.2 + (#locked.Modifiers * 0.08)
+                    )
+
+                    -- START
+                    GET:InvokeServer(
+                        "S_Missions",
+                        "Start"
+                    )
+
+                    -- WAIT 3.5 SEC
+                    task.wait(3.5)
+                end
 
             else
 
+                -- ============================== NORMAL MODE ==============================
+                SyncCreate(locked)
+
                 task.wait(0.12 + MissionDelay)
-            end
 
-            ApplyModifiers(locked.Modifiers)
+                ApplyModifiers(locked.Modifiers)
 
-            task.wait(
-                0.2 + (#locked.Modifiers * 0.08)
-            )
+                task.wait(
+                    0.2 + (#locked.Modifiers * 0.08)
+                )
 
-            local verifiedModifiers = {}
+                local verifiedModifiers = {}
 
-            pcall(function()
+                pcall(function()
 
-                if Options
-                    and Options.ModifiersDropdown
-                    and Options.ModifiersDropdown.Value
-                then
+                    if Options
+                        and Options.ModifiersDropdown
+                        and Options.ModifiersDropdown.Value
+                    then
 
-                    verifiedModifiers = normalizeModifiers(
-                        Options.ModifiersDropdown.Value
-                    )
+                        verifiedModifiers = normalizeModifiers(
+                            Options.ModifiersDropdown.Value
+                        )
+                    end
+                end)
+
+                if #verifiedModifiers > #locked.Modifiers then
+
+                    ApplyModifiers(verifiedModifiers)
+
+                    task.wait(0.15)
                 end
-            end)
 
-            if #verifiedModifiers > #locked.Modifiers then
+                GET:InvokeServer(
+                    "S_Missions",
+                    "Start"
+                )
 
-                ApplyModifiers(verifiedModifiers)
-
-                task.wait(0.15)
+                task.wait(0.45)
             end
-
-            GET:InvokeServer(
-                "S_Missions",
-                "Start"
-            )
-
-            task.wait(0.45)
 
             missionBusy = false
         end
@@ -3896,10 +3926,6 @@ if Tabs.Lobby then
 
                 sessionId = sessionId + 1
 
-                if State.Difficulty == "Hardest" then
-                    buildHardestCycle()
-                end
-
                 local mySession = sessionId
 
                 task.spawn(function()
@@ -3911,8 +3937,6 @@ if Tabs.Lobby then
                 missionRunning = false
 
                 sessionId = sessionId + 1
-
-                stopHardestCycle()
 
                 pcall(function()
 
@@ -3926,8 +3950,6 @@ if Tabs.Lobby then
         end
     })
 end
-
-
 -- ============================== EQUIP SKILL ==============================
 if IsLobbyLobby() then
     local SkillGroupRight = Tabs.Session:AddLeftGroupbox("Equip Skill")
