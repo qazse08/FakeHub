@@ -3589,7 +3589,6 @@ if Tabs.Lobby then
         local level =
             GetPlayerLevel()
 
-        -- 100+
         if level >= 100 then
 
             return {
@@ -3597,7 +3596,6 @@ if Tabs.Lobby then
             }
         end
 
-        -- 41 - 99
         if level > 40 then
 
             return {
@@ -3609,7 +3607,6 @@ if Tabs.Lobby then
             }
         end
 
-        -- 1 - 40
         return {
             "Hard",
             "Normal",
@@ -3624,6 +3621,10 @@ if Tabs.Lobby then
         difficulty
     )
 
+        if not missionRunning then
+            return
+        end
+
         GET:InvokeServer(
             "S_Missions",
             "Create",
@@ -3635,6 +3636,10 @@ if Tabs.Lobby then
         )
 
         task.wait(0.05)
+
+        if not missionRunning then
+            return
+        end
 
         GET:InvokeServer(
             "S_Missions",
@@ -3650,6 +3655,10 @@ if Tabs.Lobby then
 
     -- ============================== APPLY MODIFIERS ==============================
     local function ApplyModifiers()
+
+        if not missionRunning then
+            return
+        end
 
         local selected = {}
 
@@ -3669,11 +3678,6 @@ if Tabs.Lobby then
             end
         end)
 
-        if #selected <= 0 then
-            return
-        end
-
-        -- CLEAR OLD
         pcall(function()
 
             GET:InvokeServer(
@@ -3684,7 +3688,15 @@ if Tabs.Lobby then
 
         task.wait(0.15)
 
+        if not missionRunning then
+            return
+        end
+
         for _, mod in ipairs(selected) do
+
+            if not missionRunning then
+                break
+            end
 
             GET:InvokeServer(
                 "S_Missions",
@@ -3710,14 +3722,18 @@ if Tabs.Lobby then
 
             missionBusy = true
 
-            local locked = {
-                Name = State.Name,
-                Objective = State.Objective,
-                Difficulty = State.Difficulty
-            }
+            -- REALTIME VALUES
+            local currentMission =
+                State.Name
+
+            local currentObjective =
+                State.Objective
+
+            local currentDifficulty =
+                State.Difficulty
 
             -- ============================== HARDEST ==============================
-            if locked.Difficulty == "Hardest" then
+            if currentDifficulty == "Hardest" then
 
                 local cycleList =
                     GetHardestCycle()
@@ -3730,11 +3746,20 @@ if Tabs.Lobby then
                         break
                     end
 
-                    local currentMission =
+                    -- REALTIME REFRESH
+                    currentMission =
                         State.Name
 
-                    local currentObjective =
+                    currentObjective =
                         State.Objective
+
+                    currentDifficulty =
+                        State.Difficulty
+
+                    -- IF USER CHANGED MODE
+                    if currentDifficulty ~= "Hardest" then
+                        break
+                    end
 
                     local objectiveList =
                         MissionObjectives[currentMission]
@@ -3767,10 +3792,18 @@ if Tabs.Lobby then
 
                     task.wait(0.15)
 
+                    if not missionRunning then
+                        break
+                    end
+
                     -- MODIFIERS
                     ApplyModifiers()
 
                     task.wait(0.25)
+
+                    if not missionRunning then
+                        break
+                    end
 
                     -- START
                     GET:InvokeServer(
@@ -3779,20 +3812,28 @@ if Tabs.Lobby then
                     )
 
                     -- WAIT
-                    task.wait(3.5)
+                    local startTick = tick()
+
+                    repeat
+                        task.wait(0.05)
+
+                        if not missionRunning
+                            or sessionId ~= mySession
+                        then
+                            break
+                        end
+
+                    until tick() - startTick >= 3.5
                 end
 
             else
 
                 -- ============================== NORMAL ==============================
-                local objective =
-                    locked.Objective
-
                 local objectiveList =
-                    MissionObjectives[locked.Name]
+                    MissionObjectives[currentMission]
                     or {"Skirmish"}
 
-                if objective == "Random" then
+                if currentObjective == "Random" then
 
                     local filtered = {}
 
@@ -3803,7 +3844,7 @@ if Tabs.Lobby then
                         end
                     end
 
-                    objective =
+                    currentObjective =
                         filtered[
                             math.random(#filtered)
                         ]
@@ -3811,19 +3852,27 @@ if Tabs.Lobby then
 
                 -- CREATE
                 CreateMission(
-                    locked.Name,
-                    objective,
-                    locked.Difficulty
+                    currentMission,
+                    currentObjective,
+                    currentDifficulty
                 )
 
                 task.wait(
                     0.12 + MissionDelay
                 )
 
+                if not missionRunning then
+                    break
+                end
+
                 -- MODIFIERS
                 ApplyModifiers()
 
                 task.wait(0.25)
+
+                if not missionRunning then
+                    break
+                end
 
                 -- START
                 GET:InvokeServer(
@@ -3831,7 +3880,18 @@ if Tabs.Lobby then
                     "Start"
                 )
 
-                task.wait(0.45)
+                local startTick = tick()
+
+                repeat
+                    task.wait(0.05)
+
+                    if not missionRunning
+                        or sessionId ~= mySession
+                    then
+                        break
+                    end
+
+                until tick() - startTick >= 0.45
             end
 
             missionBusy = false
@@ -3864,7 +3924,6 @@ if Tabs.Lobby then
                 MissionObjectives[val]
                 or {"Skirmish"}
 
-            -- RESET TO FIRST OBJECTIVE
             State.Objective =
                 newObjectives[1]
 
@@ -3894,7 +3953,12 @@ if Tabs.Lobby then
         Text = "Objective",
 
         Callback = function(val)
-            State.Objective = val
+
+            if missionRunning then
+                State.Objective = val
+            else
+                State.Objective = val
+            end
         end
     })
 
@@ -3916,7 +3980,12 @@ if Tabs.Lobby then
         Text = "Mode",
 
         Callback = function(val)
-            State.Difficulty = val
+
+            if missionRunning then
+                State.Difficulty = val
+            else
+                State.Difficulty = val
+            end
         end
     })
 
@@ -3965,6 +4034,7 @@ if Tabs.Lobby then
                 end
 
                 missionRunning = true
+                missionBusy = false
 
                 sessionId = sessionId + 1
 
@@ -3977,7 +4047,9 @@ if Tabs.Lobby then
 
             else
 
+                -- STOP EVERYTHING IMMEDIATELY
                 missionRunning = false
+                missionBusy = false
 
                 sessionId = sessionId + 1
 
@@ -4286,162 +4358,307 @@ if IsLobbyLobby() then
     end})
 end
 
-
 -- ============================== BOOST SELECTION ==============================
 if IsLobbyLobby() then
-    local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
-    
+
+    local BoostGroup =
+        Tabs.Lobby:AddRightGroupbox("Boost Selection")
+
     local selectedCurrency = "Gems"
     local purchaseAmount = 1
-    local selectedBoosts = {}
-    local selectedUseBoosts = {}
-    
+
     local ALL_BOOSTS = {
         "2X XP Boost [30M]", "2X Luck [30M]", "2X Gold [30M]",
         "2X XP Boost [1H]", "2X Luck [1H]", "2X Gold [1H]",
         "2X XP Boost [2H]", "2X Luck [2H]", "2X Gold [2H]"
     }
-    
+
     local USE_BOOSTS_LIST = {
         "2x XP Boost [30m]", "2x Luck Boost [30m]", "2x Gold Boost [30m]",
         "2x XP Boost [1h]", "2x Luck Boost [1h]", "2x Gold Boost [1h]",
         "2x XP Boost [2h]", "2x Luck Boost [2h]", "2x Gold Boost [2h]"
     }
-    
+
     local BOOST_MAP = {
         ["2X XP Boost [30M]"] = {type = "xp", duration = "30M", gemsId = 1, canesId = 1},
         ["2X XP Boost [1H]"] = {type = "xp", duration = "1H", gemsId = 2, canesId = 2},
         ["2X XP Boost [2H]"] = {type = "xp", duration = "2H", gemsId = 3, canesId = 3},
+
         ["2X Luck [30M]"] = {type = "luck", duration = "30M", gemsId = 4, canesId = 4},
         ["2X Luck [1H]"] = {type = "luck", duration = "1H", gemsId = 5, canesId = 5},
         ["2X Luck [2H]"] = {type = "luck", duration = "2H", gemsId = 6, canesId = 6},
+
         ["2X Gold [30M]"] = {type = "gold", duration = "30M", gemsId = 7, canesId = 7},
         ["2X Gold [1H]"] = {type = "gold", duration = "1H", gemsId = 8, canesId = 8},
         ["2X Gold [2H]"] = {type = "gold", duration = "2H", gemsId = 9, canesId = 9},
     }
-    
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-    
+
+    local GET =
+        game:GetService("ReplicatedStorage")
+        :WaitForChild("Assets")
+        :WaitForChild("Remotes")
+        :WaitForChild("GET")
+
+    -- ============================== BUY ==============================
     local function purchaseBoost(boostName)
-        local data = BOOST_MAP[boostName]
-        if not data then return false end
-        
-        local boostTypeStr = selectedCurrency == "Gems" and "1_Boosts" or "2_Boosts"
-        local id = selectedCurrency == "Gems" and data.gemsId or data.canesId
-        
-        local args = {"S_Market", "Buy", boostTypeStr, id, purchaseAmount}
-        return pcall(function() GET:InvokeServer(unpack(args)) end)
+
+        local data =
+            BOOST_MAP[boostName]
+
+        if not data then
+            return false
+        end
+
+        local boostTypeStr =
+            selectedCurrency == "Gems"
+            and "1_Boosts"
+            or "2_Boosts"
+
+        local id =
+            selectedCurrency == "Gems"
+            and data.gemsId
+            or data.canesId
+
+        local args = {
+            "S_Market",
+            "Buy",
+            boostTypeStr,
+            id,
+            purchaseAmount
+        }
+
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
     end
-    
+
+    -- ============================== USE ==============================
     local function useBoost(boostName)
-        local args = {"S_Inventory", "Item", boostName}
-        return pcall(function() GET:InvokeServer(unpack(args)) end)
+
+        local args = {
+            "S_Inventory",
+            "Item",
+            boostName
+        }
+
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
     end
-    
+
+    -- ============================== UI ==============================
     BoostGroup:AddDropdown("Boost_ListDropdown", {
         Text = "Select Boosts",
         Values = ALL_BOOSTS,
         Default = {},
         Multi = true,
-        Callback = function(val) selectedBoosts = val end
+        Callback = function() end
     })
-    
+
     BoostGroup:AddDropdown("Boost_CurrencyDropdown", {
         Text = "Buy From",
         Values = {"Gems", "Canes"},
         Default = "Gems",
         Multi = false,
-        Callback = function(v) selectedCurrency = v end
+
+        Callback = function(v)
+            selectedCurrency = v
+        end
     })
-    
+
     BoostGroup:AddSlider("Boost_AmountSlider", {
         Text = "Quantity",
         Default = 1,
         Min = 1,
         Max = 50,
         Rounding = 0,
-        Callback = function(v) purchaseAmount = v end
+
+        Callback = function(v)
+            purchaseAmount = v
+        end
     })
-    
+
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
+
         Callback = function(v)
-            if not v then return end
-            
+
+            if not v then
+                return
+            end
+
             task.spawn(function()
-                for boostName, enabled in pairs(selectedBoosts) do
+
+                local purchaseSelection = {}
+
+                pcall(function()
+
+                    if Options
+                        and Options.Boost_ListDropdown
+                        and Options.Boost_ListDropdown.Value
+                    then
+                        purchaseSelection =
+                            Options.Boost_ListDropdown.Value
+                    end
+                end)
+
+                -- BUY
+                for boostName, enabled in pairs(purchaseSelection) do
+
                     if enabled then
+
                         purchaseBoost(boostName)
+
                         task.wait(0.15)
                     end
                 end
-                task.wait(0.3)
+
+                -- AUTO USE AFTER BUY
+                local autoUseEnabled = false
+
                 pcall(function()
-                    if Options and Options.Boost_PurchaseToggle then
-                        Options.Boost_PurchaseToggle:SetValue(false)
+
+                    autoUseEnabled =
+                        Options.Boost_AutoUseToggle.Value
+                end)
+
+                if autoUseEnabled then
+
+                    task.wait(1.5)
+
+                    local useSelection = {}
+
+                    pcall(function()
+
+                        if Options
+                            and Options.Boost_UseDropdown
+                            and Options.Boost_UseDropdown.Value
+                        then
+                            useSelection =
+                                Options.Boost_UseDropdown.Value
+                        end
+                    end)
+
+                    -- LOOP BOOSTS
+                    for boostName, enabled in pairs(useSelection) do
+
+                        if enabled then
+
+                            -- 10 TIMES EACH
+                            for i = 1, 10 do
+
+                                useBoost(boostName)
+
+                                task.wait(0.15)
+                            end
+                        end
                     end
+
+                    task.wait(0.3)
+
+                    pcall(function()
+
+                        Options.Boost_AutoUseToggle:SetValue(false)
+                    end)
+                end
+
+                task.wait(0.3)
+
+                pcall(function()
+
+                    Options.Boost_PurchaseToggle:SetValue(false)
                 end)
             end)
         end
     })
-    
+
     BoostGroup:AddDivider()
-    
+
     BoostGroup:AddDropdown("Boost_UseDropdown", {
         Text = "Select Boosts to Use",
         Values = USE_BOOSTS_LIST,
         Default = {},
         Multi = true,
-        Callback = function(val) selectedUseBoosts = val end
+        Callback = function() end
     })
-    
+
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
-        Text = "Auto Use Boost (5x each)",
+        Text = "Auto Use Boost (10x each)",
         Default = false,
+
         Callback = function(v)
-            if not v then return end
-            
+
+            if not v then
+                return
+            end
+
+            -- IF PURCHASE ENABLED
+            -- LET PURCHASE HANDLE IT
+            local purchaseEnabled = false
+
+            pcall(function()
+
+                purchaseEnabled =
+                    Options.Boost_PurchaseToggle.Value
+            end)
+
+            if purchaseEnabled then
+                return
+            end
+
             task.spawn(function()
-                -- 🔥 อ่านค่าจาก Options โดยตรง เพื่อเลี่ยง race condition
+
                 local currentSelection = {}
+
                 pcall(function()
-                    if Options and Options.Boost_UseDropdown and Options.Boost_UseDropdown.Value then
-                        currentSelection = Options.Boost_UseDropdown.Value
+
+                    if Options
+                        and Options.Boost_UseDropdown
+                        and Options.Boost_UseDropdown.Value
+                    then
+                        currentSelection =
+                            Options.Boost_UseDropdown.Value
                     end
                 end)
-                
-                -- ถ้า Options ยังไม่พร้อม ให้ใช้ตัวแปร fallback (selectedUseBoosts)
+
                 if not next(currentSelection) then
-                    currentSelection = selectedUseBoosts
-                end
-                
-                if not next(currentSelection) then
-                    Library:Notify("⚠️ No boost selected!", 2)
-                    -- ปิด toggle หลังจากแจ้ง
+
+                    Library:Notify(
+                        "⚠️ No boost selected!",
+                        2
+                    )
+
                     task.wait(0.3)
+
                     pcall(function()
-                        if Options and Options.Boost_AutoUseToggle then
-                            Options.Boost_AutoUseToggle:SetValue(false)
-                        end
+
+                        Options.Boost_AutoUseToggle:SetValue(false)
                     end)
+
                     return
                 end
-                
+
+                -- LOOP ALL SELECTED BOOSTS
                 for boostName, enabled in pairs(currentSelection) do
+
                     if enabled then
-                        for i = 1, 5 do
+
+                        -- USE 10 TIMES EACH
+                        for i = 1, 10 do
+
                             useBoost(boostName)
-                            task.wait(0.15)  -- เพิ่มดีเลย์ให้เสถียร
+
+                            task.wait(0.15)
                         end
                     end
                 end
-                
+
                 task.wait(0.3)
+
                 pcall(function()
-                    if Options and Options.Boost_AutoUseToggle then
-                        Options.Boost_AutoUseToggle:SetValue(false)
-                    end
+
+                    Options.Boost_AutoUseToggle:SetValue(false)
                 end)
             end)
         end
