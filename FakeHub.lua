@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(0)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -3502,7 +3502,8 @@ end
 -- ============================== AUTO MISSION ==============================
 if Tabs.Lobby then
 
-    local LobbyGroupLeft = Tabs.Lobby:AddLeftGroupbox("Auto Mission")
+    local LobbyGroupLeft =
+        Tabs.Lobby:AddLeftGroupbox("Auto Mission")
 
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
@@ -3532,8 +3533,7 @@ if Tabs.Lobby then
     local State = {
         Name = "Shiganshina",
         Objective = "Skirmish",
-        Difficulty = "Hardest",
-        Modifiers = {}
+        Difficulty = "Hardest"
     }
 
     local MissionDelay = 0
@@ -3541,28 +3541,6 @@ if Tabs.Lobby then
     local missionRunning = false
     local missionBusy = false
     local sessionId = 0
-
-    -- ============================== NORMALIZE MODIFIERS ==============================
-    local function normalizeModifiers(modTable)
-
-        local list = {}
-
-        if type(modTable) ~= "table" then
-            return list
-        end
-
-        for k, v in pairs(modTable) do
-
-            if v == true then
-                list[#list + 1] = k
-
-            elseif type(v) == "string" then
-                list[#list + 1] = v
-            end
-        end
-
-        return list
-    end
 
     -- ============================== LEVEL CHECK ==============================
     local function GetPlayerLevel()
@@ -3639,7 +3617,7 @@ if Tabs.Lobby then
         }
     end
 
-    -- ============================== CREATE MISSION ==============================
+    -- ============================== CREATE ==============================
     local function CreateMission(
         missionName,
         objective,
@@ -3671,9 +3649,42 @@ if Tabs.Lobby then
     end
 
     -- ============================== APPLY MODIFIERS ==============================
-    local function ApplyModifiers(list)
+    local function ApplyModifiers()
 
-        for _, mod in ipairs(list) do
+        local selected = {}
+
+        pcall(function()
+
+            local value =
+                Options.ModifiersDropdown.Value
+
+            if type(value) == "table" then
+
+                for mod, enabled in pairs(value) do
+
+                    if enabled == true then
+                        table.insert(selected, mod)
+                    end
+                end
+            end
+        end)
+
+        if #selected <= 0 then
+            return
+        end
+
+        -- CLEAR OLD
+        pcall(function()
+
+            GET:InvokeServer(
+                "S_Missions",
+                "ClearModifiers"
+            )
+        end)
+
+        task.wait(0.15)
+
+        for _, mod in ipairs(selected) do
 
             GET:InvokeServer(
                 "S_Missions",
@@ -3681,7 +3692,7 @@ if Tabs.Lobby then
                 mod
             )
 
-            task.wait(0.08)
+            task.wait(0.12)
         end
     end
 
@@ -3699,30 +3710,11 @@ if Tabs.Lobby then
 
             missionBusy = true
 
-            local currentModifiers = {}
-
-            pcall(function()
-
-                if Options
-                    and Options.ModifiersDropdown
-                    and Options.ModifiersDropdown.Value
-                then
-
-                    currentModifiers =
-                        normalizeModifiers(
-                            Options.ModifiersDropdown.Value
-                        )
-                end
-            end)
-
             local locked = {
                 Name = State.Name,
                 Objective = State.Objective,
-                Difficulty = State.Difficulty,
-                Modifiers = currentModifiers
+                Difficulty = State.Difficulty
             }
-
-            State.Modifiers = currentModifiers
 
             -- ============================== HARDEST ==============================
             if locked.Difficulty == "Hardest" then
@@ -3743,9 +3735,6 @@ if Tabs.Lobby then
 
                     local currentObjective =
                         State.Objective
-
-                    local currentModifiers =
-                        State.Modifiers
 
                     local objectiveList =
                         MissionObjectives[currentMission]
@@ -3779,14 +3768,9 @@ if Tabs.Lobby then
                     task.wait(0.15)
 
                     -- MODIFIERS
-                    ApplyModifiers(
-                        currentModifiers
-                    )
+                    ApplyModifiers()
 
-                    task.wait(
-                        0.2
-                        + (#currentModifiers * 0.08)
-                    )
+                    task.wait(0.25)
 
                     -- START
                     GET:InvokeServer(
@@ -3825,6 +3809,7 @@ if Tabs.Lobby then
                         ]
                 end
 
+                -- CREATE
                 CreateMission(
                     locked.Name,
                     objective,
@@ -3835,15 +3820,12 @@ if Tabs.Lobby then
                     0.12 + MissionDelay
                 )
 
-                ApplyModifiers(
-                    locked.Modifiers
-                )
+                -- MODIFIERS
+                ApplyModifiers()
 
-                task.wait(
-                    0.2
-                    + (#locked.Modifiers * 0.08)
-                )
+                task.wait(0.25)
 
+                -- START
                 GET:InvokeServer(
                     "S_Missions",
                     "Start"
@@ -3882,7 +3864,7 @@ if Tabs.Lobby then
                 MissionObjectives[val]
                 or {"Skirmish"}
 
-            -- RESET OBJECTIVE TO FIRST ITEM
+            -- RESET TO FIRST OBJECTIVE
             State.Objective =
                 newObjectives[1]
 
@@ -3894,7 +3876,6 @@ if Tabs.Lobby then
                     newObjectives
                 )
 
-                -- AUTO SELECT FIRST OBJECTIVE
                 Options.ObjectiveDropdown:SetValue(
                     newObjectives[1]
                 )
@@ -3949,9 +3930,7 @@ if Tabs.Lobby then
 
         Text = "Modifiers",
 
-        Callback = function(val)
-            State.Modifiers = val or {}
-        end
+        Callback = function() end
     })
 
     LobbyGroupLeft:AddSlider("MissionDelaySlider", {
