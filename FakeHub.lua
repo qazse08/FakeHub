@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(0)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -3564,6 +3564,81 @@ if Tabs.Lobby then
         return list
     end
 
+    -- ============================== LEVEL CHECK ==============================
+    local function GetPlayerLevel()
+
+        local success, level = pcall(function()
+
+            local title =
+                game:GetService("Players")
+                .LocalPlayer
+                .PlayerGui
+                :FindFirstChild("Interface")
+                and game.Players.LocalPlayer
+                .PlayerGui.Interface
+                :FindFirstChild("Gear_Up")
+                and game.Players.LocalPlayer
+                .PlayerGui.Interface.Gear_Up
+                :FindFirstChild("HUD")
+                and game.Players.LocalPlayer
+                .PlayerGui.Interface.Gear_Up.HUD
+                :FindFirstChild("Level")
+                and game.Players.LocalPlayer
+                .PlayerGui.Interface.Gear_Up.HUD.Level
+                :FindFirstChild("Title")
+
+            if not title then
+                return 1
+            end
+
+            local txt =
+                tostring(title.Text)
+
+            local num =
+                tonumber(
+                    txt:match("%d+")
+                )
+
+            return num or 1
+        end)
+
+        return success and level or 1
+    end
+
+    -- ============================== HARDEST CYCLE ==============================
+    local function GetHardestCycle()
+
+        local level =
+            GetPlayerLevel()
+
+        -- LV 100+
+        if level >= 100 then
+
+            return {
+                "Aberrant"
+            }
+        end
+
+        -- LV 41 - 99
+        if level > 40 then
+
+            return {
+                "Aberrant",
+                "Severe",
+                "Hard",
+                "Normal",
+                "Easy"
+            }
+        end
+
+        -- LV 1 - 40
+        return {
+            "Hard",
+            "Normal",
+            "Easy"
+        }
+    end
+
     -- ============================== CREATE MISSION ==============================
     local function SyncCreate(data)
 
@@ -3668,13 +3743,8 @@ if Tabs.Lobby then
             -- ============================== HARDEST MODE ==============================
             if locked.Difficulty == "Hardest" then
 
-                local cycleList = {
-                    "Aberrant",
-                    "Severe",
-                    "Hard",
-                    "Normal",
-                    "Easy"
-                }
+                local cycleList =
+                    GetHardestCycle()
 
                 for _, diff in ipairs(cycleList) do
 
@@ -3684,14 +3754,22 @@ if Tabs.Lobby then
                         break
                     end
 
-                    local objective =
-                        locked.Objective
+                    -- REFRESH DROPDOWN VALUES
+                    local currentMission =
+                        State.Name
+
+                    local currentObjective =
+                        State.Objective
+
+                    local currentModifiers =
+                        State.Modifiers
 
                     local objectiveList =
-                        MissionObjectives[locked.Name]
+                        MissionObjectives[currentMission]
                         or {"Skirmish"}
 
-                    if objective == "Random" then
+                    -- RANDOM OBJECTIVE
+                    if currentObjective == "Random" then
 
                         local filtered = {}
 
@@ -3702,7 +3780,7 @@ if Tabs.Lobby then
                             end
                         end
 
-                        objective =
+                        currentObjective =
                             filtered[
                                 math.random(#filtered)
                             ]
@@ -3715,7 +3793,7 @@ if Tabs.Lobby then
                         {
                             Difficulty = diff,
                             Type = "Missions",
-                            Name = locked.Name
+                            Name = currentMission
                         }
                     )
 
@@ -3727,18 +3805,20 @@ if Tabs.Lobby then
                         {
                             Difficulty = diff,
                             Type = "Missions",
-                            Name = locked.Name,
-                            Objective = objective
+                            Name = currentMission,
+                            Objective = currentObjective
                         }
                     )
 
+                    -- WAIT BEFORE MODIFY
                     task.wait(0.15)
 
                     -- APPLY MODIFIERS
-                    ApplyModifiers(locked.Modifiers)
+                    ApplyModifiers(currentModifiers)
 
+                    -- WAIT BEFORE START
                     task.wait(
-                        0.2 + (#locked.Modifiers * 0.08)
+                        0.2 + (#currentModifiers * 0.08)
                     )
 
                     -- START
@@ -3747,7 +3827,7 @@ if Tabs.Lobby then
                         "Start"
                     )
 
-                    -- WAIT 3.5 SEC
+                    -- MOVE NEXT STEP
                     task.wait(3.5)
                 end
 
