@@ -3531,8 +3531,8 @@ if Tabs.Lobby then
 
     local State = {
         Name = "Shiganshina",
-        Objective = "Skirmish",
-        Difficulty = "Easy",
+        Objective = "Random",
+        Difficulty = nil,
         Modifiers = {}
     }
 
@@ -3640,36 +3640,19 @@ if Tabs.Lobby then
     end
 
     -- ============================== CREATE MISSION ==============================
-    local function SyncCreate(data)
-
-        local list =
-            MissionObjectives[data.Name]
-            or {"Skirmish"}
-
-        local objective = data.Objective
-
-        if objective == "Random" then
-
-            local filtered = {}
-
-            for _, v in ipairs(list) do
-
-                if v ~= "Random" then
-                    filtered[#filtered + 1] = v
-                end
-            end
-
-            objective =
-                filtered[math.random(#filtered)]
-        end
+    local function CreateMission(
+        missionName,
+        objective,
+        difficulty
+    )
 
         GET:InvokeServer(
             "S_Missions",
             "Create",
             {
-                Difficulty = data.Difficulty,
+                Difficulty = difficulty,
                 Type = "Missions",
-                Name = data.Name
+                Name = missionName
             }
         )
 
@@ -3679,9 +3662,9 @@ if Tabs.Lobby then
             "S_Missions",
             "Create",
             {
-                Difficulty = data.Difficulty,
+                Difficulty = difficulty,
                 Type = "Missions",
-                Name = data.Name,
+                Name = missionName,
                 Objective = objective
             }
         )
@@ -3725,9 +3708,10 @@ if Tabs.Lobby then
                     and Options.ModifiersDropdown.Value
                 then
 
-                    currentModifiers = normalizeModifiers(
-                        Options.ModifiersDropdown.Value
-                    )
+                    currentModifiers =
+                        normalizeModifiers(
+                            Options.ModifiersDropdown.Value
+                        )
                 end
             end)
 
@@ -3740,7 +3724,7 @@ if Tabs.Lobby then
 
             State.Modifiers = currentModifiers
 
-            -- ============================== HARDEST MODE ==============================
+            -- ============================== HARDEST ==============================
             if locked.Difficulty == "Hardest" then
 
                 local cycleList =
@@ -3754,7 +3738,6 @@ if Tabs.Lobby then
                         break
                     end
 
-                    -- REFRESH DROPDOWN VALUES
                     local currentMission =
                         State.Name
 
@@ -3787,38 +3770,22 @@ if Tabs.Lobby then
                     end
 
                     -- CREATE
-                    GET:InvokeServer(
-                        "S_Missions",
-                        "Create",
-                        {
-                            Difficulty = diff,
-                            Type = "Missions",
-                            Name = currentMission
-                        }
+                    CreateMission(
+                        currentMission,
+                        currentObjective,
+                        diff
                     )
 
-                    task.wait(0.05)
-
-                    GET:InvokeServer(
-                        "S_Missions",
-                        "Create",
-                        {
-                            Difficulty = diff,
-                            Type = "Missions",
-                            Name = currentMission,
-                            Objective = currentObjective
-                        }
-                    )
-
-                    -- WAIT BEFORE MODIFY
                     task.wait(0.15)
 
-                    -- APPLY MODIFIERS
-                    ApplyModifiers(currentModifiers)
+                    -- MODIFIERS
+                    ApplyModifiers(
+                        currentModifiers
+                    )
 
-                    -- WAIT BEFORE START
                     task.wait(
-                        0.2 + (#currentModifiers * 0.08)
+                        0.2
+                        + (#currentModifiers * 0.08)
                     )
 
                     -- START
@@ -3827,44 +3794,61 @@ if Tabs.Lobby then
                         "Start"
                     )
 
-                    -- MOVE NEXT STEP
+                    -- WAIT
                     task.wait(3.5)
                 end
 
             else
 
-                -- ============================== NORMAL MODE ==============================
-                SyncCreate(locked)
+                -- ============================== NORMAL ==============================
+                if not locked.Difficulty then
+                    task.wait(0.25)
+                    missionBusy = false
+                    continue
+                end
 
-                task.wait(0.12 + MissionDelay)
+                local objective =
+                    locked.Objective
 
-                ApplyModifiers(locked.Modifiers)
+                local objectiveList =
+                    MissionObjectives[locked.Name]
+                    or {"Skirmish"}
 
-                task.wait(
-                    0.2 + (#locked.Modifiers * 0.08)
+                if objective == "Random" then
+
+                    local filtered = {}
+
+                    for _, v in ipairs(objectiveList) do
+
+                        if v ~= "Random" then
+                            filtered[#filtered + 1] = v
+                        end
+                    end
+
+                    objective =
+                        filtered[
+                            math.random(#filtered)
+                        ]
+                end
+
+                CreateMission(
+                    locked.Name,
+                    objective,
+                    locked.Difficulty
                 )
 
-                local verifiedModifiers = {}
+                task.wait(
+                    0.12 + MissionDelay
+                )
 
-                pcall(function()
+                ApplyModifiers(
+                    locked.Modifiers
+                )
 
-                    if Options
-                        and Options.ModifiersDropdown
-                        and Options.ModifiersDropdown.Value
-                    then
-
-                        verifiedModifiers = normalizeModifiers(
-                            Options.ModifiersDropdown.Value
-                        )
-                    end
-                end)
-
-                if #verifiedModifiers > #locked.Modifiers then
-
-                    ApplyModifiers(verifiedModifiers)
-
-                    task.wait(0.15)
-                end
+                task.wait(
+                    0.2
+                    + (#locked.Modifiers * 0.08)
+                )
 
                 GET:InvokeServer(
                     "S_Missions",
@@ -3890,7 +3874,7 @@ if Tabs.Lobby then
             "Stohess"
         },
 
-        Default = State.Name,
+        Default = 1,
 
         Multi = false,
 
@@ -3904,16 +3888,12 @@ if Tabs.Lobby then
                 MissionObjectives[val]
                 or {"Skirmish"}
 
-            State.Objective = newObjectives[1]
-
-            if Options and Options.ObjectiveDropdown then
+            if Options
+                and Options.ObjectiveDropdown
+            then
 
                 Options.ObjectiveDropdown:SetValues(
                     newObjectives
-                )
-
-                Options.ObjectiveDropdown:SetValue(
-                    newObjectives[1]
                 )
             end
         end
@@ -3921,9 +3901,9 @@ if Tabs.Lobby then
 
     LobbyGroupLeft:AddDropdown("ObjectiveDropdown", {
 
-        Values = MissionObjectives[State.Name],
+        Values = MissionObjectives["Shiganshina"],
 
-        Default = "Skirmish",
+        Default = 3,
 
         Multi = false,
 
@@ -3945,7 +3925,7 @@ if Tabs.Lobby then
             "Hardest"
         },
 
-        Default = "Easy",
+        Default = nil,
 
         Multi = false,
 
@@ -4002,11 +3982,16 @@ if Tabs.Lobby then
                     return
                 end
 
+                if not State.Difficulty then
+                    return
+                end
+
                 missionRunning = true
 
                 sessionId = sessionId + 1
 
-                local mySession = sessionId
+                local mySession =
+                    sessionId
 
                 task.spawn(function()
                     MissionLoop(mySession)
