@@ -3531,8 +3531,8 @@ if Tabs.Lobby then
 
     local State = {
         Name = "Shiganshina",
-        Objective = "Random",
-        Difficulty = nil,
+        Objective = "Skirmish",
+        Difficulty = "Hardest",
         Modifiers = {}
     }
 
@@ -3611,7 +3611,7 @@ if Tabs.Lobby then
         local level =
             GetPlayerLevel()
 
-        -- LV 100+
+        -- 100+
         if level >= 100 then
 
             return {
@@ -3619,7 +3619,7 @@ if Tabs.Lobby then
             }
         end
 
-        -- LV 41 - 99
+        -- 41 - 99
         if level > 40 then
 
             return {
@@ -3631,7 +3631,7 @@ if Tabs.Lobby then
             }
         end
 
-        -- LV 1 - 40
+        -- 1 - 40
         return {
             "Hard",
             "Normal",
@@ -3801,12 +3801,6 @@ if Tabs.Lobby then
             else
 
                 -- ============================== NORMAL ==============================
-                if not locked.Difficulty then
-                    task.wait(0.25)
-                    missionBusy = false
-                    continue
-                end
-
                 local objective =
                     locked.Objective
 
@@ -3874,7 +3868,7 @@ if Tabs.Lobby then
             "Stohess"
         },
 
-        Default = 1,
+        Default = "Shiganshina",
 
         Multi = false,
 
@@ -3888,12 +3882,21 @@ if Tabs.Lobby then
                 MissionObjectives[val]
                 or {"Skirmish"}
 
+            -- RESET OBJECTIVE TO FIRST ITEM
+            State.Objective =
+                newObjectives[1]
+
             if Options
                 and Options.ObjectiveDropdown
             then
 
                 Options.ObjectiveDropdown:SetValues(
                     newObjectives
+                )
+
+                -- AUTO SELECT FIRST OBJECTIVE
+                Options.ObjectiveDropdown:SetValue(
+                    newObjectives[1]
                 )
             end
         end
@@ -3903,7 +3906,7 @@ if Tabs.Lobby then
 
         Values = MissionObjectives["Shiganshina"],
 
-        Default = 3,
+        Default = "Skirmish",
 
         Multi = false,
 
@@ -3925,7 +3928,7 @@ if Tabs.Lobby then
             "Hardest"
         },
 
-        Default = nil,
+        Default = "Hardest",
 
         Multi = false,
 
@@ -3979,10 +3982,6 @@ if Tabs.Lobby then
             if v then
 
                 if missionRunning then
-                    return
-                end
-
-                if not State.Difficulty then
                     return
                 end
 
