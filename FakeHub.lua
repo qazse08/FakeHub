@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(0)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -3499,8 +3499,6 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     AddConfirm("Teleport to Lobby", LOBBY_ID)
     AddConfirm("Teleport to Trading", TRADE_LOBBY_ID)
 end
-
-
 -- ============================== AUTO MISSION ==============================
 if Tabs.Lobby then
 
@@ -3544,27 +3542,9 @@ if Tabs.Lobby then
     local missionBusy = false
     local sessionId = 0
 
-    -- ============================== HARDEST SYSTEM (FIXED) ==============================
+    -- ============================== HARDEST SYSTEM ==============================
     local hardestCycleIndex = 1
     local hardestCycleList = {}
-
-    local function getPlayerLevel()
-
-        local ok, level = pcall(function()
-
-            local label = game.Players.LocalPlayer.PlayerGui
-                :WaitForChild("Interface", 2)
-                :WaitForChild("Gear_Up", 2)
-                :WaitForChild("HUD", 2)
-                :WaitForChild("Level", 2)
-                :WaitForChild("Title", 2)
-
-            return tonumber(label.Text:match("%d+")) or 1
-
-        end)
-
-        return (ok and level) or 1
-    end
 
     local function normalizeModifiers(modTable)
 
@@ -3589,27 +3569,13 @@ if Tabs.Lobby then
 
     local function buildHardestCycle()
 
-        local level = getPlayerLevel()
-
-        if level > 80 then
-
-            hardestCycleList = {
-                "Aberrant",
-                "Severe",
-                "Hard",
-                "Normal",
-                "Easy"
-            }
-
-        else
-
-            hardestCycleList = {
-                "Severe",
-                "Hard",
-                "Normal",
-                "Easy"
-            }
-        end
+        hardestCycleList = {
+            "Aberrant",
+            "Severe",
+            "Hard",
+            "Normal",
+            "Easy"
+        }
 
         hardestCycleIndex = 1
     end
@@ -3643,7 +3609,6 @@ if Tabs.Lobby then
     local function stopHardestCycle()
 
         hardestCycleList = {}
-
         hardestCycleIndex = 1
     end
 
@@ -3727,7 +3692,6 @@ if Tabs.Lobby then
 
             missionBusy = true
 
-            -- 🔥 ดึงค่าปัจจุบันจาก Dropdown ก่อนทุกครั้ง
             local currentModifiers = {}
 
             pcall(function()
@@ -3750,7 +3714,6 @@ if Tabs.Lobby then
                 Modifiers = currentModifiers
             }
 
-            -- 🔥 Sync State กัน desync
             State.Modifiers = currentModifiers
 
             SyncCreate(locked)
@@ -3766,15 +3729,12 @@ if Tabs.Lobby then
                 task.wait(0.12 + MissionDelay)
             end
 
-            -- 🔥 Apply Modifiers ก่อน Start เสมอ
             ApplyModifiers(locked.Modifiers)
 
-            -- 🔥 รอให้ Modifier เข้า server ก่อน
             task.wait(
                 0.2 + (#locked.Modifiers * 0.08)
             )
 
-            -- 🔥 เช็ค Modifier ซ้ำก่อน Start
             local verifiedModifiers = {}
 
             pcall(function()
@@ -3790,7 +3750,6 @@ if Tabs.Lobby then
                 end
             end)
 
-            -- 🔥 ถ้ามี modifier ใหม่เพิ่มเข้ามาระหว่างรอ
             if #verifiedModifiers > #locked.Modifiers then
 
                 ApplyModifiers(verifiedModifiers)
@@ -3967,9 +3926,6 @@ if Tabs.Lobby then
         end
     })
 end
-
-
-
 
 
 -- ============================== EQUIP SKILL ==============================
