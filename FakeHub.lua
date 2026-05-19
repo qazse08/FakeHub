@@ -4366,6 +4366,8 @@ if IsLobbyLobby() then
 
     local selectedCurrency = "Gems"
     local purchaseAmount = 1
+    local isReady = false
+    local readyNotified = false
 
     local ALL_BOOSTS = {
         "2X XP Boost [30M]", "2X Luck [30M]", "2X Gold [30M]",
@@ -4377,11 +4379,9 @@ if IsLobbyLobby() then
         ["2X XP Boost [30M]"] = {type = "xp", duration = "30M", gemsId = 1, canesId = 1},
         ["2X XP Boost [1H]"] = {type = "xp", duration = "1H", gemsId = 2, canesId = 2},
         ["2X XP Boost [2H]"] = {type = "xp", duration = "2H", gemsId = 3, canesId = 3},
-
         ["2X Luck [30M]"] = {type = "luck", duration = "30M", gemsId = 4, canesId = 4},
         ["2X Luck [1H]"] = {type = "luck", duration = "1H", gemsId = 5, canesId = 5},
         ["2X Luck [2H]"] = {type = "luck", duration = "2H", gemsId = 6, canesId = 6},
-
         ["2X Gold [30M]"] = {type = "gold", duration = "30M", gemsId = 7, canesId = 7},
         ["2X Gold [1H]"] = {type = "gold", duration = "1H", gemsId = 8, canesId = 8},
         ["2X Gold [2H]"] = {type = "gold", duration = "2H", gemsId = 9, canesId = 9},
@@ -4393,40 +4393,76 @@ if IsLobbyLobby() then
         :WaitForChild("Remotes")
         :WaitForChild("GET")
 
-    -- ============================== BUY ==============================
+    local function checkCurrencies()
+        local player = game:GetService("Players").LocalPlayer
+        local gemsAmount = 0
+        local goldAmount = 0
+        
+        pcall(function()
+            local gemsLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gems.Amount
+            local goldLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gold.Amount
+            
+            if gemsLabel and gemsLabel.Text then
+                local gemText = gemsLabel.Text:gsub("[^%d]", "")
+                gemsAmount = tonumber(gemText) or 0
+            end
+            
+            if goldLabel and goldLabel.Text then
+                local goldText = goldLabel.Text:gsub("[^%d]", "")
+                goldAmount = tonumber(goldText) or 0
+            end
+        end)
+        
+        return gemsAmount, goldAmount
+    end
+
+    local function startReadyCheck()
+        task.spawn(function()
+            while true do
+                local gemsAmount, goldAmount = checkCurrencies()
+                
+                if gemsAmount > 1 or goldAmount > 1 then
+                    if not isReady then
+                        isReady = true
+                    end
+                    if not readyNotified then
+                        readyNotified = true
+                        Library:Notify("✅ System Ready - Currency available", 3)
+                    end
+                else
+                    if isReady then
+                        isReady = false
+                        readyNotified = false
+                    end
+                end
+                
+                task.wait(2)
+            end
+        end)
+    end
+
+    startReadyCheck()
+
     local function purchaseBoost(boostName)
-
-        local data =
-            BOOST_MAP[boostName]
-
+        local data = BOOST_MAP[boostName]
         if not data then
             return false
         end
 
-        local boostTypeStr =
-            selectedCurrency == "Gems"
-            and "1_Boosts"
-            or "2_Boosts"
+        if not isReady then
+            return false
+        end
 
-        local id =
-            selectedCurrency == "Gems"
-            and data.gemsId
-            or data.canesId
+        local boostTypeStr = selectedCurrency == "Gems" and "1_Boosts" or "2_Boosts"
+        local id = selectedCurrency == "Gems" and data.gemsId or data.canesId
 
-        local args = {
-            "S_Market",
-            "Buy",
-            boostTypeStr,
-            id,
-            purchaseAmount
-        }
+        local args = {"S_Market", "Buy", boostTypeStr, id, purchaseAmount}
 
         return pcall(function()
             GET:InvokeServer(unpack(args))
         end)
     end
 
-    -- ============================== UI ==============================
     BoostGroup:AddDropdown("Boost_ListDropdown", {
         Text = "Select Boosts",
         Values = ALL_BOOSTS,
@@ -4440,7 +4476,6 @@ if IsLobbyLobby() then
         Values = {"Gems", "Canes"},
         Default = "Gems",
         Multi = false,
-
         Callback = function(v)
             selectedCurrency = v
         end
@@ -4452,7 +4487,6 @@ if IsLobbyLobby() then
         Min = 1,
         Max = 50,
         Rounding = 0,
-
         Callback = function(v)
             purchaseAmount = v
         end
@@ -4461,35 +4495,35 @@ if IsLobbyLobby() then
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
-
         Callback = function(v)
-
             if not v then
                 return
             end
 
-            task.spawn(function()
+            if not isReady then
+                pcall(function()
+                    if Options and Options.Boost_PurchaseToggle then
+                        Options.Boost_PurchaseToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
 
+            task.spawn(function()
                 local purchaseSelection = {}
 
                 pcall(function()
-
-                    if Options
-                        and Options.Boost_ListDropdown
-                        and Options.Boost_ListDropdown.Value
-                    then
-                        purchaseSelection =
-                            Options.Boost_ListDropdown.Value
+                    if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
+                        purchaseSelection = Options.Boost_ListDropdown.Value
                     end
                 end)
 
-                -- BUY
                 for boostName, enabled in pairs(purchaseSelection) do
-
                     if enabled then
-
+                        if not isReady then
+                            break
+                        end
                         purchaseBoost(boostName)
-
                         task.wait(0.15)
                     end
                 end
@@ -4497,8 +4531,9 @@ if IsLobbyLobby() then
                 task.wait(0.3)
 
                 pcall(function()
-
-                    Options.Boost_PurchaseToggle:SetValue(false)
+                    if Options and Options.Boost_PurchaseToggle then
+                        Options.Boost_PurchaseToggle:SetValue(false)
+                    end
                 end)
             end)
         end
@@ -4506,20 +4541,17 @@ if IsLobbyLobby() then
 
     BoostGroup:AddDivider()
 
-    -- ============================== USE ==============================
     local ALL_USE_BOOSTS = {
         "2x Gold Boost [2h]",
         "2x Gold Boost [1h]",
         "2x Gold Boost [30m]",
         "2x Gold Boost [15m]",
         "2x Gold Boost [5m]",
-
         "2x XP Boost [2h]",
         "2x XP Boost [1h]",
         "2x XP Boost [30m]",
         "2x XP Boost [15m]",
         "2x XP Boost [5m]",
-
         "2x Luck Boost [2h]",
         "2x Luck Boost [1h]",
         "2x Luck Boost [30m]",
@@ -4528,13 +4560,7 @@ if IsLobbyLobby() then
     }
 
     local function useBoost(boostName)
-
-        local args = {
-            "S_Inventory",
-            "Item",
-            boostName
-        }
-
+        local args = {"S_Inventory", "Item", boostName}
         return pcall(function()
             GET:InvokeServer(unpack(args))
         end)
@@ -4543,21 +4569,30 @@ if IsLobbyLobby() then
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
         Text = "Auto Use All Boosts (5x each)",
         Default = false,
-
         Callback = function(v)
-
             if not v then
                 return
             end
 
+            if not isReady then
+                pcall(function()
+                    if Options and Options.Boost_AutoUseToggle then
+                        Options.Boost_AutoUseToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
+
             task.spawn(function()
-
                 for _, boostName in ipairs(ALL_USE_BOOSTS) do
-
-                    for i = 1, 10 do
-
+                    if not isReady then
+                        break
+                    end
+                    for i = 1, 5 do
+                        if not isReady then
+                            break
+                        end
                         useBoost(boostName)
-
                         task.wait(0.15)
                     end
                 end
@@ -4565,7 +4600,9 @@ if IsLobbyLobby() then
                 task.wait(0.3)
 
                 pcall(function()
-                    Options.Boost_AutoUseToggle:SetValue(false)
+                    if Options and Options.Boost_AutoUseToggle then
+                        Options.Boost_AutoUseToggle:SetValue(false)
+                    end
                 end)
             end)
         end
