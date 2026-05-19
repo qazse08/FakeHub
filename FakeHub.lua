@@ -218,20 +218,11 @@ if IsLobbyLobby() then
 end
 if IsIngameLobby() then
     Tabs.AutoFarm = Window:AddTab("Auto Farm")
-    Tabs.Safety = Window:AddTab("Safety")
+    Tabs.Safety = Window:AddTab("Wave")
     Tabs.Webhook = Window:AddTab("Webhook")
 end
 
-task.spawn(function()
-    task.wait(5)
-    while task.wait(3) do
-        pcall(function()
-            if SaveManager and SaveManager.Save then
-                SaveManager:Save("AutoSave")
-            end
-        end)
-    end
-end)
+
 
 
 -- ============================== WEBHOOK TAB + AUTO NOTIFY ON TARGET FAMILY ==============================
@@ -242,6 +233,10 @@ if IsMainmenuLobby() then
 
     local webhookURL = ""
     local autoNotifyEnabled = false
+
+    -- ส่งได้ครั้งเดียวต่อการเปิด Toggle 1 ครั้ง
+    local hasSentThisToggle = false
+
     local lastNotifyFamily = ""
     local lastNotifyTime = 0
     local pingMode = "None"
@@ -267,22 +262,36 @@ if IsMainmenuLobby() then
     local function GetStoredFamilies()
         local data = {}
         local count = 0
+
         local ok, familiesFolder = pcall(function()
             return PlayerGui.Interface.Customisation.Storage.Main.Families
         end)
-        if not ok or not familiesFolder then return data, count end
+
+        if not ok or not familiesFolder then
+            return data, count
+        end
         
         for _, v in ipairs(familiesFolder:GetChildren()) do
             pcall(function()
+
                 local inner = v:FindFirstChild("Inner")
+
                 if inner then
                     local title = inner:FindFirstChild("Title")
-                    if title and title:IsA("TextLabel") and title.Text and title.Text ~= "" then
+
+                    if title
+                        and title:IsA("TextLabel")
+                        and title.Text
+                        and title.Text ~= ""
+                    then
                         local fullText = title.Text
+
                         table.insert(data, fullText)
+
                         count = count + 1
                     end
                 end
+
             end)
         end
         
@@ -290,123 +299,237 @@ if IsMainmenuLobby() then
     end
 
     local function SendWebhook(triggerReason)
+
         if webhookURL == "" then
             return false
         end
 
         local currentFamily = GetCurrentFamily()
         local spins = GetSpinCount()
+
         local familyList, familyCount = GetStoredFamilies()
-        local storedText = #familyList > 0 and table.concat(familyList, "\n") or "None"
+
+        local storedText =
+            #familyList > 0
+            and table.concat(familyList, "\n")
+            or "None"
 
         local title = triggerReason or "Notify"
+
         local color = triggerReason and 65280 or 16766720
         
         local content = nil
+
         if pingMode == "Everyone" then
             content = "@everyone"
+
         elseif pingMode == "Here" then
             content = "@here"
         end
 
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
+
             embeds = {{
                 title = title,
+
                 color = color,
+
                 fields = {
-                    {name = "Current Family", value = "```" .. currentFamily .. "```", inline = true},
-                    {name = "Spins Left", value = "```" .. spins .. "```", inline = true},
-                    {name = "Stored Families (" .. familyCount .. ")", value = "```" .. storedText .. "```", inline = false}
+                    {
+                        name = "Current Family",
+                        value = "```" .. currentFamily .. "```",
+                        inline = true
+                    },
+
+                    {
+                        name = "Spins Left",
+                        value = "```" .. spins .. "```",
+                        inline = true
+                    },
+
+                    {
+                        name = "Stored Families (" .. familyCount .. ")",
+                        value = "```" .. storedText .. "```",
+                        inline = false
+                    }
                 },
-                footer = {text = "FakeHUB | " .. os.date("%Y-%m-%d %H:%M:%S")}
+
+                footer = {
+                    text = "FakeHUB | "
+                        .. os.date("%Y-%m-%d %H:%M:%S")
+                }
             }}
         })
 
-        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+        local requestFunction =
+            (syn and syn.request)
+            or (http and http.request)
+            or http_request
+            or request
+
         if not requestFunction then
             return false
         end
 
         return pcall(function()
+
             requestFunction({
                 Url = webhookURL,
+
                 Method = "POST",
-                Headers = {["Content-Type"] = "application/json"},
+
+                Headers = {
+                    ["Content-Type"] = "application/json"
+                },
+
                 Body = body
             })
+
         end)
     end
 
+    -- ============================== MAIN LOOP ==============================
     task.spawn(function()
+
         while true do
             task.wait(3)
-            if not autoNotifyEnabled or webhookURL == "" then continue end
+
+            if not autoNotifyEnabled or webhookURL == "" then
+                continue
+            end
+
+            -- ส่งได้ครั้งเดียวต่อการเปิด Toggle
+            if hasSentThisToggle then
+                continue
+            end
             
             local currentFamily = GetCurrentFamily()
-            if currentFamily == "Unknown" then continue end
+
+            if currentFamily == "Unknown" then
+                continue
+            end
             
             local targetFamilies = {}
+
             if Options and Options.AutoSpinFamilies then
-                for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
-                    if enabled and not string.match(name, "^%-%-%-") then
+
+                for name, enabled in pairs(
+                    Options.AutoSpinFamilies.Value or {}
+                ) do
+
+                    if enabled
+                        and not string.match(name, "^%-%-%-")
+                    then
                         table.insert(targetFamilies, name)
                     end
                 end
             end
             
-            if #targetFamilies == 0 then continue end
+            if #targetFamilies == 0 then
+                continue
+            end
             
             local isTarget = false
+
             local lowerFamily = string.lower(currentFamily)
+
             for _, target in ipairs(targetFamilies) do
-                if string.find(lowerFamily, string.lower(target)) then
+
+                if string.find(
+                    lowerFamily,
+                    string.lower(target)
+                ) then
                     isTarget = true
                     break
                 end
             end
             
-            if isTarget and (currentFamily ~= lastNotifyFamily or (tick() - lastNotifyTime > 30)) then
-                local success = SendWebhook("TARGET FAMILY FOUND: " .. currentFamily)
+            -- ของเดิมยังอยู่ครบ
+            if isTarget and (
+                currentFamily ~= lastNotifyFamily
+                or (tick() - lastNotifyTime > 30)
+            ) then
+
+                local success = SendWebhook(
+                    "TARGET FAMILY FOUND: " .. currentFamily
+                )
+
                 if success then
+
+                    -- เพิ่มแค่ตัวนี้
+                    hasSentThisToggle = true
+
                     lastNotifyFamily = currentFamily
                     lastNotifyTime = tick()
                 end
             end
+
         end
+
     end)
 
+    -- ============================== INPUT ==============================
     WebhookGroup:AddInput("Webhook_URL", {
         Default = "",
         Numeric = false,
         Finished = true,
+
         Text = "Discord Webhook URL",
+
         Placeholder = "https://discord.com/api/webhooks/...",
-        Callback = function(v) webhookURL = v end
+
+        Callback = function(v)
+            webhookURL = v
+        end
     })
 
+    -- ============================== PING MODE ==============================
     WebhookGroup:AddDropdown("Webhook_PingMode", {
+
         Text = "Ping Mode",
-        Values = {"None", "Everyone", "Here"},
+
+        Values = {
+            "None",
+            "Everyone",
+            "Here"
+        },
+
         Default = "None",
+
         Multi = false,
-        Callback = function(v) pingMode = v end
+
+        Callback = function(v)
+            pingMode = v
+        end
     })
 
+    -- ============================== TEST ==============================
     WebhookGroup:AddButton("Test Send", function()
-        if SendWebhook() then else end
+        if SendWebhook() then end
     end)
 
+    -- ============================== TOGGLE ==============================
     WebhookGroup:AddToggle("AutoNotifyToggle", {
+
         Text = "Auto Send Families",
+
         Default = false,
+
         Callback = function(v)
+
             autoNotifyEnabled = v
-            if v then lastNotifyFamily = ""; lastNotifyTime = 0 end
+
+            -- reset ใหม่ทุกครั้งที่เปิด toggle
+            if v then
+                hasSentThisToggle = false
+                lastNotifyFamily = ""
+                lastNotifyTime = 0
+            end
+
         end
     })
 end
-
 -- ============================== AUTO SPIN (MAIN MENU) - FAMILY TAB CHECK BEFORE ROLL ==============================
 if IsMainmenuLobby() then
     local SpinGroup = Tabs.MainMenu:AddLeftGroupbox("Auto Spin")
@@ -2922,43 +3045,168 @@ if IsLobbyLobby() then
 end
 -- ============================== UI SETTINGS ==============================
 local UISettingsTab = Window:AddTab("Settings")
-local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
-local hideUIFile = FakeHUBFolder.."/hide_ui.txt"
-local shouldHideUI = false
-if isfile(hideUIFile) then
-    local content = readfile(hideUIFile)
-    shouldHideUI = (content == "true")
-end
-MenuGroup:AddToggle("HideUIToggle", {Text="Auto Hide UI", Default=shouldHideUI, Callback=function(v) writefile(hideUIFile, tostring(v)) end})
-MenuGroup:AddButton("Unload", function() Library:Unload() end)
-MenuGroup:AddLabel("Menu Bind"):AddKeyPicker("MenuKeybind", {Default="End", NoUI=true, Text="Menu Keybind"})
-task.defer(function() if Options and Options.MenuKeybind then Library.ToggleKeybind = Options.MenuKeybind end end)
 
-local oldBuildConfigSection = SaveManager.BuildConfigSection
-function SaveManager:BuildConfigSection(tab)
-    if oldBuildConfigSection then oldBuildConfigSection(self, tab) end
-    local section = tab:AddRightGroupbox("Configuration")
-    section:AddButton("Delete config", function()
-        if not Options or not Options.SaveManager_ConfigList then return end
-        local name = Options.SaveManager_ConfigList.Value
-        if not name then return end
-        local filePath = self.Folder.."/settings/"..name..".json"
-        if isfile(filePath) then delfile(filePath); Options.SaveManager_ConfigList:SetValues(self:RefreshConfigList()); Options.SaveManager_ConfigList:SetValue(nil) end
+local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
+
+local hideUIFile = FakeHUBFolder .. "/hide_ui.txt"
+
+-- ============================== LOAD HIDE STATE ==============================
+local shouldHideUI = false
+
+pcall(function()
+    if isfile(hideUIFile) then
+        shouldHideUI = (readfile(hideUIFile) == "true")
+    end
+end)
+
+-- ============================== SAFE TOGGLE FUNCTIONS ==============================
+local function IsUIVisible()
+    return Window and Window.Holder and Window.Holder.Visible
+end
+
+local function HideUI()
+    pcall(function()
+        if IsUIVisible() then
+            Library:Toggle()
+        end
     end)
 end
-SaveManager:BuildConfigSection(UISettingsTab)
-ThemeManager:ApplyToTab(UISettingsTab)
 
+local function ShowUI()
+    pcall(function()
+        if Window and Window.Holder and not Window.Holder.Visible then
+            Library:Toggle()
+        end
+    end)
+end
+
+-- ============================== AUTO HIDE TOGGLE ==============================
+MenuGroup:AddToggle("HideUIToggle", {
+    Text = "Auto Hide UI",
+    Default = shouldHideUI,
+    Callback = function(v)
+        pcall(function()
+            writefile(hideUIFile, tostring(v))
+        end)
+    end
+})
+
+-- ============================== UNLOAD ==============================
+MenuGroup:AddButton("Unload", function()
+    Library:Unload()
+end)
+
+-- ============================== KEYBIND ==============================
+MenuGroup:AddLabel("Menu Bind"):AddKeyPicker("MenuKeybind", {
+    Default = "End",
+    NoUI = true,
+    Text = "Menu Keybind"
+})
+
+task.defer(function()
+    pcall(function()
+        if Options and Options.MenuKeybind then
+            Library.ToggleKeybind = Options.MenuKeybind
+        end
+    end)
+end)
+
+-- ============================== CONFIG SECTION PATCH ==============================
+local oldBuildConfigSection = SaveManager.BuildConfigSection
+
+function SaveManager:BuildConfigSection(tab)
+    if oldBuildConfigSection then
+        oldBuildConfigSection(self, tab)
+    end
+
+    local section = tab:AddRightGroupbox("Configuration")
+
+    section:AddButton("Delete config", function()
+        if not Options or not Options.SaveManager_ConfigList then
+            return
+        end
+
+        local name = Options.SaveManager_ConfigList.Value
+
+        if not name then
+            return
+        end
+
+        local filePath = self.Folder .. "/settings/" .. name .. ".json"
+
+        if isfile(filePath) then
+            delfile(filePath)
+
+            Options.SaveManager_ConfigList:SetValues(
+                self:RefreshConfigList()
+            )
+
+            Options.SaveManager_ConfigList:SetValue(nil)
+        end
+    end)
+end
+
+SaveManager:BuildConfigSection(UISettingsTab)
+
+-- ============================== THEME (BACKGROUND ONLY) ==============================
+pcall(function()
+
+    if ThemeManager
+        and ThemeManager.BuiltInThemes
+        and ThemeManager.BuiltInThemes["Jester"]
+    then
+        ThemeManager:ApplyTheme("Jester")
+        ThemeManager:SaveDefault("Jester")
+
+    elseif ThemeManager and ThemeManager.ApplyTheme then
+        ThemeManager:ApplyTheme("Default")
+    end
+
+end)
+
+-- ============================== FORCE DEFAULT THEME ==============================
+pcall(function()
+    if ThemeManager
+        and ThemeManager.BuiltInThemes
+        and ThemeManager.BuiltInThemes["Jester"]
+    then
+        ThemeManager:ApplyTheme("Jester")
+        ThemeManager:SaveDefault("Jester")
+
+    elseif ThemeManager and ThemeManager.ApplyTheme then
+        ThemeManager:ApplyTheme("Default")
+    end
+end)
+
+-- ============================== AUTOLOAD + AUTO HIDE ==============================
 task.spawn(function()
-    task.wait(0.2)
-    pcall(function() SaveManager:LoadAutoloadConfig() end)
-    for i = 1, 10 do
-        if Window and Window.Holder then break end
+
+    task.wait(0.25)
+
+    pcall(function()
+        SaveManager:LoadAutoloadConfig()
+    end)
+
+    -- รอ Window โหลดจริง
+    for i = 1, 40 do
+        if Window and Window.Holder then
+            break
+        end
+
         task.wait(0.05)
     end
-    if isfile(hideUIFile) and readfile(hideUIFile) == "true" then
-        pcall(function() Window.Holder.Visible = false end)
-    end
+
+    task.wait(0.15)
+
+    -- ใช้ Toggle ของ Linoria เท่านั้น
+    pcall(function()
+        if isfile(hideUIFile)
+            and readfile(hideUIFile) == "true"
+        then
+            HideUI()
+        end
+    end)
+
 end)
 
 -- ============================== MAIN MENU UI (SELECT START + CLICK JOIN COMMUNITY ONLY) ==============================
@@ -3255,7 +3503,9 @@ end
 
 -- ============================== AUTO MISSION ==============================
 if Tabs.Lobby then
+
     local LobbyGroupLeft = Tabs.Lobby:AddLeftGroupbox("Auto Mission")
+
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
         ["Trost"] = {"Skirmish","Protect","Random"},
@@ -3265,170 +3515,426 @@ if Tabs.Lobby then
         ["Loading Docks"] = {"Skirmish","Stall","Random"},
         ["Stohess"] = {"Skirmish","Random"}
     }
+
     local ModifiersList = {
-        "No Perks","No Skills","No Memories","Nightmare",
-        "Oddball","Injury Prone","Chronic Injuries","Fog",
-        "Glass Cannon","Time Trial","Boring","Simple"
+        "No Perks",
+        "No Skills",
+        "No Memories",
+        "Nightmare",
+        "Oddball",
+        "Injury Prone",
+        "Chronic Injuries",
+        "Fog",
+        "Glass Cannon",
+        "Time Trial",
+        "Boring",
+        "Simple"
     }
-    local State = {Name="Shiganshina", Objective="Skirmish", Difficulty="Easy", Modifiers={}}
+
+    local State = {
+        Name = "Shiganshina",
+        Objective = "Skirmish",
+        Difficulty = "Easy",
+        Modifiers = {}
+    }
+
     local MissionDelay = 0
+
     local missionRunning = false
     local missionBusy = false
     local sessionId = 0
 
-    -- 🔥 ระบบวนรอบความยากสำหรับโหมด "Hardest" (ทุก 3 วิ)
+    -- ============================== HARDEST SYSTEM ==============================
     local hardestCycleIndex = 0
     local hardestCycleList = {}
     local hardestTimer = nil
 
     local function getPlayerLevel()
+
         local ok, level = pcall(function()
+
             local label = game.Players.LocalPlayer.PlayerGui
-                :WaitForChild("Interface", 2):WaitForChild("Gear_Up", 2)
-                :WaitForChild("HUD", 2):WaitForChild("Level", 2):WaitForChild("Title", 2)
+                :WaitForChild("Interface", 2)
+                :WaitForChild("Gear_Up", 2)
+                :WaitForChild("HUD", 2)
+                :WaitForChild("Level", 2)
+                :WaitForChild("Title", 2)
+
             return tonumber(label.Text:match("%d+")) or 1
+
         end)
+
         return (ok and level) or 1
     end
 
     local function normalizeModifiers(modTable)
+
         local list = {}
-        if type(modTable) ~= "table" then return list end
-        for k, v in pairs(modTable) do
-            if v == true then list[#list+1] = k
-            elseif type(v) == "string" then list[#list+1] = v end
+
+        if type(modTable) ~= "table" then
+            return list
         end
+
+        for k, v in pairs(modTable) do
+
+            if v == true then
+                list[#list + 1] = k
+
+            elseif type(v) == "string" then
+                list[#list + 1] = v
+            end
+        end
+
         return list
     end
 
+    -- ============================== RESOLVE DIFFICULTY ==============================
     local function resolveDifficulty(diff)
-        if diff ~= "Hardest" then return diff end
-        -- ใช้ค่ารอบปัจจุบันจาก hardestCycleList
-        if #hardestCycleList == 0 then return "Easy" end -- fallback
+
+        if diff ~= "Hardest" then
+            return diff
+        end
+
+        if #hardestCycleList == 0 then
+            return "Easy"
+        end
+
         local idx = (hardestCycleIndex % #hardestCycleList) + 1
+
         return hardestCycleList[idx]
     end
 
+    -- ============================== START HARDEST CYCLE ==============================
     local function startHardestCycle()
-        -- หยุดรอบเก่าถ้ามี
-        if hardestTimer then hardestTimer:Disconnect(); hardestTimer = nil end
+
+        hardestTimer = nil
 
         local level = getPlayerLevel()
-        -- 🔥 เลือกลิสต์ตามเลเวล
+
+        -- 🔥 ถ้าเลเวลมากกว่า 80 เริ่ม Aberrant
         if level > 80 then
-            hardestCycleList = {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
+
+            hardestCycleList = {
+                "Aberrant",
+                "Severe",
+                "Hard",
+                "Normal",
+                "Easy"
+            }
+
         else
-            hardestCycleList = {"Severe", "Hard", "Normal", "Easy"}
+
+            hardestCycleList = {
+                "Severe",
+                "Hard",
+                "Normal",
+                "Easy"
+            }
         end
+
         hardestCycleIndex = 0
 
-        -- ตั้งเวลาเปลี่ยนทุก 3 วินาที
         hardestTimer = task.spawn(function()
-            while missionRunning and State.Difficulty == "Hardest" do
-                task.wait(3)
-                hardestCycleIndex = hardestCycleIndex + 1
+
+            while missionRunning
+                and State.Difficulty == "Hardest"
+            do
+
+                -- 🔥 เปลี่ยนทุก 4 วิ
+                task.wait(4)
+
+                hardestCycleIndex =
+                    hardestCycleIndex + 1
+
+                -- 🔥 วนกลับ
+                if hardestCycleIndex >= #hardestCycleList then
+                    hardestCycleIndex = 0
+                end
             end
+
             hardestTimer = nil
+
         end)
     end
 
+    -- ============================== STOP HARDEST CYCLE ==============================
     local function stopHardestCycle()
-        if hardestTimer then
-            hardestTimer:Disconnect()
-            hardestTimer = nil
-        end
+
+        hardestTimer = nil
+
         hardestCycleList = {}
+
         hardestCycleIndex = 0
     end
 
+    -- ============================== CREATE MISSION ==============================
     local function SyncCreate(data)
-        local list = MissionObjectives[data.Name] or {"Skirmish"}
+
+        local list =
+            MissionObjectives[data.Name]
+            or {"Skirmish"}
+
         local objective = data.Objective
+
         if objective == "Random" then
+
             local filtered = {}
-            for _, v in ipairs(list) do if v ~= "Random" then filtered[#filtered+1] = v end end
-            objective = filtered[math.random(#filtered)]
+
+            for _, v in ipairs(list) do
+
+                if v ~= "Random" then
+                    filtered[#filtered + 1] = v
+                end
+            end
+
+            objective =
+                filtered[math.random(#filtered)]
         end
-        local difficulty = resolveDifficulty(data.Difficulty)
-        GET:InvokeServer("S_Missions","Create",{Difficulty=difficulty, Type="Missions", Name=data.Name})
+
+        local difficulty =
+            resolveDifficulty(data.Difficulty)
+
+        GET:InvokeServer(
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = data.Name
+            }
+        )
+
         task.wait(0.05)
-        GET:InvokeServer("S_Missions","Create",{Difficulty=difficulty, Type="Missions", Name=data.Name, Objective=objective})
+
+        GET:InvokeServer(
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = data.Name,
+                Objective = objective
+            }
+        )
     end
 
+    -- ============================== APPLY MODIFIERS ==============================
     local function ApplyModifiers(list)
+
         for _, mod in ipairs(list) do
-            GET:InvokeServer("S_Missions","Modify",mod)
+
+            GET:InvokeServer(
+                "S_Missions",
+                "Modify",
+                mod
+            )
+
             task.wait(0.08)
         end
     end
 
+    -- ============================== MAIN LOOP ==============================
     local function MissionLoop(mySession)
-        while missionRunning and sessionId == mySession do
-            if missionBusy then task.wait(0.05); continue end
+
+        while missionRunning
+            and sessionId == mySession
+        do
+
+            if missionBusy then
+                task.wait(0.05)
+                continue
+            end
+
             missionBusy = true
+
             local locked = {
-                Name = State.Name, Objective = State.Objective,
-                Difficulty = State.Difficulty, Modifiers = normalizeModifiers(State.Modifiers)
+                Name = State.Name,
+                Objective = State.Objective,
+                Difficulty = State.Difficulty,
+                Modifiers = normalizeModifiers(State.Modifiers)
             }
+
             SyncCreate(locked)
-            task.wait(0.12 + MissionDelay)
+
+            -- 🔥 ถ้า Hardest รอ 4 วิ
+            if locked.Difficulty == "Hardest" then
+                task.wait(4)
+            else
+                task.wait(0.12 + MissionDelay)
+            end
+
             ApplyModifiers(locked.Modifiers)
-            task.wait(0.1 + (#locked.Modifiers * 0.05))
-            GET:InvokeServer("S_Missions","Start")
+
+            task.wait(
+                0.1 + (#locked.Modifiers * 0.05)
+            )
+
+            GET:InvokeServer(
+                "S_Missions",
+                "Start"
+            )
+
             task.wait(0.45)
+
             missionBusy = false
         end
     end
 
+    -- ============================== UI ==============================
     LobbyGroupLeft:AddDropdown("MissionDropdown", {
-        Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
-        Default = State.Name, Multi = false, Text = "Mission",
+        Values = {
+            "Shiganshina",
+            "Trost",
+            "Outskirts",
+            "Giant Forest",
+            "Utgard",
+            "Loading Docks",
+            "Stohess"
+        },
+
+        Default = State.Name,
+
+        Multi = false,
+
+        Text = "Mission",
+
         Callback = function(val)
+
             State.Name = val
-            local newObjectives = MissionObjectives[val] or {"Skirmish"}
+
+            local newObjectives =
+                MissionObjectives[val]
+                or {"Skirmish"}
+
             State.Objective = newObjectives[1]
+
             if Options and Options.ObjectiveDropdown then
-                Options.ObjectiveDropdown:SetValues(newObjectives)
-                Options.ObjectiveDropdown:SetValue(newObjectives[1])
+
+                Options.ObjectiveDropdown:SetValues(
+                    newObjectives
+                )
+
+                Options.ObjectiveDropdown:SetValue(
+                    newObjectives[1]
+                )
             end
         end
     })
+
     LobbyGroupLeft:AddDropdown("ObjectiveDropdown", {
-        Values = MissionObjectives[State.Name], Default = "Skirmish",
-        Multi = false, Text = "Objective",
-        Callback = function(val) State.Objective = val end
+
+        Values = MissionObjectives[State.Name],
+
+        Default = "Skirmish",
+
+        Multi = false,
+
+        Text = "Objective",
+
+        Callback = function(val)
+            State.Objective = val
+        end
     })
+
     LobbyGroupLeft:AddDropdown("DifficultyDropdown", {
-        Values = {"Easy","Normal","Hard","Severe","Aberrant","Hardest"},
-        Default = "Easy", Multi = false, Text = "Mode",
-        Callback = function(val) State.Difficulty = val end
+
+        Values = {
+            "Easy",
+            "Normal",
+            "Hard",
+            "Severe",
+            "Aberrant",
+            "Hardest"
+        },
+
+        Default = "Easy",
+
+        Multi = false,
+
+        Text = "Mode",
+
+        Callback = function(val)
+            State.Difficulty = val
+        end
     })
+
     LobbyGroupLeft:AddDropdown("ModifiersDropdown", {
-        Values = ModifiersList, Default = {}, Multi = true, Text = "Modifiers",
-        Callback = function(val) State.Modifiers = val or {} end
+
+        Values = ModifiersList,
+
+        Default = {},
+
+        Multi = true,
+
+        Text = "Modifiers",
+
+        Callback = function(val)
+            State.Modifiers = val or {}
+        end
     })
+
     LobbyGroupLeft:AddSlider("MissionDelaySlider", {
-        Text = "Delay", Default = 0, Min = 0, Max = 60, Rounding = 0,
-        Callback = function(val) MissionDelay = val end
+
+        Text = "Delay",
+
+        Default = 0,
+
+        Min = 0,
+
+        Max = 60,
+
+        Rounding = 0,
+
+        Callback = function(val)
+            MissionDelay = val
+        end
     })
+
     LobbyGroupLeft:AddToggle("AutoStartMissionToggle", {
-        Text = "Start Mission", Default = false,
+
+        Text = "Start Mission",
+
+        Default = false,
+
         Callback = function(v)
+
             if v then
-                if missionRunning then return end
+
+                if missionRunning then
+                    return
+                end
+
                 missionRunning = true
+
                 sessionId = sessionId + 1
-                -- 🔥 ถ้าเลือก Hardest ให้เริ่มรอบวนความยาก
+
+                -- 🔥 เริ่มระบบ Hardest
                 if State.Difficulty == "Hardest" then
                     startHardestCycle()
                 end
+
                 local mySession = sessionId
-                task.spawn(function() MissionLoop(mySession) end)
+
+                task.spawn(function()
+                    MissionLoop(mySession)
+                end)
+
             else
+
                 missionRunning = false
+
                 sessionId = sessionId + 1
+
                 stopHardestCycle()
-                pcall(function() GET:InvokeServer("S_Missions","Leave") end)
+
+                pcall(function()
+
+                    GET:InvokeServer(
+                        "S_Missions",
+                        "Leave"
+                    )
+
+                end)
             end
         end
     })
@@ -4148,6 +4654,324 @@ do
     end
 end
 
+
+
+
+
+
+
+
+-- ============================== HUD (รวม Timer + Stats) ==============================
+local Gui = Instance.new("ScreenGui")
+Gui.Name = "FarmHUD"
+Gui.IgnoreGuiInset = true
+Gui.ResetOnSpawn = true
+Gui.Parent = PlayerGui
+
+-- ==================== MAIN FRAME ====================
+local Frame = Instance.new("Frame")
+Frame.Size = UDim2.new(0, 210, 0, 112)
+Frame.Position = UDim2.new(0.5, -105, 0, 8)
+Frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
+Frame.BackgroundTransparency = 0.15
+Frame.BorderSizePixel = 0
+Frame.Parent = Gui
+
+local Corner = Instance.new("UICorner")
+Corner.CornerRadius = UDim.new(0, 10)
+Corner.Parent = Frame
+
+local Stroke = Instance.new("UIStroke")
+Stroke.Color = Color3.fromRGB(80, 80, 120)
+Stroke.Thickness = 1
+Stroke.Transparency = 0.5
+Stroke.Parent = Frame
+
+-- แถบ accent ด้านบน
+local AccentBar = Instance.new("Frame")
+AccentBar.Size = UDim2.new(1, 0, 0, 2)
+AccentBar.Position = UDim2.new(0, 0, 0, 0)
+AccentBar.BackgroundColor3 = Color3.fromRGB(100, 120, 255)
+AccentBar.BorderSizePixel = 0
+AccentBar.Parent = Frame
+
+local AccentCorner = Instance.new("UICorner")
+AccentCorner.CornerRadius = UDim.new(0, 10)
+AccentCorner.Parent = AccentBar
+
+-- ==================== ส่วน TIMER ====================
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 16)
+Title.Position = UDim2.new(0, 0, 0, 6)
+Title.BackgroundTransparency = 1
+Title.Text = "FARM TIMER"
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 9
+Title.TextColor3 = Color3.fromRGB(100, 110, 180)
+Title.TextXAlignment = Enum.TextXAlignment.Center
+Title.Parent = Frame
+
+local Label = Instance.new("TextLabel")
+Label.Size = UDim2.new(1, 0, 0, 28)
+Label.Position = UDim2.new(0, 0, 0, 18)
+Label.BackgroundTransparency = 1
+Label.Text = "00:00:00"
+Label.Font = Enum.Font.GothamBold
+Label.TextSize = 20
+Label.TextColor3 = Color3.fromRGB(230, 230, 255)
+Label.TextXAlignment = Enum.TextXAlignment.Center
+Label.Parent = Frame
+
+-- เส้นคั่น
+local Divider = Instance.new("Frame")
+Divider.Size = UDim2.new(0.9, 0, 0, 1)
+Divider.Position = UDim2.new(0.05, 0, 0, 50)
+Divider.BackgroundColor3 = Color3.fromRGB(80, 80, 120)
+Divider.BackgroundTransparency = 0.6
+Divider.BorderSizePixel = 0
+Divider.Parent = Frame
+
+-- ==================== ส่วน STATS ====================
+local StatsTitle = Instance.new("TextLabel")
+StatsTitle.Size = UDim2.new(1, 0, 0, 12)
+StatsTitle.Position = UDim2.new(0, 0, 0, 56)
+StatsTitle.BackgroundTransparency = 1
+StatsTitle.Text = "PLAYER STATS"
+StatsTitle.Font = Enum.Font.GothamBold
+StatsTitle.TextSize = 8
+StatsTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
+StatsTitle.TextXAlignment = Enum.TextXAlignment.Center
+StatsTitle.Parent = Frame
+
+-- ==================== แถวที่ 1: Level / Gold ====================
+local Row1 = Instance.new("Frame")
+Row1.Size = UDim2.new(1, -10, 0, 22)
+Row1.Position = UDim2.new(0, 5, 0, 70)
+Row1.BackgroundTransparency = 1
+Row1.Parent = Frame
+
+-- Level
+local LevelText = Instance.new("TextLabel")
+LevelText.Size = UDim2.new(0, 45, 1, 0)
+LevelText.Position = UDim2.new(0, 8, 0, 0)
+LevelText.BackgroundTransparency = 1
+LevelText.Text = "Level"
+LevelText.Font = Enum.Font.GothamBold
+LevelText.TextSize = 10
+LevelText.TextColor3 = Color3.fromRGB(180, 180, 220)
+LevelText.TextXAlignment = Enum.TextXAlignment.Left
+LevelText.Parent = Row1
+
+local LevelVal = Instance.new("TextLabel")
+LevelVal.Size = UDim2.new(0, 50, 1, 0)
+LevelVal.Position = UDim2.new(0, 53, 0, 0)
+LevelVal.BackgroundTransparency = 1
+LevelVal.Text = "0"
+LevelVal.Font = Enum.Font.GothamBold
+LevelVal.TextSize = 10
+LevelVal.TextColor3 = Color3.fromRGB(255, 200, 100)
+LevelVal.TextXAlignment = Enum.TextXAlignment.Left
+LevelVal.Parent = Row1
+
+-- Gold
+local GoldText = Instance.new("TextLabel")
+GoldText.Size = UDim2.new(0, 40, 1, 0)
+GoldText.Position = UDim2.new(0, 108, 0, 0)
+GoldText.BackgroundTransparency = 1
+GoldText.Text = "Gold"
+GoldText.Font = Enum.Font.GothamBold
+GoldText.TextSize = 10
+GoldText.TextColor3 = Color3.fromRGB(180, 180, 220)
+GoldText.TextXAlignment = Enum.TextXAlignment.Left
+GoldText.Parent = Row1
+
+local GoldVal = Instance.new("TextLabel")
+GoldVal.Size = UDim2.new(0, 60, 1, 0)
+GoldVal.Position = UDim2.new(0, 148, 0, 0)
+GoldVal.BackgroundTransparency = 1
+GoldVal.Text = "0"
+GoldVal.Font = Enum.Font.GothamBold
+GoldVal.TextSize = 10
+GoldVal.TextColor3 = Color3.fromRGB(255, 215, 100)
+GoldVal.TextXAlignment = Enum.TextXAlignment.Left
+GoldVal.Parent = Row1
+
+-- ==================== แถวที่ 2: Gems / Canes ====================
+local Row2 = Instance.new("Frame")
+Row2.Size = UDim2.new(1, -10, 0, 22)
+Row2.Position = UDim2.new(0, 5, 0, 92)
+Row2.BackgroundTransparency = 1
+Row2.Parent = Frame
+
+-- Gems
+local GemsText = Instance.new("TextLabel")
+GemsText.Size = UDim2.new(0, 45, 1, 0)
+GemsText.Position = UDim2.new(0, 8, 0, 0)
+GemsText.BackgroundTransparency = 1
+GemsText.Text = "Gems"
+GemsText.Font = Enum.Font.GothamBold
+GemsText.TextSize = 10
+GemsText.TextColor3 = Color3.fromRGB(180, 180, 220)
+GemsText.TextXAlignment = Enum.TextXAlignment.Left
+GemsText.Parent = Row2
+
+local GemsVal = Instance.new("TextLabel")
+GemsVal.Size = UDim2.new(0, 50, 1, 0)
+GemsVal.Position = UDim2.new(0, 53, 0, 0)
+GemsVal.BackgroundTransparency = 1
+GemsVal.Text = "0"
+GemsVal.Font = Enum.Font.GothamBold
+GemsVal.TextSize = 10
+GemsVal.TextColor3 = Color3.fromRGB(100, 200, 255)
+GemsVal.TextXAlignment = Enum.TextXAlignment.Left
+GemsVal.Parent = Row2
+
+-- Canes
+local CanesText = Instance.new("TextLabel")
+CanesText.Size = UDim2.new(0, 45, 1, 0)
+CanesText.Position = UDim2.new(0, 108, 0, 0)
+CanesText.BackgroundTransparency = 1
+CanesText.Text = "Canes"
+CanesText.Font = Enum.Font.GothamBold
+CanesText.TextSize = 10
+CanesText.TextColor3 = Color3.fromRGB(180, 180, 220)
+CanesText.TextXAlignment = Enum.TextXAlignment.Left
+CanesText.Parent = Row2
+
+local CanesVal = Instance.new("TextLabel")
+CanesVal.Size = UDim2.new(0, 60, 1, 0)
+CanesVal.Position = UDim2.new(0, 148, 0, 0)
+CanesVal.BackgroundTransparency = 1
+CanesVal.Text = "0"
+CanesVal.Font = Enum.Font.GothamBold
+CanesVal.TextSize = 10
+CanesVal.TextColor3 = Color3.fromRGB(255, 150, 180)
+CanesVal.TextXAlignment = Enum.TextXAlignment.Left
+CanesVal.Parent = Row2
+
+-- ==================== TIMER LOGIC ====================
+getgenv().FarmStartTime = tick()
+
+local function FormatTime(sec)
+    return string.format("%02d:%02d:%02d",
+        math.floor(sec / 3600),
+        math.floor((sec % 3600) / 60),
+        math.floor(sec % 60))
+end
+
+task.spawn(function()
+    while true do
+        task.wait(1)
+        pcall(function()
+            local G = getgenv()
+            if G.FarmStartTime and G.FarmStartTime > 0 then
+                Label.Text = FormatTime(tick() - G.FarmStartTime)
+            else
+                Label.Text = "00:00:00"
+            end
+        end)
+    end
+end)
+
+-- ==================== STATS UPDATE FUNCTION ====================
+local function FormatNumber(num)
+    if num >= 1000000 then
+        return string.format("%.1fM", num / 1000000)
+    elseif num >= 1000 then
+        return string.format("%.1fK", num / 1000)
+    else
+        return tostring(num)
+    end
+end
+
+-- ฟังก์ชันอัปเดตค่า Stats
+function UpdateStats(data)
+    pcall(function()
+        if data and data.Slots then
+            local slot = data.Current_Slot or "A"
+            local slotData = data.Slots[slot]
+            if slotData then
+                if slotData.Progression and slotData.Progression.Level then
+                    LevelVal.Text = tostring(slotData.Progression.Level)
+                end
+                
+                if slotData.Currency then
+                    if slotData.Currency.Gold then
+                        GoldVal.Text = FormatNumber(slotData.Currency.Gold)
+                    end
+                    if slotData.Currency.Gems then
+                        GemsVal.Text = FormatNumber(slotData.Currency.Gems)
+                    end
+                    if slotData.Currency.Canes then
+                        CanesVal.Text = FormatNumber(slotData.Currency.Canes)
+                    end
+                end
+            end
+        end
+    end)
+end
+
+-- ==================== AUTO FETCH DATA ====================
+local function FetchAndUpdate()
+    task.spawn(function()
+        pcall(function()
+            local replicatedStorage = game:GetService("ReplicatedStorage")
+            local remoteGET = replicatedStorage:FindFirstChild("Assets")
+            if remoteGET then
+                remoteGET = remoteGET:FindFirstChild("Remotes")
+                if remoteGET then
+                    remoteGET = remoteGET:FindFirstChild("GET")
+                end
+            end
+            
+            if remoteGET then
+                local player = game:GetService("Players").LocalPlayer
+                local data = remoteGET:InvokeServer("Data", "Copy", player.UserId)
+                if data and type(data) == "table" then
+                    UpdateStats(data)
+                end
+            end
+        end)
+    end)
+end
+
+task.spawn(function()
+    while true do
+        task.wait(5)
+        FetchAndUpdate()
+    end
+end)
+
+FetchAndUpdate()
+
+-- ============================== SAFETY SLIDER ==============================
+if Tabs.AutoFarm then
+    local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
+    SafetyGroup:AddLabel(" -- 25s is safe! --")
+    SafetyGroup:AddSlider("SafetyTimeSlider", {
+        Text="--- End Missions ---", Default=25, Min=15, Max=60, Rounding=0,
+        Callback=function(val)
+            getgenv().SafetyTime = math.floor(val)
+        end,
+        Drag = true
+    })
+    
+    -- 🔥 ตัวเลือกจำนวนไททันที่เหลือก่อนหยุดฆ่า (ก่อน Safety Time)
+    getgenv().StopAtTitansLeft = getgenv().StopAtTitansLeft or 10   -- ค่าเริ่มต้น 10 ตัว
+    
+    SafetyGroup:AddSlider("StopAtTitansLeftSlider", {
+        Text="⚠️ Stop attacking when ≤ X titans left (before safe time)",
+        Default = getgenv().StopAtTitansLeft,
+        Min = 10,
+        Max = 15,
+        Rounding = 0,
+        Callback = function(val)
+            getgenv().StopAtTitansLeft = math.floor(val)
+        end
+    })
+end
+
+
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
 
@@ -4742,316 +5566,6 @@ task.spawn(function()
         end
     end)
 end)
-
--- ============================== HUD (รวม Timer + Stats) ==============================
-local Gui = Instance.new("ScreenGui")
-Gui.Name = "FarmHUD"
-Gui.IgnoreGuiInset = true
-Gui.ResetOnSpawn = true
-Gui.Parent = PlayerGui
-
--- ==================== MAIN FRAME ====================
-local Frame = Instance.new("Frame")
-Frame.Size = UDim2.new(0, 210, 0, 112)
-Frame.Position = UDim2.new(0.5, -105, 0, 8)
-Frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
-Frame.BackgroundTransparency = 0.15
-Frame.BorderSizePixel = 0
-Frame.Parent = Gui
-
-local Corner = Instance.new("UICorner")
-Corner.CornerRadius = UDim.new(0, 10)
-Corner.Parent = Frame
-
-local Stroke = Instance.new("UIStroke")
-Stroke.Color = Color3.fromRGB(80, 80, 120)
-Stroke.Thickness = 1
-Stroke.Transparency = 0.5
-Stroke.Parent = Frame
-
--- แถบ accent ด้านบน
-local AccentBar = Instance.new("Frame")
-AccentBar.Size = UDim2.new(1, 0, 0, 2)
-AccentBar.Position = UDim2.new(0, 0, 0, 0)
-AccentBar.BackgroundColor3 = Color3.fromRGB(100, 120, 255)
-AccentBar.BorderSizePixel = 0
-AccentBar.Parent = Frame
-
-local AccentCorner = Instance.new("UICorner")
-AccentCorner.CornerRadius = UDim.new(0, 10)
-AccentCorner.Parent = AccentBar
-
--- ==================== ส่วน TIMER ====================
-local Title = Instance.new("TextLabel")
-Title.Size = UDim2.new(1, 0, 0, 16)
-Title.Position = UDim2.new(0, 0, 0, 6)
-Title.BackgroundTransparency = 1
-Title.Text = "FARM TIMER"
-Title.Font = Enum.Font.GothamBold
-Title.TextSize = 9
-Title.TextColor3 = Color3.fromRGB(100, 110, 180)
-Title.TextXAlignment = Enum.TextXAlignment.Center
-Title.Parent = Frame
-
-local Label = Instance.new("TextLabel")
-Label.Size = UDim2.new(1, 0, 0, 28)
-Label.Position = UDim2.new(0, 0, 0, 18)
-Label.BackgroundTransparency = 1
-Label.Text = "00:00:00"
-Label.Font = Enum.Font.GothamBold
-Label.TextSize = 20
-Label.TextColor3 = Color3.fromRGB(230, 230, 255)
-Label.TextXAlignment = Enum.TextXAlignment.Center
-Label.Parent = Frame
-
--- เส้นคั่น
-local Divider = Instance.new("Frame")
-Divider.Size = UDim2.new(0.9, 0, 0, 1)
-Divider.Position = UDim2.new(0.05, 0, 0, 50)
-Divider.BackgroundColor3 = Color3.fromRGB(80, 80, 120)
-Divider.BackgroundTransparency = 0.6
-Divider.BorderSizePixel = 0
-Divider.Parent = Frame
-
--- ==================== ส่วน STATS ====================
-local StatsTitle = Instance.new("TextLabel")
-StatsTitle.Size = UDim2.new(1, 0, 0, 12)
-StatsTitle.Position = UDim2.new(0, 0, 0, 56)
-StatsTitle.BackgroundTransparency = 1
-StatsTitle.Text = "PLAYER STATS"
-StatsTitle.Font = Enum.Font.GothamBold
-StatsTitle.TextSize = 8
-StatsTitle.TextColor3 = Color3.fromRGB(100, 200, 255)
-StatsTitle.TextXAlignment = Enum.TextXAlignment.Center
-StatsTitle.Parent = Frame
-
--- ==================== แถวที่ 1: Level / Gold ====================
-local Row1 = Instance.new("Frame")
-Row1.Size = UDim2.new(1, -10, 0, 22)
-Row1.Position = UDim2.new(0, 5, 0, 70)
-Row1.BackgroundTransparency = 1
-Row1.Parent = Frame
-
--- Level
-local LevelText = Instance.new("TextLabel")
-LevelText.Size = UDim2.new(0, 45, 1, 0)
-LevelText.Position = UDim2.new(0, 8, 0, 0)
-LevelText.BackgroundTransparency = 1
-LevelText.Text = "Level"
-LevelText.Font = Enum.Font.GothamBold
-LevelText.TextSize = 10
-LevelText.TextColor3 = Color3.fromRGB(180, 180, 220)
-LevelText.TextXAlignment = Enum.TextXAlignment.Left
-LevelText.Parent = Row1
-
-local LevelVal = Instance.new("TextLabel")
-LevelVal.Size = UDim2.new(0, 50, 1, 0)
-LevelVal.Position = UDim2.new(0, 53, 0, 0)
-LevelVal.BackgroundTransparency = 1
-LevelVal.Text = "0"
-LevelVal.Font = Enum.Font.GothamBold
-LevelVal.TextSize = 10
-LevelVal.TextColor3 = Color3.fromRGB(255, 200, 100)
-LevelVal.TextXAlignment = Enum.TextXAlignment.Left
-LevelVal.Parent = Row1
-
--- Gold
-local GoldText = Instance.new("TextLabel")
-GoldText.Size = UDim2.new(0, 40, 1, 0)
-GoldText.Position = UDim2.new(0, 108, 0, 0)
-GoldText.BackgroundTransparency = 1
-GoldText.Text = "Gold"
-GoldText.Font = Enum.Font.GothamBold
-GoldText.TextSize = 10
-GoldText.TextColor3 = Color3.fromRGB(180, 180, 220)
-GoldText.TextXAlignment = Enum.TextXAlignment.Left
-GoldText.Parent = Row1
-
-local GoldVal = Instance.new("TextLabel")
-GoldVal.Size = UDim2.new(0, 60, 1, 0)
-GoldVal.Position = UDim2.new(0, 148, 0, 0)
-GoldVal.BackgroundTransparency = 1
-GoldVal.Text = "0"
-GoldVal.Font = Enum.Font.GothamBold
-GoldVal.TextSize = 10
-GoldVal.TextColor3 = Color3.fromRGB(255, 215, 100)
-GoldVal.TextXAlignment = Enum.TextXAlignment.Left
-GoldVal.Parent = Row1
-
--- ==================== แถวที่ 2: Gems / Canes ====================
-local Row2 = Instance.new("Frame")
-Row2.Size = UDim2.new(1, -10, 0, 22)
-Row2.Position = UDim2.new(0, 5, 0, 92)
-Row2.BackgroundTransparency = 1
-Row2.Parent = Frame
-
--- Gems
-local GemsText = Instance.new("TextLabel")
-GemsText.Size = UDim2.new(0, 45, 1, 0)
-GemsText.Position = UDim2.new(0, 8, 0, 0)
-GemsText.BackgroundTransparency = 1
-GemsText.Text = "Gems"
-GemsText.Font = Enum.Font.GothamBold
-GemsText.TextSize = 10
-GemsText.TextColor3 = Color3.fromRGB(180, 180, 220)
-GemsText.TextXAlignment = Enum.TextXAlignment.Left
-GemsText.Parent = Row2
-
-local GemsVal = Instance.new("TextLabel")
-GemsVal.Size = UDim2.new(0, 50, 1, 0)
-GemsVal.Position = UDim2.new(0, 53, 0, 0)
-GemsVal.BackgroundTransparency = 1
-GemsVal.Text = "0"
-GemsVal.Font = Enum.Font.GothamBold
-GemsVal.TextSize = 10
-GemsVal.TextColor3 = Color3.fromRGB(100, 200, 255)
-GemsVal.TextXAlignment = Enum.TextXAlignment.Left
-GemsVal.Parent = Row2
-
--- Canes
-local CanesText = Instance.new("TextLabel")
-CanesText.Size = UDim2.new(0, 45, 1, 0)
-CanesText.Position = UDim2.new(0, 108, 0, 0)
-CanesText.BackgroundTransparency = 1
-CanesText.Text = "Canes"
-CanesText.Font = Enum.Font.GothamBold
-CanesText.TextSize = 10
-CanesText.TextColor3 = Color3.fromRGB(180, 180, 220)
-CanesText.TextXAlignment = Enum.TextXAlignment.Left
-CanesText.Parent = Row2
-
-local CanesVal = Instance.new("TextLabel")
-CanesVal.Size = UDim2.new(0, 60, 1, 0)
-CanesVal.Position = UDim2.new(0, 148, 0, 0)
-CanesVal.BackgroundTransparency = 1
-CanesVal.Text = "0"
-CanesVal.Font = Enum.Font.GothamBold
-CanesVal.TextSize = 10
-CanesVal.TextColor3 = Color3.fromRGB(255, 150, 180)
-CanesVal.TextXAlignment = Enum.TextXAlignment.Left
-CanesVal.Parent = Row2
-
--- ==================== TIMER LOGIC ====================
-getgenv().FarmStartTime = tick()
-
-local function FormatTime(sec)
-    return string.format("%02d:%02d:%02d",
-        math.floor(sec / 3600),
-        math.floor((sec % 3600) / 60),
-        math.floor(sec % 60))
-end
-
-task.spawn(function()
-    while true do
-        task.wait(1)
-        pcall(function()
-            local G = getgenv()
-            if G.FarmStartTime and G.FarmStartTime > 0 then
-                Label.Text = FormatTime(tick() - G.FarmStartTime)
-            else
-                Label.Text = "00:00:00"
-            end
-        end)
-    end
-end)
-
--- ==================== STATS UPDATE FUNCTION ====================
-local function FormatNumber(num)
-    if num >= 1000000 then
-        return string.format("%.1fM", num / 1000000)
-    elseif num >= 1000 then
-        return string.format("%.1fK", num / 1000)
-    else
-        return tostring(num)
-    end
-end
-
--- ฟังก์ชันอัปเดตค่า Stats
-function UpdateStats(data)
-    pcall(function()
-        if data and data.Slots then
-            local slot = data.Current_Slot or "A"
-            local slotData = data.Slots[slot]
-            if slotData then
-                if slotData.Progression and slotData.Progression.Level then
-                    LevelVal.Text = tostring(slotData.Progression.Level)
-                end
-                
-                if slotData.Currency then
-                    if slotData.Currency.Gold then
-                        GoldVal.Text = FormatNumber(slotData.Currency.Gold)
-                    end
-                    if slotData.Currency.Gems then
-                        GemsVal.Text = FormatNumber(slotData.Currency.Gems)
-                    end
-                    if slotData.Currency.Canes then
-                        CanesVal.Text = FormatNumber(slotData.Currency.Canes)
-                    end
-                end
-            end
-        end
-    end)
-end
-
--- ==================== AUTO FETCH DATA ====================
-local function FetchAndUpdate()
-    task.spawn(function()
-        pcall(function()
-            local replicatedStorage = game:GetService("ReplicatedStorage")
-            local remoteGET = replicatedStorage:FindFirstChild("Assets")
-            if remoteGET then
-                remoteGET = remoteGET:FindFirstChild("Remotes")
-                if remoteGET then
-                    remoteGET = remoteGET:FindFirstChild("GET")
-                end
-            end
-            
-            if remoteGET then
-                local player = game:GetService("Players").LocalPlayer
-                local data = remoteGET:InvokeServer("Data", "Copy", player.UserId)
-                if data and type(data) == "table" then
-                    UpdateStats(data)
-                end
-            end
-        end)
-    end)
-end
-
-task.spawn(function()
-    while true do
-        task.wait(5)
-        FetchAndUpdate()
-    end
-end)
-
-FetchAndUpdate()
-
--- ============================== SAFETY SLIDER ==============================
-if Tabs.AutoFarm then
-    local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
-    SafetyGroup:AddLabel(" -- 25s is safe! --")
-    SafetyGroup:AddSlider("SafetyTimeSlider", {
-        Text="--- End Missions ---", Default=25, Min=15, Max=60, Rounding=0,
-        Callback=function(val)
-            getgenv().SafetyTime = math.floor(val)
-        end,
-        Drag = true
-    })
-    
-    -- 🔥 ตัวเลือกจำนวนไททันที่เหลือก่อนหยุดฆ่า (ก่อน Safety Time)
-    getgenv().StopAtTitansLeft = getgenv().StopAtTitansLeft or 10   -- ค่าเริ่มต้น 10 ตัว
-    
-    SafetyGroup:AddSlider("StopAtTitansLeftSlider", {
-        Text="⚠️ Stop attacking when ≤ X titans left (before safe time)",
-        Default = getgenv().StopAtTitansLeft,
-        Min = 10,
-        Max = 15,
-        Rounding = 0,
-        Callback = function(val)
-            getgenv().StopAtTitansLeft = math.floor(val)
-        end
-    })
-end
 
 -- ============================== FARM CORE ==============================
 local TitansFolder = workspace:WaitForChild("Titans")
@@ -6244,4 +6758,49 @@ if Tabs.AutoFarm then
             end
         end
     })
+end
+
+-- ============================== WAVE TAB ==============================
+if IsIngameLobby() then
+
+    local WaveGroup = Tabs.Safety:AddLeftGroupbox("Wave")
+
+    local autoVoteSkip = false
+
+    task.spawn(function()
+
+        while true do
+            task.wait(1)
+
+            if not autoVoteSkip then
+                continue
+            end
+
+            pcall(function()
+
+                local args = {
+                    "Waves",
+                    "Update"
+                }
+
+                game:GetService("ReplicatedStorage")
+                    :WaitForChild("Assets")
+                    :WaitForChild("Remotes")
+                    :WaitForChild("POST")
+                    :FireServer(unpack(args))
+
+            end)
+        end
+
+    end)
+
+    WaveGroup:AddToggle("AutoVoteSkipToggle", {
+        Text = "Auto Vote Skip",
+        Default = false,
+
+        Callback = function(v)
+            autoVoteSkip = v
+        end
+    })
+
 end
