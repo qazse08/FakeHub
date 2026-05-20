@@ -3852,7 +3852,7 @@ if Tabs.Lobby then
             "Loading Docks",
             "Stohess"
         },
-        Default = "Shiganshina",
+        Default = State.Name,
         Multi = false,
         Text = "Mission",
         Callback = function(val)
@@ -3868,7 +3868,7 @@ if Tabs.Lobby then
 
     LobbyGroupLeft:AddDropdown("ObjectiveDropdown", {
         Values = MissionObjectives["Shiganshina"],
-        Default = "Skirmish",
+        Default = State.Objective,
         Multi = false,
         Text = "Objective",
         Callback = function(val)
@@ -3889,7 +3889,7 @@ if Tabs.Lobby then
             "Aberrant",
             "Hardest"
         },
-        Default = "Hardest",
+        Default = State.Difficulty,
         Multi = false,
         Text = "Mode",
         Callback = function(val)
@@ -3920,7 +3920,7 @@ if Tabs.Lobby then
         end
     })
 
-    LobbyGroupLeft:AddToggle("AutoStartMissionToggle", {
+    local autoStartToggle = LobbyGroupLeft:AddToggle("AutoStartMissionToggle", {
         Text = "Start Mission",
         Default = false,
         Callback = function(v)
@@ -3943,6 +3943,24 @@ if Tabs.Lobby then
             end
         end
     })
+
+    -- ============================== AUTO START ON LOAD ==============================
+    task.spawn(function()
+        task.wait(0.5)
+        pcall(function()
+            if Options and Options.AutoStartMissionToggle and Options.AutoStartMissionToggle.Value == true then
+                if not missionRunning then
+                    missionRunning = true
+                    missionBusy = false
+                    sessionId = sessionId + 1
+                    local mySession = sessionId
+                    task.spawn(function()
+                        MissionLoop(mySession)
+                    end)
+                end
+            end
+        end)
+    end)
 end
 -- ============================== EQUIP SKILL ==============================
 if IsLobbyLobby() then
