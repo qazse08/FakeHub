@@ -3530,6 +3530,21 @@ if Tabs.Lobby then
         "Simple"
     }
 
+    local MODIFIER_ORDER = {
+        "No Perks",
+        "No Skills",
+        "No Memories",
+        "Nightmare",
+        "Oddball",
+        "Injury Prone",
+        "Chronic Injuries",
+        "Fog",
+        "Glass Cannon",
+        "Time Trial",
+        "Boring",
+        "Simple"
+    }
+
     local State = {
         Name = "Shiganshina",
         Objective = "Skirmish",
@@ -3537,10 +3552,38 @@ if Tabs.Lobby then
     }
 
     local MissionDelay = 0
+    local selectedModifiers = {}
 
     local missionRunning = false
     local missionBusy = false
     local sessionId = 0
+    local lastNotifiedModifiers = ""
+
+    -- ============================== LOAD SAVED STATE ==============================
+    pcall(function()
+        if Options and Options.MissionDropdown and Options.MissionDropdown.Value then
+            State.Name = Options.MissionDropdown.Value
+        end
+        if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then
+            State.Objective = Options.ObjectiveDropdown.Value
+        end
+        if Options and Options.DifficultyDropdown and Options.DifficultyDropdown.Value then
+            State.Difficulty = Options.DifficultyDropdown.Value
+        end
+        if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then
+            MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0
+        end
+        if Options and Options.ModifiersDropdown and Options.ModifiersDropdown.Value then
+            local mods = Options.ModifiersDropdown.Value
+            if type(mods) == "table" then
+                for mod, enabled in pairs(mods) do
+                    if enabled then
+                        table.insert(selectedModifiers, mod)
+                    end
+                end
+            end
+        end
+    end)
 
     -- ============================== LEVEL CHECK ==============================
     local function GetPlayerLevel()
@@ -3614,6 +3657,39 @@ if Tabs.Lobby then
         }
     end
 
+    -- ============================== FORMAT MODIFIERS NOTIFICATION ==============================
+    local function formatModifiersNotification(modList)
+        if not modList or #modList == 0 then
+            return nil
+        end
+
+        local sortedMods = {}
+        for _, orderedMod in ipairs(MODIFIER_ORDER) do
+            for _, m in ipairs(modList) do
+                if m == orderedMod then
+                    table.insert(sortedMods, m)
+                    break
+                end
+            end
+        end
+
+        for _, m in ipairs(modList) do
+            local found = false
+            for _, orderedMod in ipairs(MODIFIER_ORDER) do
+                if m == orderedMod then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                table.insert(sortedMods, m)
+            end
+        end
+
+        local modsText = table.concat(sortedMods, "\n")
+        return "Modifiers:\n" .. modsText
+    end
+
     -- ============================== CREATE MISSION ==============================
     local function CreateMission(
         missionName,
@@ -3666,21 +3742,53 @@ if Tabs.Lobby then
             return
         end
 
-        local selected = {}
+        local currentSelected = {}
 
         pcall(function()
             local value = Options.ModifiersDropdown.Value
             if type(value) == "table" then
                 for mod, enabled in pairs(value) do
                     if enabled == true then
-                        table.insert(selected, mod)
+                        table.insert(currentSelected, mod)
                     end
                 end
             end
         end)
 
-        if #selected == 0 then
+        if #currentSelected == 0 then
             return
+        end
+
+        local sortedForNotify = {}
+        for _, orderedMod in ipairs(MODIFIER_ORDER) do
+            for _, m in ipairs(currentSelected) do
+                if m == orderedMod then
+                    table.insert(sortedForNotify, m)
+                    break
+                end
+            end
+        end
+
+        for _, m in ipairs(currentSelected) do
+            local found = false
+            for _, orderedMod in ipairs(MODIFIER_ORDER) do
+                if m == orderedMod then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                table.insert(sortedForNotify, m)
+            end
+        end
+
+        local modsString = table.concat(sortedForNotify, ", ")
+        if lastNotifiedModifiers ~= modsString then
+            lastNotifiedModifiers = modsString
+            local notifyText = formatModifiersNotification(currentSelected)
+            if notifyText then
+                Library:Notify(notifyText, 4)
+            end
         end
 
         ClearModifiers()
@@ -3689,7 +3797,7 @@ if Tabs.Lobby then
             return
         end
 
-        for _, mod in ipairs(selected) do
+        for _, mod in ipairs(currentSelected) do
             if not missionRunning then
                 break
             end
@@ -3841,6 +3949,21 @@ if Tabs.Lobby then
         end
     end
 
+    -- ============================== UPDATE SELECTED MODIFIERS ==============================
+    local function updateSelectedModifiers()
+        selectedModifiers = {}
+        pcall(function()
+            local value = Options.ModifiersDropdown.Value
+            if type(value) == "table" then
+                for mod, enabled in pairs(value) do
+                    if enabled then
+                        table.insert(selectedModifiers, mod)
+                    end
+                end
+            end
+        end)
+    end
+
     -- ============================== UI ==============================
     LobbyGroupLeft:AddDropdown("MissionDropdown", {
         Values = {
@@ -3872,11 +3995,7 @@ if Tabs.Lobby then
         Multi = false,
         Text = "Objective",
         Callback = function(val)
-            if missionRunning then
-                State.Objective = val
-            else
-                State.Objective = val
-            end
+            State.Objective = val
         end
     })
 
@@ -3893,11 +4012,7 @@ if Tabs.Lobby then
         Multi = false,
         Text = "Mode",
         Callback = function(val)
-            if missionRunning then
-                State.Difficulty = val
-            else
-                State.Difficulty = val
-            end
+            State.Difficulty = val
         end
     })
 
@@ -3906,12 +4021,14 @@ if Tabs.Lobby then
         Default = {},
         Multi = true,
         Text = "Modifiers",
-        Callback = function() end
+        Callback = function(val)
+            updateSelectedModifiers()
+        end
     })
 
     LobbyGroupLeft:AddSlider("MissionDelaySlider", {
         Text = "Delay",
-        Default = 0,
+        Default = MissionDelay,
         Min = 0,
         Max = 60,
         Rounding = 0,
@@ -3944,23 +4061,27 @@ if Tabs.Lobby then
         end
     })
 
-    -- ============================== AUTO START ON LOAD ==============================
+    -- ============================== AUTO START WHEN TOGGLE WAS TRUE ==============================
     task.spawn(function()
-        task.wait(0.5)
+        task.wait(1.5)
         pcall(function()
-            if Options and Options.AutoStartMissionToggle and Options.AutoStartMissionToggle.Value == true then
-                if not missionRunning then
-                    missionRunning = true
-                    missionBusy = false
-                    sessionId = sessionId + 1
-                    local mySession = sessionId
-                    task.spawn(function()
-                        MissionLoop(mySession)
-                    end)
-                end
+            local savedToggleValue = false
+            if Options and Options.AutoStartMissionToggle then
+                savedToggleValue = Options.AutoStartMissionToggle.Value
+            end
+            if savedToggleValue == true and not missionRunning then
+                missionRunning = true
+                missionBusy = false
+                sessionId = sessionId + 1
+                local mySession = sessionId
+                task.spawn(function()
+                    MissionLoop(mySession)
+                end)
             end
         end)
     end)
+
+    updateSelectedModifiers()
 end
 -- ============================== EQUIP SKILL ==============================
 if IsLobbyLobby() then
@@ -6699,6 +6820,67 @@ if Tabs.Webhook then
         return ok and state or ""
     end
     
+    local function formatModifiersText(modifiers)
+        local order = {
+            "No Perks",
+            "No Skills",
+            "No Memories",
+            "Nightmare",
+            "Oddball",
+            "Injury Prone",
+            "Chronic Injuries",
+            "Fog",
+            "Glass Cannon",
+            "Time Trial",
+            "Boring",
+            "Simple"
+        }
+        
+        if not modifiers or type(modifiers) ~= "table" then
+            return "None"
+        end
+        
+        local modList = {}
+        for k, v in pairs(modifiers) do
+            if type(k) == "number" then
+                modList[#modList + 1] = tostring(v)
+            elseif type(v) == "boolean" and v then
+                modList[#modList + 1] = tostring(k)
+            elseif type(v) == "string" then
+                modList[#modList + 1] = v
+            end
+        end
+        
+        local sortedMods = {}
+        for _, modName in ipairs(order) do
+            for _, m in ipairs(modList) do
+                if m == modName then
+                    sortedMods[#sortedMods + 1] = m
+                    break
+                end
+            end
+        end
+        
+        for _, m in ipairs(modList) do
+            local found = false
+            for _, ordered in ipairs(order) do
+                if m == ordered then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                sortedMods[#sortedMods + 1] = m
+            end
+        end
+        
+        if #sortedMods == 0 then
+            return "None"
+        end
+        
+        return table.concat(sortedMods, "\n")
+    end
+    
     local function sendWebhook(missionState)
         if webhookURL == "" then return end
         
@@ -6726,26 +6908,9 @@ if Tabs.Webhook then
         
         local fields = {}
         
-        -- ========== ADD MISSION INFO (MAP, DIFFICULTY, OBJECTIVE, MODIFIERS) ==========
         if data.Map then
-            local modsText = "None"
-            if data.Map.Modifiers and type(data.Map.Modifiers) == "table" then
-                local modList = {}
-                -- รองรับทั้ง table array และ table dictionary
-                for k, v in pairs(data.Map.Modifiers) do
-                    if type(k) == "number" then
-                        table.insert(modList, tostring(v))
-                    elseif type(v) == "boolean" and v then
-                        table.insert(modList, tostring(k))
-                    elseif type(v) == "string" then
-                        table.insert(modList, v)
-                    end
-                end
-                if #modList > 0 then
-                    modsText = table.concat(modList, ", ")
-                end
-            end
-            local mapValue = string.format("```Map: %s\nDifficulty: %s\nObjective: %s\nModifiers: %s```",
+            local modsText = formatModifiersText(data.Map.Modifiers)
+            local mapValue = string.format("```Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s```",
                 data.Map.Map or "Unknown",
                 data.Map.Difficulty or "Unknown",
                 data.Map.Objective or "Unknown",
