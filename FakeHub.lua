@@ -4041,6 +4041,135 @@ if Tabs.Lobby then
     end)
 
 end
+
+
+
+-- ============================== AUTO UPGRADE ==============================
+if IsLobbyLobby() then
+    local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
+
+    local BladeTab = UpgradeTabbox:AddTab("Blade")
+
+    getgenv().AutoUpgradeBlade = false
+    getgenv().UpgradeRunning = false
+    getgenv().UpgradeCooldown = 5
+
+    local ALL_BLADE_STATS = {
+        "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
+        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
+    }
+
+    local function batchUpgradeBlade()
+        if not GET then return false end
+        local args = { "S_Equipment", "Upgrade", ALL_BLADE_STATS }
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
+    end
+
+    BladeTab:AddSlider("BladeUpgradeDelaySlider", {
+        Text = "Upgrade Delay (seconds)",
+        Default = 0,
+        Min = 0,
+        Max = 60,
+        Rounding = 0,
+        Callback = function(v)
+            getgenv().BladeUpgradeDelay = v
+        end
+    })
+
+    BladeTab:AddToggle("AutoUpgradeBladeToggle", {
+        Text = "Auto Upgrade Blade (Batch Mode)",
+        Default = false,
+        Callback = function(state)
+            getgenv().AutoUpgradeBlade = state
+
+            if state and not getgenv().UpgradeRunning then
+                getgenv().UpgradeRunning = true
+
+                task.spawn(function()
+                    local hasNotified = false
+                    
+                    while getgenv().AutoUpgradeBlade do
+                        pcall(function()
+                            batchUpgradeBlade()
+                            
+                            if not hasNotified then
+                                task.wait(getgenv().UpgradeCooldown)
+                                hasNotified = true
+                            end
+                            
+                            task.wait(getgenv().UpgradeCooldown)
+                        end)
+                    end
+                    getgenv().UpgradeRunning = false
+                end)
+            end
+        end
+    })
+
+    local SpearTab = UpgradeTabbox:AddTab("Thunder Spear")
+
+    getgenv().AutoUpgradeSpear = false
+    getgenv().SpearUpgradeRunning = false
+    getgenv().SpearUpgradeCooldown = 5
+
+    local ALL_SPEAR_STATS = {
+        "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
+        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
+    }
+
+    local function batchUpgradeSpear()
+        if not GET then return false end
+        local args = { "S_Equipment", "Upgrade", ALL_SPEAR_STATS }
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
+    end
+
+    SpearTab:AddSlider("SpearUpgradeDelaySlider", {
+        Text = "Upgrade Delay (seconds)",
+        Default = 0,
+        Min = 0,
+        Max = 60,
+        Rounding = 0,
+        Callback = function(v)
+            getgenv().SpearUpgradeDelay = v
+        end
+    })
+
+    SpearTab:AddToggle("AutoUpgradeSpearToggle", {
+        Text = "Auto Upgrade Thunder Spear (Batch Mode)",
+        Default = false,
+        Callback = function(state)
+            getgenv().AutoUpgradeSpear = state
+
+            if state and not getgenv().SpearUpgradeRunning then
+                getgenv().SpearUpgradeRunning = true
+
+                task.spawn(function()
+                    local hasNotified = false
+                    
+                    while getgenv().AutoUpgradeSpear do
+                        pcall(function()
+                            batchUpgradeSpear()
+                            
+                            if not hasNotified then
+                                task.wait(getgenv().SpearUpgradeCooldown)
+                                hasNotified = true
+                            end
+                            
+                            task.wait(getgenv().SpearUpgradeCooldown)
+                        end)
+                    end
+                    getgenv().SpearUpgradeRunning = false
+                end)
+            end
+        end
+    })
+end
+
+
 -- ============================== UNLOCK SKILLS ==============================
 if IsLobbyLobby() then
     local UnlockGroupRight = Tabs.Session:AddRightGroupbox("Unlock Skills")
