@@ -3614,6 +3614,49 @@ if Tabs.Lobby then
         }
     end
 
+    -- ============================== CREATE MISSION ==============================
+    local function CreateMission(
+        missionName,
+        objective,
+        difficulty
+    )
+
+        if not missionRunning then
+            return false
+        end
+
+        local args = {
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = missionName,
+                Objective = objective
+            }
+        }
+
+        local success = pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
+
+        return success
+    end
+
+    -- ============================== CLEAR MODIFIERS ==============================
+    local function ClearModifiers()
+
+        if not missionRunning then
+            return
+        end
+
+        pcall(function()
+            GET:InvokeServer("S_Missions", "ClearModifiers")
+        end)
+
+        task.wait(0.1)
+    end
+
     -- ============================== APPLY MODIFIERS ==============================
     local function ApplyModifiers()
 
@@ -3624,14 +3667,9 @@ if Tabs.Lobby then
         local selected = {}
 
         pcall(function()
-
-            local value =
-                Options.ModifiersDropdown.Value
-
+            local value = Options.ModifiersDropdown.Value
             if type(value) == "table" then
-
                 for mod, enabled in pairs(value) do
-
                     if enabled == true then
                         table.insert(selected, mod)
                     end
@@ -3639,81 +3677,48 @@ if Tabs.Lobby then
             end
         end)
 
-        pcall(function()
-
-            GET:InvokeServer(
-                "S_Missions",
-                "ClearModifiers"
-            )
-        end)
-
-        task.wait(0.15)
+        ClearModifiers()
 
         if not missionRunning then
             return
         end
 
         for _, mod in ipairs(selected) do
-
             if not missionRunning then
                 break
             end
 
-            GET:InvokeServer(
-                "S_Missions",
-                "Modify",
-                mod
-            )
+            local args = {"S_Missions", "Modify", mod}
+            pcall(function()
+                GET:InvokeServer(unpack(args))
+            end)
 
-            task.wait(0.12)
+            task.wait(0.1)
         end
     end
 
-    -- ============================== CREATE ==============================
-    local function CreateMission(
-        missionName,
-        objective,
-        difficulty
-    )
-
+    -- ============================== START MISSION ==============================
+    local function StartMission()
         if not missionRunning then
             return
         end
 
-        GET:InvokeServer(
-            "S_Missions",
-            "Create",
-            {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName
-            }
-        )
+        pcall(function()
+            GET:InvokeServer("S_Missions", "Start")
+        end)
+    end
 
-        task.wait(0.05)
-
-        if not missionRunning then
-            return
-        end
-
-        GET:InvokeServer(
-            "S_Missions",
-            "Create",
-            {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName,
-                Objective = objective
-            }
-        )
+    -- ============================== LEAVE MISSION ==============================
+    local function LeaveMission()
+        pcall(function()
+            GET:InvokeServer("S_Missions", "Leave")
+        end)
     end
 
     -- ============================== MAIN LOOP ==============================
     local function MissionLoop(mySession)
 
-        while missionRunning
-            and sessionId == mySession
-        do
+        while missionRunning and sessionId == mySession do
 
             if missionBusy then
                 task.wait(0.05)
@@ -3722,73 +3727,41 @@ if Tabs.Lobby then
 
             missionBusy = true
 
-            -- REALTIME VALUES
-            local currentMission =
-                State.Name
+            local currentMission = State.Name
+            local currentObjective = State.Objective
+            local currentDifficulty = State.Difficulty
 
-            local currentObjective =
-                State.Objective
-
-            local currentDifficulty =
-                State.Difficulty
-
-            -- ============================== HARDEST ==============================
             if currentDifficulty == "Hardest" then
 
-                local cycleList =
-                    GetHardestCycle()
+                local cycleList = GetHardestCycle()
 
                 for _, diff in ipairs(cycleList) do
 
-                    if not missionRunning
-                        or sessionId ~= mySession
-                    then
+                    if not missionRunning or sessionId ~= mySession then
                         break
                     end
 
-                    -- REALTIME REFRESH
-                    currentMission =
-                        State.Name
+                    currentMission = State.Name
+                    currentObjective = State.Objective
+                    currentDifficulty = State.Difficulty
 
-                    currentObjective =
-                        State.Objective
-
-                    currentDifficulty =
-                        State.Difficulty
-
-                    -- IF USER CHANGED MODE
                     if currentDifficulty ~= "Hardest" then
                         break
                     end
 
-                    local objectiveList =
-                        MissionObjectives[currentMission]
-                        or {"Skirmish"}
+                    local objectiveList = MissionObjectives[currentMission] or {"Skirmish"}
 
-                    -- RANDOM OBJECTIVE
                     if currentObjective == "Random" then
-
                         local filtered = {}
-
                         for _, v in ipairs(objectiveList) do
-
                             if v ~= "Random" then
                                 filtered[#filtered + 1] = v
                             end
                         end
-
-                        currentObjective =
-                            filtered[
-                                math.random(#filtered)
-                            ]
+                        currentObjective = filtered[math.random(#filtered)]
                     end
 
-                    -- CREATE
-                    CreateMission(
-                        currentMission,
-                        currentObjective,
-                        diff
-                    )
+                    CreateMission(currentMission, currentObjective, diff)
 
                     task.wait(0.15)
 
@@ -3796,66 +3769,40 @@ if Tabs.Lobby then
                         break
                     end
 
-                    -- APPLY MODIFIERS ALWAYS
                     ApplyModifiers()
 
-                    task.wait(0.25)
+                    task.wait(0.2)
 
                     if not missionRunning then
                         break
                     end
 
-                    -- START
-                    GET:InvokeServer(
-                        "S_Missions",
-                        "Start"
-                    )
+                    StartMission()
 
-                    -- WAIT
                     local startTick = tick()
-
                     repeat
                         task.wait(0.05)
-
-                        if not missionRunning
-                            or sessionId ~= mySession
-                        then
+                        if not missionRunning or sessionId ~= mySession then
                             break
                         end
-
                     until tick() - startTick >= 3.5
                 end
 
             else
 
-                -- ============================== NORMAL ==============================
-                local objectiveList =
-                    MissionObjectives[currentMission]
-                    or {"Skirmish"}
+                local objectiveList = MissionObjectives[currentMission] or {"Skirmish"}
 
                 if currentObjective == "Random" then
-
                     local filtered = {}
-
                     for _, v in ipairs(objectiveList) do
-
                         if v ~= "Random" then
                             filtered[#filtered + 1] = v
                         end
                     end
-
-                    currentObjective =
-                        filtered[
-                            math.random(#filtered)
-                        ]
+                    currentObjective = filtered[math.random(#filtered)]
                 end
 
-                -- CREATE
-                CreateMission(
-                    currentMission,
-                    currentObjective,
-                    currentDifficulty
-                )
+                CreateMission(currentMission, currentObjective, currentDifficulty)
 
                 task.wait(0.12 + MissionDelay)
 
@@ -3863,32 +3810,22 @@ if Tabs.Lobby then
                     break
                 end
 
-                -- APPLY MODIFIERS ALWAYS
                 ApplyModifiers()
 
-                task.wait(0.25)
+                task.wait(0.2)
 
                 if not missionRunning then
                     break
                 end
 
-                -- START
-                GET:InvokeServer(
-                    "S_Missions",
-                    "Start"
-                )
+                StartMission()
 
                 local startTick = tick()
-
                 repeat
                     task.wait(0.05)
-
-                    if not missionRunning
-                        or sessionId ~= mySession
-                    then
+                    if not missionRunning or sessionId ~= mySession then
                         break
                     end
-
                 until tick() - startTick >= 0.45
             end
 
@@ -3907,51 +3844,26 @@ if Tabs.Lobby then
             "Loading Docks",
             "Stohess"
         },
-
         Default = "Shiganshina",
-
         Multi = false,
-
         Text = "Mission",
-
         Callback = function(val)
-
             State.Name = val
-
-            local newObjectives =
-                MissionObjectives[val]
-                or {"Skirmish"}
-
-            State.Objective =
-                newObjectives[1]
-
-            if Options
-                and Options.ObjectiveDropdown
-            then
-
-                Options.ObjectiveDropdown:SetValues(
-                    newObjectives
-                )
-
-                Options.ObjectiveDropdown:SetValue(
-                    newObjectives[1]
-                )
+            local newObjectives = MissionObjectives[val] or {"Skirmish"}
+            State.Objective = newObjectives[1]
+            if Options and Options.ObjectiveDropdown then
+                Options.ObjectiveDropdown:SetValues(newObjectives)
+                Options.ObjectiveDropdown:SetValue(newObjectives[1])
             end
         end
     })
 
     LobbyGroupLeft:AddDropdown("ObjectiveDropdown", {
-
         Values = MissionObjectives["Shiganshina"],
-
         Default = "Skirmish",
-
         Multi = false,
-
         Text = "Objective",
-
         Callback = function(val)
-
             if missionRunning then
                 State.Objective = val
             else
@@ -3961,7 +3873,6 @@ if Tabs.Lobby then
     })
 
     LobbyGroupLeft:AddDropdown("DifficultyDropdown", {
-
         Values = {
             "Easy",
             "Normal",
@@ -3970,15 +3881,10 @@ if Tabs.Lobby then
             "Aberrant",
             "Hardest"
         },
-
         Default = "Hardest",
-
         Multi = false,
-
         Text = "Mode",
-
         Callback = function(val)
-
             if missionRunning then
                 State.Difficulty = val
             else
@@ -3988,77 +3894,44 @@ if Tabs.Lobby then
     })
 
     LobbyGroupLeft:AddDropdown("ModifiersDropdown", {
-
         Values = ModifiersList,
-
         Default = {},
-
         Multi = true,
-
         Text = "Modifiers",
-
         Callback = function() end
     })
 
     LobbyGroupLeft:AddSlider("MissionDelaySlider", {
-
         Text = "Delay",
-
         Default = 0,
-
         Min = 0,
-
         Max = 60,
-
         Rounding = 0,
-
         Callback = function(val)
             MissionDelay = val
         end
     })
 
     LobbyGroupLeft:AddToggle("AutoStartMissionToggle", {
-
         Text = "Start Mission",
-
         Default = false,
-
         Callback = function(v)
-
             if v then
-
                 if missionRunning then
                     return
                 end
-
                 missionRunning = true
                 missionBusy = false
-
                 sessionId = sessionId + 1
-
-                local mySession =
-                    sessionId
-
+                local mySession = sessionId
                 task.spawn(function()
                     MissionLoop(mySession)
                 end)
-
             else
-
-                -- STOP EVERYTHING IMMEDIATELY
                 missionRunning = false
                 missionBusy = false
-
                 sessionId = sessionId + 1
-
-                pcall(function()
-
-                    GET:InvokeServer(
-                        "S_Missions",
-                        "Leave"
-                    )
-
-                end)
+                LeaveMission()
             end
         end
     })
