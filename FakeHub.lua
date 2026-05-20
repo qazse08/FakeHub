@@ -3950,8 +3950,8 @@ if IsLobbyLobby() then
 
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
-    local function clearSlot(slotNumber)
-        local args = {"S_Equipment", "Skill_State", slotNumber, "7"}
+    local function refreshSlot(slotNumber)
+        local args = {"S_Equipment", "Skill_State", slotNumber, "3"}
         pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
@@ -3963,13 +3963,11 @@ if IsLobbyLobby() then
         pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
-    local function clearAllSlots()
+    local function refreshAllSlots()
         for slot = 1, 5 do
-            clearSlot(slot)
-            task.wait(0.05)
+            refreshSlot(slot)
+            task.wait(0.08)
         end
-        clearSlot(5)
-        task.wait(0.05)
     end
 
     local function executeEquip()
@@ -3977,13 +3975,15 @@ if IsLobbyLobby() then
         isEquipping = true
         
         task.spawn(function()
-            clearAllSlots()
-            task.wait(0.1)
+            refreshAllSlots()
+            task.wait(0.15)
             
-            for skillName, enabled in pairs(selectedSkills) do
-                if enabled then
-                    equipSkill(skillName)
-                    task.wait(0.05)
+            for slot = 1, 5 do
+                for skillName, enabled in pairs(selectedSkills) do
+                    if enabled and SKILLS[skillName].slot == slot then
+                        equipSkill(skillName)
+                        task.wait(0.08)
+                    end
                 end
             end
             
