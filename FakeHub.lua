@@ -213,7 +213,7 @@ local Tabs = {}
 if IsMainmenuLobby() then Tabs.MainMenu = Window:AddTab("Main Menu") end
 if IsLobbyLobby() then
     Tabs.Lobby = Window:AddTab("Lobby")
-    Tabs.Session = Window:AddTab("Skill")
+    Tabs.Session = Window:AddTab("Equipment")
     Tabs.Trade = Window:AddTab("Trade")
 end
 if IsIngameLobby() then
@@ -4237,6 +4237,7 @@ if IsLobbyLobby() then
 
     local selectedCurrency = "Gems"
     local purchaseAmount = 1
+    local purchaseDelay = 0
     local isReady = false
     local readyNotified = false
 
@@ -4287,6 +4288,11 @@ if IsLobbyLobby() then
         return gemsAmount, goldAmount
     end
 
+    local function showCurrencyStatus()
+        local gemsAmount, goldAmount = checkCurrencies()
+        Library:Notify(string.format("💰 Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
+    end
+
     local function startReadyCheck()
         task.spawn(function()
             while true do
@@ -4295,6 +4301,7 @@ if IsLobbyLobby() then
                 if gemsAmount > 1 or goldAmount > 1 then
                     if not isReady then
                         isReady = true
+                        showCurrencyStatus()
                     end
                     if not readyNotified then
                         readyNotified = true
@@ -4363,6 +4370,17 @@ if IsLobbyLobby() then
         end
     })
 
+    BoostGroup:AddSlider("Boost_DelaySlider", {
+        Text = "Purchase Delay (seconds)",
+        Default = 0,
+        Min = 0,
+        Max = 60,
+        Rounding = 0,
+        Callback = function(v)
+            purchaseDelay = v
+        end
+    })
+
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
@@ -4395,7 +4413,11 @@ if IsLobbyLobby() then
                             break
                         end
                         purchaseBoost(boostName)
-                        task.wait(0.15)
+                        if purchaseDelay > 0 then
+                            task.wait(purchaseDelay)
+                        else
+                            task.wait(0.15)
+                        end
                     end
                 end
 
@@ -4432,9 +4454,21 @@ if IsLobbyLobby() then
 
     local function useBoost(boostName)
         local args = {"S_Inventory", "Item", boostName}
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
+        
+        local success = false
+        local retryCount = 0
+        
+        while retryCount < 3 and not success do
+            success = pcall(function()
+                GET:InvokeServer(unpack(args))
+            end)
+            if not success then
+                retryCount = retryCount + 1
+                task.wait(0.3)
+            end
+        end
+        
+        return success
     end
 
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
@@ -4455,6 +4489,9 @@ if IsLobbyLobby() then
             end
 
             task.spawn(function()
+                local gemsAmount, goldAmount = checkCurrencies()
+                Library:Notify(string.format("💰 Starting Auto Use - Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
+                
                 for _, boostName in ipairs(ALL_USE_BOOSTS) do
                     if not isReady then
                         break
@@ -4463,10 +4500,17 @@ if IsLobbyLobby() then
                         if not isReady then
                             break
                         end
-                        useBoost(boostName)
-                        task.wait(0.15)
+                        local success = useBoost(boostName)
+                        if not success then
+                            task.wait(0.5)
+                        end
+                        task.wait(0.2)
                     end
+                    task.wait(0.3)
                 end
+
+                gemsAmount, goldAmount = checkCurrencies()
+                Library:Notify(string.format("✅ Auto Use Complete - Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
 
                 task.wait(0.3)
 
