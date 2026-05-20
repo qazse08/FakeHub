@@ -4169,7 +4169,87 @@ if IsLobbyLobby() then
     })
 end
 
+-- ============================== EQUIP SKILL ==============================
+if IsLobbyLobby() then
+    local SkillGroupRight = Tabs.Session:AddLeftGroupbox("Equip Skill")
 
+    local selectedSkills = {}
+    local isEquipping = false
+
+    local SKILLS = {
+        ["Drill Thrust"] = {slot = 1, id = "14"},
+        ["Torrential Steel"] = {slot = 2, id = "23"}
+    }
+
+    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+
+    local function clearSlot(slotNumber)
+        local args = {"S_Equipment", "Skill_State", slotNumber, "7"}
+        pcall(function() GET:InvokeServer(unpack(args)) end)
+    end
+
+    local function equipSkill(skillName)
+        local skillData = SKILLS[skillName]
+        if not skillData then return end
+        
+        local args = {"S_Equipment", "Skill_State", skillData.slot, skillData.id}
+        pcall(function() GET:InvokeServer(unpack(args)) end)
+    end
+
+    local function clearAllSlots()
+        for slot = 1, 5 do
+            clearSlot(slot)
+            task.wait(0.05)
+        end
+        clearSlot(5)
+        task.wait(0.05)
+    end
+
+    local function executeEquip()
+        if isEquipping then return end
+        isEquipping = true
+        
+        task.spawn(function()
+            clearAllSlots()
+            task.wait(0.1)
+            
+            for skillName, enabled in pairs(selectedSkills) do
+                if enabled then
+                    equipSkill(skillName)
+                    task.wait(0.05)
+                end
+            end
+            
+            isEquipping = false
+        end)
+    end
+
+    SkillGroupRight:AddDropdown("EquipSkill_Dropdown", {
+        Text = "Select Skills",
+        Values = {"Drill Thrust", "Torrential Steel"},
+        Default = {},
+        Multi = true,
+        Callback = function(v)
+            selectedSkills = v
+        end
+    })
+
+    SkillGroupRight:AddToggle("EquipSkill_Toggle", {
+        Text = "Equip Skills",
+        Default = false,
+        Callback = function(v)
+            if v then
+                executeEquip()
+                task.wait(0.1)
+                pcall(function()
+                    if Options and Options.EquipSkill_Toggle then
+                        Options.EquipSkill_Toggle:SetValue(false)
+                    end
+                end)
+            end
+        end
+    })
+end
 -- ============================== UNLOCK SKILLS ==============================
 if IsLobbyLobby() then
     local UnlockGroupRight = Tabs.Session:AddRightGroupbox("Unlock Skills")
