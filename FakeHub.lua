@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(0)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -6278,10 +6278,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
 
--- Cooldown settings
-local RELOAD_COOLDOWN = 2      -- cooldown สำหรับ Blades Reload (GET)
-local REFILL_COOLDOWN = 3      -- cooldown สำหรับ Full Refill (POST)
-local DOUBLE_CHECK_DELAY = 0.2 -- delay ก่อนตรวจสอบซ้ำเพื่อความแน่ใจ
+-- Cooldown settings (ปรับให้สั้นลงเพื่อความรวดเร็ว)
+local RELOAD_COOLDOWN = 1.5      -- cooldown สำหรับ Blades Reload (GET)
+local REFILL_COOLDOWN = 2        -- cooldown สำหรับ Full Refill (POST)
+local DOUBLE_CHECK_DELAY = 0.1   -- delay ก่อนตรวจสอบซ้ำ (ลดลง)
 
 local lastReload = 0
 local lastRefill = 0
@@ -6343,10 +6343,10 @@ local function doFullRefill()
     end)
 end
 
--- Main loop
+-- Main loop (ตรวจจับเร็วขึ้น)
 task.spawn(function()
     while true do
-        task.wait(0.3)   -- ตรวจจับทุก 0.3 วินาที
+        task.wait(0.1)   -- ตรวจจับทุก 0.1 วินาที (เร็วขึ้น)
         
         pcall(function()
             if not getgenv().AutoReloadBlade then
@@ -6363,10 +6363,10 @@ task.spawn(function()
                 return
             end
             
-            -- กรณีที่ blades broken แต่ sets ไม่ empty (ยังมีแก๊สเหลือ) -> รอ 0.75 วิ แล้วทำ Blades Reload
+            -- กรณีที่ blades broken แต่ sets ไม่ empty (ยังมีแก๊สเหลือ) -> รอสั้นๆ แล้วทำ Blades Reload
             if not setsEmpty then
                 if (now - lastReload) >= RELOAD_COOLDOWN then
-                    task.wait(0.75)
+                    task.wait(0.2)   -- ลดการรอลง (จาก 0.75)
                     if not getgenv().AutoReloadBlade then return end
                     if not areAllBladesBroken() then return end
                     -- ถ้าตอนนี้ sets กลายเป็น empty ให้ข้ามไปให้ Full Refill จัดการ
@@ -6379,26 +6379,25 @@ task.spawn(function()
                     if success then
                         lastReload = tick()
                     end
-                    task.wait(0.2)
+                    task.wait(0.1)
                     isProcessing = false
                 end
+                return
             end
             
-            -- กรณีที่ blades broken และ sets empty -> ทำ Full Refill ทันที (ตรวจสอบซ้ำสั้นๆ)
-            if bladesBroken and setsEmpty then
-                if (now - lastRefill) >= REFILL_COOLDOWN then
-                    task.wait(DOUBLE_CHECK_DELAY)
-                    if not getgenv().AutoReloadBlade then return end
-                    if not areAllBladesBroken() or not isSetsEmpty() then return end
-                    
-                    isProcessing = true
-                    local success = doFullRefill()
-                    if success then
-                        lastRefill = tick()
-                    end
-                    task.wait(0.2)
-                    isProcessing = false
+            -- กรณีที่ blades broken และ sets empty -> ทำ Full Refill (ตรวจสอบซ้ำสั้นๆ)
+            if (now - lastRefill) >= REFILL_COOLDOWN then
+                task.wait(DOUBLE_CHECK_DELAY)
+                if not getgenv().AutoReloadBlade then return end
+                if not areAllBladesBroken() or not isSetsEmpty() then return end
+                
+                isProcessing = true
+                local success = doFullRefill()
+                if success then
+                    lastRefill = tick()
                 end
+                task.wait(0.1)
+                isProcessing = false
             end
         end)
     end
