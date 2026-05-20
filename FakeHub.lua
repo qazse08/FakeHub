@@ -3640,6 +3640,8 @@ if Tabs.Lobby then
             GET:InvokeServer(unpack(args))
         end)
 
+        task.wait(0.1)
+
         return success
     end
 
@@ -3654,7 +3656,7 @@ if Tabs.Lobby then
             GET:InvokeServer("S_Missions", "ClearModifiers")
         end)
 
-        task.wait(0.1)
+        task.wait(0.15)
     end
 
     -- ============================== APPLY MODIFIERS ==============================
@@ -3677,6 +3679,10 @@ if Tabs.Lobby then
             end
         end)
 
+        if #selected == 0 then
+            return
+        end
+
         ClearModifiers()
 
         if not missionRunning then
@@ -3693,8 +3699,10 @@ if Tabs.Lobby then
                 GET:InvokeServer(unpack(args))
             end)
 
-            task.wait(0.1)
+            task.wait(0.12)
         end
+
+        task.wait(0.1)
     end
 
     -- ============================== START MISSION ==============================
@@ -3763,7 +3771,7 @@ if Tabs.Lobby then
 
                     CreateMission(currentMission, currentObjective, diff)
 
-                    task.wait(0.15)
+                    task.wait(0.2)
 
                     if not missionRunning then
                         break
@@ -3804,7 +3812,7 @@ if Tabs.Lobby then
 
                 CreateMission(currentMission, currentObjective, currentDifficulty)
 
-                task.wait(0.12 + MissionDelay)
+                task.wait(0.15 + MissionDelay)
 
                 if not missionRunning then
                     break
