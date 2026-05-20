@@ -3716,7 +3716,7 @@ if Tabs.Lobby then
             GET:InvokeServer(unpack(args))
         end)
 
-        task.wait(0.1)
+        task.wait(0.15)  -- เพิ่มดีเลย์หลังสร้าง mission เพื่อให้เซิร์ฟเวอร์ประมวลผล
 
         return success
     end
@@ -3732,7 +3732,7 @@ if Tabs.Lobby then
             GET:InvokeServer("S_Missions", "ClearModifiers")
         end)
 
-        task.wait(0.15)
+        task.wait(0.2)  -- เพิ่มดีเลย์หลัง clear modifiers
     end
 
     -- ============================== APPLY MODIFIERS ==============================
@@ -3797,6 +3797,7 @@ if Tabs.Lobby then
             return
         end
 
+        -- วนลูปเพิ่ม modifier ทีละตัว พร้อมดีเลย์ 0.12 วินาทีต่อตัว
         for _, mod in ipairs(currentSelected) do
             if not missionRunning then
                 break
@@ -3807,10 +3808,11 @@ if Tabs.Lobby then
                 GET:InvokeServer(unpack(args))
             end)
 
-            task.wait(0.12)
+            task.wait(0.12)  -- รอ 0.12 วิ ต่อ modifier 1 ตัว
         end
 
-        task.wait(0.1)
+        -- รอเพิ่มอีก 0.2 วินาที เพื่อให้ modifier ทั้งหมดโหลดเสร็จสมบูรณ์ ก่อน start
+        task.wait(0.2)
     end
 
     -- ============================== START MISSION ==============================
@@ -3818,6 +3820,9 @@ if Tabs.Lobby then
         if not missionRunning then
             return
         end
+
+        -- รอสั้นๆ ก่อน start จริง เพื่อความเสถียร
+        task.wait(0.1)
 
         pcall(function()
             GET:InvokeServer("S_Missions", "Start")
@@ -3833,6 +3838,10 @@ if Tabs.Lobby then
 
     -- ============================== MAIN LOOP ==============================
     local function MissionLoop(mySession)
+
+        if MissionDelay > 0 then
+            task.wait(MissionDelay)
+        end
 
         while missionRunning and sessionId == mySession do
 
@@ -3879,7 +3888,7 @@ if Tabs.Lobby then
 
                     CreateMission(currentMission, currentObjective, diff)
 
-                    task.wait(0.2)
+                    task.wait(0.2)  -- รอให้การสร้าง mission เสร็จสมบูรณ์
 
                     if not missionRunning then
                         break
@@ -3887,7 +3896,7 @@ if Tabs.Lobby then
 
                     ApplyModifiers()
 
-                    task.wait(0.2)
+                    task.wait(0.2)  -- รอให้ modifiers ทำงานเสร็จ
 
                     if not missionRunning then
                         break
@@ -3902,6 +3911,10 @@ if Tabs.Lobby then
                             break
                         end
                     until tick() - startTick >= 3.5
+
+                    if MissionDelay > 0 then
+                        task.wait(MissionDelay)
+                    end
                 end
 
             else
@@ -3920,7 +3933,7 @@ if Tabs.Lobby then
 
                 CreateMission(currentMission, currentObjective, currentDifficulty)
 
-                task.wait(0.15 + MissionDelay)
+                task.wait(0.15 + MissionDelay)  -- เพิ่มดีเลย์ให้เหมาะสม
 
                 if not missionRunning then
                     break
@@ -4082,211 +4095,6 @@ if Tabs.Lobby then
     end)
 
     updateSelectedModifiers()
-end
--- ============================== EQUIP SKILL ==============================
-if IsLobbyLobby() then
-    local SkillGroupRight = Tabs.Session:AddLeftGroupbox("Equip Skill")
-
-    local selectedSkills = {}
-    local isEquipping = false
-
-    local SKILLS = {
-        ["Drill Thrust"] = {slot = 1, id = "14"},
-        ["Torrential Steel"] = {slot = 2, id = "23"}
-    }
-
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-
-    local function refreshSlot(slotNumber)
-        local args = {"S_Equipment", "Skill_State", slotNumber, "3"}
-        pcall(function() GET:InvokeServer(unpack(args)) end)
-    end
-
-    local function equipSkill(skillName)
-        local skillData = SKILLS[skillName]
-        if not skillData then return end
-        
-        local args = {"S_Equipment", "Skill_State", skillData.slot, skillData.id}
-        pcall(function() GET:InvokeServer(unpack(args)) end)
-    end
-
-    local function refreshAllSlots()
-        for slot = 1, 5 do
-            refreshSlot(slot)
-            task.wait(0.08)
-        end
-    end
-
-    local function executeEquip()
-        if isEquipping then return end
-        isEquipping = true
-        
-        task.spawn(function()
-            refreshAllSlots()
-            task.wait(0.15)
-            
-            for slot = 1, 5 do
-                for skillName, enabled in pairs(selectedSkills) do
-                    if enabled and SKILLS[skillName].slot == slot then
-                        equipSkill(skillName)
-                        task.wait(0.08)
-                    end
-                end
-            end
-            
-            isEquipping = false
-        end)
-    end
-
-    SkillGroupRight:AddDropdown("EquipSkill_Dropdown", {
-        Text = "Select Skills",
-        Values = {"Drill Thrust", "Torrential Steel"},
-        Default = {},
-        Multi = true,
-        Callback = function(v)
-            selectedSkills = v
-        end
-    })
-
-    SkillGroupRight:AddToggle("EquipSkill_Toggle", {
-        Text = "Equip Skills",
-        Default = false,
-        Callback = function(v)
-            if v then
-                executeEquip()
-                task.wait(0.1)
-                pcall(function()
-                    if Options and Options.EquipSkill_Toggle then
-                        Options.EquipSkill_Toggle:SetValue(false)
-                    end
-                end)
-            end
-        end
-    })
-end
--- ============================== AUTO UPGRADE ==============================
-if IsLobbyLobby() then
-    local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
-
-    local BladeTab = UpgradeTabbox:AddTab("Blade")
-
-    getgenv().AutoUpgradeBlade = false
-    getgenv().UpgradeRunning = false
-    getgenv().UpgradeCooldown = 5
-
-    local ALL_BLADE_STATS = {
-        "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
-        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
-    }
-
-    local function batchUpgradeBlade()
-        if not GET then return false end
-        local args = { "S_Equipment", "Upgrade", ALL_BLADE_STATS }
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
-    end
-
-    BladeTab:AddSlider("BladeUpgradeDelaySlider", {
-        Text = "Upgrade Delay (seconds)",
-        Default = 0,
-        Min = 0,
-        Max = 60,
-        Rounding = 0,
-        Callback = function(v)
-            getgenv().BladeUpgradeDelay = v
-        end
-    })
-
-    BladeTab:AddToggle("AutoUpgradeBladeToggle", {
-        Text = "Auto Upgrade Blade (Batch Mode)",
-        Default = false,
-        Callback = function(state)
-            getgenv().AutoUpgradeBlade = state
-
-            if state and not getgenv().UpgradeRunning then
-                getgenv().UpgradeRunning = true
-
-                task.spawn(function()
-                    local hasNotified = false
-                    
-                    while getgenv().AutoUpgradeBlade do
-                        pcall(function()
-                            batchUpgradeBlade()
-                            
-                            if not hasNotified then
-                                task.wait(getgenv().UpgradeCooldown)
-                                hasNotified = true
-                            end
-                            
-                            task.wait(getgenv().UpgradeCooldown)
-                        end)
-                    end
-                    getgenv().UpgradeRunning = false
-                end)
-            end
-        end
-    })
-
-    local SpearTab = UpgradeTabbox:AddTab("Thunder Spear")
-
-    getgenv().AutoUpgradeSpear = false
-    getgenv().SpearUpgradeRunning = false
-    getgenv().SpearUpgradeCooldown = 5
-
-    local ALL_SPEAR_STATS = {
-        "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
-        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
-    }
-
-    local function batchUpgradeSpear()
-        if not GET then return false end
-        local args = { "S_Equipment", "Upgrade", ALL_SPEAR_STATS }
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
-    end
-
-    SpearTab:AddSlider("SpearUpgradeDelaySlider", {
-        Text = "Upgrade Delay (seconds)",
-        Default = 0,
-        Min = 0,
-        Max = 60,
-        Rounding = 0,
-        Callback = function(v)
-            getgenv().SpearUpgradeDelay = v
-        end
-    })
-
-    SpearTab:AddToggle("AutoUpgradeSpearToggle", {
-        Text = "Auto Upgrade Thunder Spear (Batch Mode)",
-        Default = false,
-        Callback = function(state)
-            getgenv().AutoUpgradeSpear = state
-
-            if state and not getgenv().SpearUpgradeRunning then
-                getgenv().SpearUpgradeRunning = true
-
-                task.spawn(function()
-                    local hasNotified = false
-                    
-                    while getgenv().AutoUpgradeSpear do
-                        pcall(function()
-                            batchUpgradeSpear()
-                            
-                            if not hasNotified then
-                                task.wait(getgenv().SpearUpgradeCooldown)
-                                hasNotified = true
-                            end
-                            
-                            task.wait(getgenv().SpearUpgradeCooldown)
-                        end)
-                    end
-                    getgenv().SpearUpgradeRunning = false
-                end)
-            end
-        end
-    })
 end
 -- ============================== UNLOCK SKILLS ==============================
 if IsLobbyLobby() then
@@ -5437,9 +5245,10 @@ if Tabs.AutoFarm then
         Text = "Farm Select",
         Callback = function(val)
             G.FarmMode = val
-            if PendingFarmStart and G.AutoFarmBlade then
+            if PendingFarmStart and G.AutoFarmBlade and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                 G.Farm = true
                 PendingFarmStart = false
+                Library:Notify(string.format("✅ Farm started with mode: %s", G.FarmMode), 2)
             end
         end
     })
@@ -5477,20 +5286,23 @@ if Tabs.AutoFarm then
                     end
                 end
                 
-                if not G.FarmMode or G.FarmMode == "" then
+                if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
                     PendingFarmStart = true
                     G.Farm = false
                     G.AutoFarmBlade = true
+                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
                     return
                 end
                 
                 G.AutoFarmBlade = true
                 G.Farm = true
                 PendingFarmStart = false
+                Library:Notify("✅ Auto Farm Blade started", 2)
             else
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
+                Library:Notify("❌ Auto Farm Blade stopped", 2)
             end
         end
     })
@@ -5592,362 +5404,7 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
 end
--- ============================== THUNDER SPEAR CORE LOGIC (AOE DAMAGE MULTI-TITAN + RELOAD CYCLE) ==============================
-if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
-local TitansFolder = workspace:WaitForChild("Titans")
-
-task.spawn(function()
-    task.wait(1)
-
-    local player = game:GetService("Players").LocalPlayer
-    local RunService = game:GetService("RunService")
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-    local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-
-    -- ==================== SHARED CORE (เหมือนกับ Farm Core) ====================
-    local ActiveTitans = {}          -- {titanModel, napePart}
-    local LastScan = 0
-    local SCAN_RATE = 0.02
-
-    local NapeCache = setmetatable({}, {__mode = "k"})
-
-    local function IsTitanAlive(t)
-        local h = t:FindFirstChildWhichIsA("Humanoid")
-        return h and h.Health > 10
-    end
-
-    local function GetNape(t)
-        local c = NapeCache[t]
-        if c then return c end
-        local hitboxes = t:FindFirstChild("Hitboxes")
-        if hitboxes then
-            local hit = hitboxes:FindFirstChild("Hit")
-            if hit then
-                local nape = hit:FindFirstChild("Nape")
-                if nape and nape:IsA("BasePart") then
-                    NapeCache[t] = nape
-                    return nape
-                end
-            end
-        end
-        return nil
-    end
-
-    local function ScanTitans()
-        local now = tick()
-        if now - LastScan < SCAN_RATE then return end
-        LastScan = now
-
-        local titansFolder = workspace:FindFirstChild("Titans")
-        if not titansFolder then
-            table.clear(ActiveTitans)
-            return
-        end
-
-        table.clear(ActiveTitans)
-        for _, t in ipairs(titansFolder:GetChildren()) do
-            if t:IsA("Model") and IsTitanAlive(t) then
-                local nape = GetNape(t)
-                if nape then
-                    table.insert(ActiveTitans, {titan = t, nape = nape})
-                end
-            end
-        end
-    end
-
-    local function GetClosestEntry(hrpPos)
-        local best, bestD = nil, 1e9
-        for _, entry in ipairs(ActiveTitans) do
-            local n = entry.nape
-            local dx = hrpPos.X - n.Position.X
-            local dy = hrpPos.Y - n.Position.Y
-            local dz = hrpPos.Z - n.Position.Z
-            local d = dx*dx + dy*dy + dz*dz
-            if d < bestD then
-                bestD = d
-                best = entry
-            end
-        end
-        return best
-    end
-
-    -- ==================== NO-CLIP & MOVEMENT ====================
-    local CharParts = {}
-    local CharRef = nil
-
-    local function NoclipOn()
-        local char = player.Character
-        if not char then return end
-        if char ~= CharRef then
-            CharRef = char
-            CharParts = {}
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    CharParts[#CharParts + 1] = v
-                end
-            end
-        end
-        for i = 1, #CharParts do
-            if CharParts[i] and CharParts[i].Parent then
-                CharParts[i].CanCollide = false
-            end
-        end
-    end
-
-    local function NoclipOff()
-        for i = 1, #CharParts do
-            local p = CharParts[i]
-            if p and p.Parent then
-                p.CanCollide = true
-            end
-        end
-    end
-
-    local _vel = Vector3.zero
-    local function MoveFastTween(targetPos, maxSpeed)
-        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local dx = targetPos.X - hrp.Position.X
-        local dy = targetPos.Y - hrp.Position.Y
-        local dz = targetPos.Z - hrp.Position.Z
-        local distH = math.sqrt(dx*dx + dz*dz)
-        local distTotal = math.sqrt(dx*dx + dy*dy + dz*dz)
-        if distTotal < 2 then
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            _vel = Vector3.zero
-            return
-        end
-        local speed = math.min(maxSpeed * 1.5, 1000)
-        local desired = Vector3.zero
-        if distH > 1 then
-            local m = speed / distH
-            desired = Vector3.new(dx * m, 0, dz * m)
-        end
-        if math.abs(dy) > 1 then
-            local vy = math.clamp(dy * 20, -speed, speed)
-            desired = Vector3.new(desired.X, vy, desired.Z)
-        end
-        _vel = _vel:Lerp(desired, 0.35)
-        if distTotal < 25 then
-            _vel = _vel * math.max(0.3, distTotal / 25)
-        end
-        if _vel.Magnitude > speed then
-            _vel = _vel.Unit * speed
-        end
-        hrp.AssemblyLinearVelocity = _vel
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
-
-    local _teleportBp, _teleportBg = nil, nil
-    local function MoveStableTeleport(targetPos)
-        local hrp = player.Character and player.Character:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        local dist = (hrp.Position - targetPos).Magnitude
-        if dist > 30 then
-            hrp.CFrame = CFrame.new(targetPos)
-        end
-        if not _teleportBp or not _teleportBp.Parent then
-            _teleportBp = Instance.new("BodyPosition")
-            _teleportBp.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            _teleportBp.P = 50000
-            _teleportBp.D = 1000
-            _teleportBp.Parent = hrp
-        end
-        _teleportBp.Position = targetPos
-        if not _teleportBg or not _teleportBg.Parent then
-            _teleportBg = Instance.new("BodyGyro")
-            _teleportBg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-            _teleportBg.P = 50000
-            _teleportBg.D = 500
-            _teleportBg.Parent = hrp
-        end
-        _teleportBg.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        _vel = Vector3.zero
-    end
-
-    local function CleanupTeleport()
-        if _teleportBp then _teleportBp:Destroy(); _teleportBp = nil end
-        if _teleportBg then _teleportBg:Destroy(); _teleportBg = nil end
-    end
-
-    -- ==================== THUNDER SPEAR SPECIFIC LOGIC ====================
-    local CurrentEntry = nil
-    local LockedUntil = 0
-    local CurrentFirePower = 8
-
-    -- 🔥 ค่ารัศมีระเบิด AOE (สามารถปรับใน GUI ได้)
-    local EXPLOSION_RADIUS = 0.13  -- ค่าเริ่มต้น 0.13 (ใช้ร่วมกับเกม) หรือจะใช้ค่าที่กำหนดเอง
-
-    local function ReloadSpears()
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill"))
-        end)
-        CurrentFirePower = 8
-    end
-
-    -- 🔥🔥🔥 ยิงหอก + ระเบิด AOE ครั้งเดียว 🔥🔥🔥
-    local function FireThunderSpearAOE()
-        if #ActiveTitans == 0 then return end
-
-        -- ถ้าหมดพลัง รีโหลดเร็ว
-        if CurrentFirePower <= 0 then
-            ReloadSpears()
-            task.wait(0.1)  -- หน่วงสั้น ๆ ให้โหลดเสร็จ (ลดจาก 0.5)
-            return
-        end
-
-        local entry = CurrentEntry
-        if not entry or not entry.nape then return end
-
-        local napePos = entry.nape.Position
-
-        -- ยิงหอก 1 นัด
-        pcall(function()
-            GET:InvokeServer("Spears", "S_Fire", tostring(CurrentFirePower))
-            CurrentFirePower = CurrentFirePower - 1
-        end)
-
-        -- 🔥 ระเบิดครั้งเดียว ณ ตำแหน่ง Nape เป้าหมายหลัก
-        -- ใช้รัศมีจาก G.ThunderSpearExplodeRadius (ปรับให้กว้างพอจะโดนทุกตัว)
-        local G = getgenv()
-        local radius = G.ThunderSpearExplodeRadius or 30   -- ค่าเริ่มต้น 30 (ครอบคลุมกลุ่มไททัน)
-        pcall(function()
-            POST:FireServer("Spears", "S_Explode", napePos, radius)
-        end)
-    end
-
-    local function IsRewardsUIVisible()
-        local success = false
-        pcall(function()
-            local interface = player.PlayerGui:FindFirstChild("Interface")
-            if interface then
-                local rewards = interface:FindFirstChild("Rewards")
-                if rewards and rewards.Visible == true then
-                    success = true
-                end
-            end
-        end)
-        return success
-    end
-
-    -- ==================== MAIN LOOP ====================
-    local ThunderConn
-    local function CreateThunderLoop()
-        if ThunderConn then ThunderConn:Disconnect() end
-        ThunderConn = RunService.Heartbeat:Connect(function()
-            local ok = pcall(function()
-                local G = getgenv()
-                if not G.AutoThunderSpear then
-                    NoclipOff()
-                    CurrentEntry = nil
-                    CleanupTeleport()
-                    return
-                end
-
-                if IsRewardsUIVisible() then
-                    G.AutoThunderSpear = false
-                    if Options and Options.AutoThunderSpear then
-                        Options.AutoThunderSpear:SetValue(false)
-                    end
-                    return
-                end
-
-                local char = player.Character
-                if not char then return end
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if not hrp or not hum or hum.Health <= 0 then
-                    CurrentEntry = nil
-                    CleanupTeleport()
-                    return
-                end
-
-                hrp.AssemblyAngularVelocity = Vector3.zero
-
-                if hrp.Position.Y < -50 then
-                    hrp.CFrame = CFrame.new(hrp.Position.X, 80, hrp.Position.Z)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    _vel = Vector3.zero
-                    return
-                end
-
-                ScanTitans()
-
-                if #ActiveTitans == 0 then
-                    CurrentEntry = nil
-                    LockedUntil = 0
-                    NoclipOn()
-                    CleanupTeleport()
-                    local dy = 80 - hrp.Position.Y
-                    hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
-                    _vel = Vector3.zero
-                    return
-                end
-
-                -- ล็อกเป้าหมาย
-                local now = tick()
-                if CurrentEntry then
-                    local entry = CurrentEntry
-                    if not entry.titan or not IsTitanAlive(entry.titan) or not entry.nape or not entry.nape.Parent then
-                        CurrentEntry = nil
-                    else
-                        local d = (hrp.Position - entry.nape.Position).Magnitude
-                        if d > 150 and now > LockedUntil then
-                            CurrentEntry = nil
-                        end
-                    end
-                end
-
-                if not CurrentEntry then
-                    CurrentEntry = GetClosestEntry(hrp.Position)
-                    if CurrentEntry then
-                        LockedUntil = now + 0.35
-                    else
-                        return
-                    end
-                end
-
-                local nape = CurrentEntry.nape
-                local hoverHeight = G.ThunderSpearHoverHeight or 120
-                local hoverSpeed = G.ThunderSpearHoverSpeed or 120
-                local ty = nape.Position.Y + hoverHeight
-                local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
-
-                NoclipOn()
-
-                if G.ThunderSpearFarmMode == "Teleport" then
-                    MoveStableTeleport(tp)
-                else
-                    CleanupTeleport()
-                    MoveFastTween(tp, hoverSpeed)
-                end
-
-                -- 🔥 ยิง + ระเบิด AOE ครั้งเดียว (ทุกฮาร์ทบีท)
-                FireThunderSpearAOE()
-            end)
-
-            if not ok then
-                task.wait(1)
-                CreateThunderLoop()
-            end
-        end)
-    end
-
-    CreateThunderLoop()
-
-    -- ตัวสำรองกรณี Heartbeat หลุด
-    task.spawn(function()
-        while task.wait(2) do
-            if not ThunderConn or not ThunderConn.Connected then
-                CreateThunderLoop()
-            end
-        end
-    end)
-end)
 
 -- ============================== FARM CORE ==============================
 local TitansFolder = workspace:WaitForChild("Titans")
@@ -7063,7 +6520,7 @@ if Tabs.Webhook then
     WebhookGroup:AddButton("Test Send", function()
         if webhookURL == "" then return end
         local body = game:GetService("HttpService"):JSONEncode({
-            content = "Test from Us Suite!",
+            content = "Test from Fake!",
             embeds = {{title = "Webhook Working!", color = 65280, footer = {text = os.date("%Y-%m-%d %H:%M:%S")}}}
         })
         pcall(function() request({Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body}) end)
@@ -7156,6 +6613,21 @@ if Tabs.AutoFarm then
     local spearQuestEnabled = false
     local spearQuestRunning = false
     
+    -- ดึง Remote GET สำหรับเรียก quest
+    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+    
+    -- ฟังก์ชันเรียก Update_Spear_Towers 6 ครั้ง
+    local function callSpearQuestUpdate()
+        for i = 1, 6 do
+            if not spearQuestEnabled then break end
+            local args = {"Quests", "Update_Spear_Towers", true}
+            pcall(function()
+                GET:InvokeServer(unpack(args))
+            end)
+            task.wait(0.2)
+        end
+    end
+    
     SpearGroup:AddToggle("AutoSpearQuestToggle", {
         Text="Auto Spear Quest",
         Default=false,
@@ -7164,6 +6636,10 @@ if Tabs.AutoFarm then
             if v and not spearQuestRunning then
                 spearQuestRunning = true
                 task.spawn(function()
+                    -- เรียก Update_Spear_Towers 6 ครั้ง ก่อนเริ่มเดินเก็บของ
+                    callSpearQuestUpdate()
+                    
+                    -- โค้ดเดิมที่เดินไปเก็บ supplies (ไม่แก้ไข)
                     repeat task.wait() until game.Players.LocalPlayer.Character
                     local hrp = game.Players.LocalPlayer.Character:WaitForChild("HumanoidRootPart")
                     
