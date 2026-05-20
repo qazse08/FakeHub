@@ -3499,11 +3499,13 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     AddConfirm("Teleport to Lobby", LOBBY_ID)
     AddConfirm("Teleport to Trading", TRADE_LOBBY_ID)
 end
--- ============================== AUTO MISSION ==============================
+-- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 if Tabs.Lobby then
 
-    local LobbyGroupLeft =
-        Tabs.Lobby:AddLeftGroupbox("Auto Mission")
+    local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
+
+    -- ============================== TAB: MISSION ==============================
+    local MissionTab = AutoMissionTabbox:AddTab("Mission")
 
     local MissionObjectives = {
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
@@ -3516,585 +3518,528 @@ if Tabs.Lobby then
     }
 
     local ModifiersList = {
-        "No Perks",
-        "No Skills",
-        "No Memories",
-        "Nightmare",
-        "Oddball",
-        "Injury Prone",
-        "Chronic Injuries",
-        "Fog",
-        "Glass Cannon",
-        "Time Trial",
-        "Boring",
-        "Simple"
+        "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
+        "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
     }
 
     local MODIFIER_ORDER = {
-        "No Perks",
-        "No Skills",
-        "No Memories",
-        "Nightmare",
-        "Oddball",
-        "Injury Prone",
-        "Chronic Injuries",
-        "Fog",
-        "Glass Cannon",
-        "Time Trial",
-        "Boring",
-        "Simple"
+        "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
+        "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
     }
 
-    local State = {
+    local State_Mission = {
         Name = "Shiganshina",
         Objective = "Skirmish",
         Difficulty = "Hardest"
     }
 
     local MissionDelay = 0
-    local selectedModifiers = {}
-
     local missionRunning = false
     local missionBusy = false
-    local sessionId = 0
-    local lastNotifiedModifiers = ""
+    local missionSessionId = 0
+    local lastNotifiedMissionMods = ""
 
-    -- ============================== LOAD SAVED STATE ==============================
     pcall(function()
-        if Options and Options.MissionDropdown and Options.MissionDropdown.Value then
-            State.Name = Options.MissionDropdown.Value
-        end
-        if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then
-            State.Objective = Options.ObjectiveDropdown.Value
-        end
-        if Options and Options.DifficultyDropdown and Options.DifficultyDropdown.Value then
-            State.Difficulty = Options.DifficultyDropdown.Value
-        end
-        if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then
-            MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0
-        end
-        if Options and Options.ModifiersDropdown and Options.ModifiersDropdown.Value then
-            local mods = Options.ModifiersDropdown.Value
-            if type(mods) == "table" then
-                for mod, enabled in pairs(mods) do
-                    if enabled then
-                        table.insert(selectedModifiers, mod)
-                    end
-                end
-            end
-        end
+        if Options and Options.MissionDropdown and Options.MissionDropdown.Value then State_Mission.Name = Options.MissionDropdown.Value end
+        if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then State_Mission.Objective = Options.ObjectiveDropdown.Value end
+        if Options and Options.MissionDifficultyDropdown and Options.MissionDifficultyDropdown.Value then State_Mission.Difficulty = Options.MissionDifficultyDropdown.Value end
+        if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0 end
     end)
 
-    -- ============================== LEVEL CHECK ==============================
     local function GetPlayerLevel()
-
         local success, level = pcall(function()
-
-            local title =
-                game:GetService("Players")
-                .LocalPlayer
-                .PlayerGui
-                :FindFirstChild("Interface")
-                and game.Players.LocalPlayer
-                .PlayerGui.Interface
-                :FindFirstChild("Gear_Up")
-                and game.Players.LocalPlayer
-                .PlayerGui.Interface.Gear_Up
-                :FindFirstChild("HUD")
-                and game.Players.LocalPlayer
-                .PlayerGui.Interface.Gear_Up.HUD
-                :FindFirstChild("Level")
-                and game.Players.LocalPlayer
-                .PlayerGui.Interface.Gear_Up.HUD.Level
-                :FindFirstChild("Title")
-
-            if not title then
-                return 1
-            end
-
-            local txt =
-                tostring(title.Text)
-
-            local num =
-                tonumber(
-                    txt:match("%d+")
-                )
-
+            local title = game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
+                and game.Players.LocalPlayer.PlayerGui.Interface:FindFirstChild("Gear_Up")
+                and game.Players.LocalPlayer.PlayerGui.Interface.Gear_Up:FindFirstChild("HUD")
+                and game.Players.LocalPlayer.PlayerGui.Interface.Gear_Up.HUD:FindFirstChild("Level")
+                and game.Players.LocalPlayer.PlayerGui.Interface.Gear_Up.HUD.Level:FindFirstChild("Title")
+            if not title then return 1 end
+            local txt = tostring(title.Text)
+            local num = tonumber(txt:match("%d+"))
             return num or 1
         end)
-
         return success and level or 1
     end
 
-    -- ============================== HARDEST CYCLE ==============================
     local function GetHardestCycle()
-
-        local level =
-            GetPlayerLevel()
-
-        if level >= 100 then
-
-            return {
-                "Aberrant"
-            }
-        end
-
-        if level > 40 then
-
-            return {
-                "Aberrant",
-                "Severe",
-                "Hard",
-                "Normal",
-                "Easy"
-            }
-        end
-
-        return {
-            "Hard",
-            "Normal",
-            "Easy"
-        }
+        local level = GetPlayerLevel()
+        if level >= 100 then return {"Aberrant"}
+        elseif level > 40 then return {"Aberrant","Severe","Hard","Normal","Easy"}
+        else return {"Hard","Normal","Easy"} end
     end
 
-    -- ============================== FORMAT MODIFIERS NOTIFICATION ==============================
-    local function formatModifiersNotification(modList)
-        if not modList or #modList == 0 then
-            return nil
-        end
-
-        local sortedMods = {}
-        for _, orderedMod in ipairs(MODIFIER_ORDER) do
+    local function formatMissionModifiers(modList)
+        if not modList or #modList == 0 then return nil end
+        local sorted = {}
+        for _, ordered in ipairs(MODIFIER_ORDER) do
             for _, m in ipairs(modList) do
-                if m == orderedMod then
-                    table.insert(sortedMods, m)
-                    break
-                end
+                if m == ordered then table.insert(sorted, m); break end
             end
         end
-
         for _, m in ipairs(modList) do
             local found = false
-            for _, orderedMod in ipairs(MODIFIER_ORDER) do
-                if m == orderedMod then
-                    found = true
-                    break
-                end
+            for _, ordered in ipairs(MODIFIER_ORDER) do
+                if m == ordered then found = true; break end
             end
-            if not found then
-                table.insert(sortedMods, m)
-            end
+            if not found then table.insert(sorted, m) end
         end
-
-        local modsText = table.concat(sortedMods, "\n")
-        return "Modifiers:\n" .. modsText
+        return "Modifiers:\n" .. table.concat(sorted, "\n")
     end
 
-    -- ============================== CREATE MISSION ==============================
-    local function CreateMission(
-        missionName,
-        objective,
-        difficulty
-    )
-
-        if not missionRunning then
-            return false
-        end
-
-        local args = {
-            "S_Missions",
-            "Create",
-            {
-                Difficulty = difficulty,
-                Type = "Missions",
-                Name = missionName,
-                Objective = objective
-            }
-        }
-
-        local success = pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
-
-        task.wait(0.15)  -- เพิ่มดีเลย์หลังสร้าง mission เพื่อให้เซิร์ฟเวอร์ประมวลผล
-
+    local function CreateMission(missionName, objective, difficulty)
+        if not missionRunning then return false end
+        local args = {"S_Missions", "Create", {Difficulty = difficulty, Type = "Missions", Name = missionName, Objective = objective}}
+        local success = pcall(function() GET:InvokeServer(unpack(args)) end)
+        task.wait(0.15)
         return success
     end
 
-    -- ============================== CLEAR MODIFIERS ==============================
-    local function ClearModifiers()
-
-        if not missionRunning then
-            return
-        end
-
-        pcall(function()
-            GET:InvokeServer("S_Missions", "ClearModifiers")
-        end)
-
-        task.wait(0.2)  -- เพิ่มดีเลย์หลัง clear modifiers
-    end
-
-    -- ============================== APPLY MODIFIERS ==============================
-    local function ApplyModifiers()
-
-        if not missionRunning then
-            return
-        end
-
-        local currentSelected = {}
-
-        pcall(function()
-            local value = Options.ModifiersDropdown.Value
-            if type(value) == "table" then
-                for mod, enabled in pairs(value) do
-                    if enabled == true then
-                        table.insert(currentSelected, mod)
-                    end
-                end
-            end
-        end)
-
-        if #currentSelected == 0 then
-            return
-        end
-
-        local sortedForNotify = {}
-        for _, orderedMod in ipairs(MODIFIER_ORDER) do
-            for _, m in ipairs(currentSelected) do
-                if m == orderedMod then
-                    table.insert(sortedForNotify, m)
-                    break
-                end
-            end
-        end
-
-        for _, m in ipairs(currentSelected) do
-            local found = false
-            for _, orderedMod in ipairs(MODIFIER_ORDER) do
-                if m == orderedMod then
-                    found = true
-                    break
-                end
-            end
-            if not found then
-                table.insert(sortedForNotify, m)
-            end
-        end
-
-        local modsString = table.concat(sortedForNotify, ", ")
-        if lastNotifiedModifiers ~= modsString then
-            lastNotifiedModifiers = modsString
-            local notifyText = formatModifiersNotification(currentSelected)
-            if notifyText then
-                Library:Notify(notifyText, 4)
-            end
-        end
-
-        ClearModifiers()
-
-        if not missionRunning then
-            return
-        end
-
-        -- วนลูปเพิ่ม modifier ทีละตัว พร้อมดีเลย์ 0.12 วินาทีต่อตัว
-        for _, mod in ipairs(currentSelected) do
-            if not missionRunning then
-                break
-            end
-
-            local args = {"S_Missions", "Modify", mod}
-            pcall(function()
-                GET:InvokeServer(unpack(args))
-            end)
-
-            task.wait(0.12)  -- รอ 0.12 วิ ต่อ modifier 1 ตัว
-        end
-
-        -- รอเพิ่มอีก 0.2 วินาที เพื่อให้ modifier ทั้งหมดโหลดเสร็จสมบูรณ์ ก่อน start
+    local function ClearMissionModifiers()
+        if not missionRunning then return end
+        pcall(function() GET:InvokeServer("S_Missions", "ClearModifiers") end)
         task.wait(0.2)
     end
 
-    -- ============================== START MISSION ==============================
-    local function StartMission()
-        if not missionRunning then
-            return
-        end
-
-        -- รอสั้นๆ ก่อน start จริง เพื่อความเสถียร
-        task.wait(0.1)
-
+    local function ApplyMissionModifiers()
+        if not missionRunning then return end
+        local selected = {}
         pcall(function()
-            GET:InvokeServer("S_Missions", "Start")
-        end)
-    end
-
-    -- ============================== LEAVE MISSION ==============================
-    local function LeaveMission()
-        pcall(function()
-            GET:InvokeServer("S_Missions", "Leave")
-        end)
-    end
-
-    -- ============================== MAIN LOOP ==============================
-    local function MissionLoop(mySession)
-
-        if MissionDelay > 0 then
-            task.wait(MissionDelay)
-        end
-
-        while missionRunning and sessionId == mySession do
-
-            if missionBusy then
-                task.wait(0.05)
-                continue
+            local val = Options.MissionModifiersDropdown.Value
+            if type(val) == "table" then
+                for mod, enabled in pairs(val) do
+                    if enabled then table.insert(selected, mod) end
+                end
             end
+        end)
+        if #selected == 0 then return end
+        local modsString = table.concat(selected, ", ")
+        if lastNotifiedMissionMods ~= modsString then
+            lastNotifiedMissionMods = modsString
+            local txt = formatMissionModifiers(selected)
+            if txt then Library:Notify(txt, 4) end
+        end
+        ClearMissionModifiers()
+        if not missionRunning then return end
+        for _, mod in ipairs(selected) do
+            if not missionRunning then break end
+            local args = {"S_Missions", "Modify", mod}
+            pcall(function() GET:InvokeServer(unpack(args)) end)
+            task.wait(0.12)
+        end
+        task.wait(0.2)
+    end
 
+    local function StartMission()
+        if not missionRunning then return end
+        task.wait(0.1)
+        pcall(function() GET:InvokeServer("S_Missions", "Start") end)
+    end
+
+    local function LeaveMission()
+        pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+    end
+
+    local function MissionLoop(mySession)
+        if MissionDelay > 0 then task.wait(MissionDelay) end
+        while missionRunning and missionSessionId == mySession do
+            if missionBusy then task.wait(0.05); continue end
             missionBusy = true
-
-            local currentMission = State.Name
-            local currentObjective = State.Objective
-            local currentDifficulty = State.Difficulty
+            local currentMission = State_Mission.Name
+            local currentObjective = State_Mission.Objective
+            local currentDifficulty = State_Mission.Difficulty
 
             if currentDifficulty == "Hardest" then
-
-                local cycleList = GetHardestCycle()
-
-                for _, diff in ipairs(cycleList) do
-
-                    if not missionRunning or sessionId ~= mySession then
-                        break
-                    end
-
-                    currentMission = State.Name
-                    currentObjective = State.Objective
-                    currentDifficulty = State.Difficulty
-
-                    if currentDifficulty ~= "Hardest" then
-                        break
-                    end
-
-                    local objectiveList = MissionObjectives[currentMission] or {"Skirmish"}
-
-                    if currentObjective == "Random" then
+                local cycle = GetHardestCycle()
+                for _, diff in ipairs(cycle) do
+                    if not missionRunning or missionSessionId ~= mySession then break end
+                    if State_Mission.Difficulty ~= "Hardest" then break end
+                    local objList = MissionObjectives[currentMission] or {"Skirmish"}
+                    local obj = currentObjective
+                    if obj == "Random" then
                         local filtered = {}
-                        for _, v in ipairs(objectiveList) do
-                            if v ~= "Random" then
-                                filtered[#filtered + 1] = v
-                            end
-                        end
-                        currentObjective = filtered[math.random(#filtered)]
+                        for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
+                        obj = filtered[math.random(#filtered)]
                     end
-
-                    CreateMission(currentMission, currentObjective, diff)
-
-                    task.wait(0.2)  -- รอให้การสร้าง mission เสร็จสมบูรณ์
-
-                    if not missionRunning then
-                        break
-                    end
-
-                    ApplyModifiers()
-
-                    task.wait(0.2)  -- รอให้ modifiers ทำงานเสร็จ
-
-                    if not missionRunning then
-                        break
-                    end
-
+                    CreateMission(currentMission, obj, diff)
+                    task.wait(0.2)
+                    if not missionRunning then break end
+                    ApplyMissionModifiers()
+                    task.wait(0.2)
+                    if not missionRunning then break end
                     StartMission()
-
                     local startTick = tick()
-                    repeat
-                        task.wait(0.05)
-                        if not missionRunning or sessionId ~= mySession then
-                            break
-                        end
-                    until tick() - startTick >= 3.5
-
-                    if MissionDelay > 0 then
-                        task.wait(MissionDelay)
-                    end
+                    repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 3.5
+                    if MissionDelay > 0 then task.wait(MissionDelay) end
                 end
-
             else
-
-                local objectiveList = MissionObjectives[currentMission] or {"Skirmish"}
-
-                if currentObjective == "Random" then
+                local objList = MissionObjectives[currentMission] or {"Skirmish"}
+                local obj = currentObjective
+                if obj == "Random" then
                     local filtered = {}
-                    for _, v in ipairs(objectiveList) do
-                        if v ~= "Random" then
-                            filtered[#filtered + 1] = v
-                        end
-                    end
-                    currentObjective = filtered[math.random(#filtered)]
+                    for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
+                    obj = filtered[math.random(#filtered)]
                 end
-
-                CreateMission(currentMission, currentObjective, currentDifficulty)
-
-                task.wait(0.15 + MissionDelay)  -- เพิ่มดีเลย์ให้เหมาะสม
-
-                if not missionRunning then
-                    break
-                end
-
-                ApplyModifiers()
-
+                CreateMission(currentMission, obj, currentDifficulty)
+                task.wait(0.15 + MissionDelay)
+                if not missionRunning then break end
+                ApplyMissionModifiers()
                 task.wait(0.2)
-
-                if not missionRunning then
-                    break
-                end
-
+                if not missionRunning then break end
                 StartMission()
-
                 local startTick = tick()
-                repeat
-                    task.wait(0.05)
-                    if not missionRunning or sessionId ~= mySession then
-                        break
-                    end
-                until tick() - startTick >= 0.45
+                repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 0.45
             end
-
             missionBusy = false
         end
     end
 
-    -- ============================== UPDATE SELECTED MODIFIERS ==============================
-    local function updateSelectedModifiers()
-        selectedModifiers = {}
-        pcall(function()
-            local value = Options.ModifiersDropdown.Value
-            if type(value) == "table" then
-                for mod, enabled in pairs(value) do
-                    if enabled then
-                        table.insert(selectedModifiers, mod)
-                    end
-                end
-            end
-        end)
-    end
-
-    -- ============================== UI ==============================
-    LobbyGroupLeft:AddDropdown("MissionDropdown", {
-        Values = {
-            "Shiganshina",
-            "Trost",
-            "Outskirts",
-            "Giant Forest",
-            "Utgard",
-            "Loading Docks",
-            "Stohess"
-        },
-        Default = State.Name,
-        Multi = false,
+    MissionTab:AddDropdown("MissionDropdown", {
+        Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
+        Default = State_Mission.Name,
         Text = "Mission",
         Callback = function(val)
-            State.Name = val
-            local newObjectives = MissionObjectives[val] or {"Skirmish"}
-            State.Objective = newObjectives[1]
-            if Options and Options.ObjectiveDropdown then
-                Options.ObjectiveDropdown:SetValues(newObjectives)
-                Options.ObjectiveDropdown:SetValue(newObjectives[1])
+            State_Mission.Name = val
+            local newObjs = MissionObjectives[val] or {"Skirmish"}
+            State_Mission.Objective = newObjs[1]
+            if Options and Options.MissionObjectiveDropdown then
+                Options.MissionObjectiveDropdown:SetValues(newObjs)
+                Options.MissionObjectiveDropdown:SetValue(newObjs[1])
             end
         end
     })
 
-    LobbyGroupLeft:AddDropdown("ObjectiveDropdown", {
+    MissionTab:AddDropdown("MissionObjectiveDropdown", {
         Values = MissionObjectives["Shiganshina"],
-        Default = State.Objective,
-        Multi = false,
+        Default = State_Mission.Objective,
         Text = "Objective",
-        Callback = function(val)
-            State.Objective = val
-        end
+        Callback = function(val) State_Mission.Objective = val end
     })
 
-    LobbyGroupLeft:AddDropdown("DifficultyDropdown", {
-        Values = {
-            "Easy",
-            "Normal",
-            "Hard",
-            "Severe",
-            "Aberrant",
-            "Hardest"
-        },
-        Default = State.Difficulty,
-        Multi = false,
+    MissionTab:AddDropdown("MissionDifficultyDropdown", {
+        Values = {"Easy","Normal","Hard","Severe","Aberrant","Hardest"},
+        Default = State_Mission.Difficulty,
         Text = "Mode",
-        Callback = function(val)
-            State.Difficulty = val
-        end
+        Callback = function(val) State_Mission.Difficulty = val end
     })
 
-    LobbyGroupLeft:AddDropdown("ModifiersDropdown", {
+    MissionTab:AddDropdown("MissionModifiersDropdown", {
         Values = ModifiersList,
         Default = {},
         Multi = true,
         Text = "Modifiers",
-        Callback = function(val)
-            updateSelectedModifiers()
-        end
+        Callback = function() end
     })
 
-    LobbyGroupLeft:AddSlider("MissionDelaySlider", {
+    MissionTab:AddSlider("MissionDelaySlider", {
         Text = "Delay",
         Default = MissionDelay,
-        Min = 0,
-        Max = 60,
-        Rounding = 0,
-        Callback = function(val)
-            MissionDelay = val
-        end
+        Min = 0, Max = 60, Rounding = 0,
+        Callback = function(v) MissionDelay = v end
     })
 
-    local autoStartToggle = LobbyGroupLeft:AddToggle("AutoStartMissionToggle", {
+    local missionToggle = MissionTab:AddToggle("AutoStartMissionToggle", {
         Text = "Start Mission",
         Default = false,
         Callback = function(v)
             if v then
-                if missionRunning then
-                    return
-                end
+                if missionRunning then return end
                 missionRunning = true
                 missionBusy = false
-                sessionId = sessionId + 1
-                local mySession = sessionId
-                task.spawn(function()
-                    MissionLoop(mySession)
-                end)
+                missionSessionId = missionSessionId + 1
+                task.spawn(MissionLoop, missionSessionId)
             else
                 missionRunning = false
-                missionBusy = false
-                sessionId = sessionId + 1
+                missionSessionId = missionSessionId + 1
                 LeaveMission()
             end
         end
     })
 
-    -- ============================== AUTO START WHEN TOGGLE WAS TRUE ==============================
     task.spawn(function()
         task.wait(1.5)
         pcall(function()
-            local savedToggleValue = false
-            if Options and Options.AutoStartMissionToggle then
-                savedToggleValue = Options.AutoStartMissionToggle.Value
-            end
-            if savedToggleValue == true and not missionRunning then
+            if Options and Options.AutoStartMissionToggle and Options.AutoStartMissionToggle.Value == true and not missionRunning then
                 missionRunning = true
                 missionBusy = false
-                sessionId = sessionId + 1
-                local mySession = sessionId
+                missionSessionId = missionSessionId + 1
+                task.spawn(MissionLoop, missionSessionId)
+            end
+        end)
+    end)
+
+    -- ============================== TAB: RAID ==============================
+    local RaidTab = AutoMissionTabbox:AddTab("Raid")
+
+    local RaidObjectives = {
+        ["Attack Titan"] = {name = "Trost", objective = "Attack Titan", hasMinimum = false},
+        ["Armored Titan"] = {name = "Shiganshina", objective = "Armored Titan", hasMinimum = false},
+        ["Female Titan"] = {name = "Stohess", objective = "Female Titan", hasMinimum = false},
+        ["Colossal Titan"] = {name = "Shiganshina", objective = "Colossal Titan", hasMinimum = true, minimum = 3}
+    }
+
+    local State_Raid = { Boss = "Attack Titan", Difficulty = "Hardest" }
+    local RaidDelay = 0
+    local raidRunning = false
+    local raidBusy = false
+    local raidSessionId = 0
+    local lastNotifiedRaidMods = ""
+
+    pcall(function()
+        if Options and Options.RaidBossDropdown and Options.RaidBossDropdown.Value then State_Raid.Boss = Options.RaidBossDropdown.Value end
+        if Options and Options.RaidDifficultyDropdown and Options.RaidDifficultyDropdown.Value then State_Raid.Difficulty = Options.RaidDifficultyDropdown.Value end
+        if Options and Options.RaidDelaySlider and Options.RaidDelaySlider.Value then RaidDelay = tonumber(Options.RaidDelaySlider.Value) or 0 end
+    end)
+
+    local function CreateRaid(bossName, difficulty)
+        if not raidRunning then return false end
+        local data = RaidObjectives[bossName]
+        if not data then return false end
+        local args = {"S_Missions", "Create", {Difficulty = difficulty, Type = "Raids", Name = data.name, Objective = data.objective}}
+        if data.hasMinimum then args[3].Minimum = data.minimum end
+        local success = pcall(function() GET:InvokeServer(unpack(args)) end)
+        task.wait(0.15)
+        return success
+    end
+
+    local function ClearRaidModifiers()
+        if not raidRunning then return end
+        pcall(function() GET:InvokeServer("S_Missions", "ClearModifiers") end)
+        task.wait(0.2)
+    end
+
+    local function ApplyRaidModifiers()
+        if not raidRunning then return end
+        local selected = {}
+        pcall(function()
+            local val = Options.RaidModifiersDropdown.Value
+            if type(val) == "table" then
+                for mod, enabled in pairs(val) do
+                    if enabled then table.insert(selected, mod) end
+                end
+            end
+        end)
+        if #selected == 0 then return end
+        local modsString = table.concat(selected, ", ")
+        if lastNotifiedRaidMods ~= modsString then
+            lastNotifiedRaidMods = modsString
+            local txt = formatMissionModifiers(selected)
+            if txt then Library:Notify(txt, 4) end
+        end
+        ClearRaidModifiers()
+        if not raidRunning then return end
+        for _, mod in ipairs(selected) do
+            if not raidRunning then break end
+            local args = {"S_Missions", "Modify", mod}
+            pcall(function() GET:InvokeServer(unpack(args)) end)
+            task.wait(0.12)
+        end
+        task.wait(0.2)
+    end
+
+    local function StartRaid()
+        if not raidRunning then return end
+        task.wait(0.1)
+        pcall(function() GET:InvokeServer("S_Missions", "Start") end)
+    end
+
+    local function LeaveRaid()
+        pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+    end
+
+    local function RaidLoop(mySession)
+        if RaidDelay > 0 then task.wait(RaidDelay) end
+        while raidRunning and raidSessionId == mySession do
+            if raidBusy then task.wait(0.05); continue end
+            raidBusy = true
+            local currentBoss = State_Raid.Boss
+            local currentDifficulty = State_Raid.Difficulty
+
+            if currentDifficulty == "Hardest" then
+                local cycle = GetHardestCycle()
+                for _, diff in ipairs(cycle) do
+                    if not raidRunning or raidSessionId ~= mySession then break end
+                    if State_Raid.Difficulty ~= "Hardest" then break end
+                    CreateRaid(currentBoss, diff)
+                    task.wait(0.2)
+                    if not raidRunning then break end
+                    ApplyRaidModifiers()
+                    task.wait(0.2)
+                    if not raidRunning then break end
+                    StartRaid()
+                    local startTick = tick()
+                    repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 3.5
+                    if RaidDelay > 0 then task.wait(RaidDelay) end
+                end
+            else
+                CreateRaid(currentBoss, currentDifficulty)
+                task.wait(0.15 + RaidDelay)
+                if not raidRunning then break end
+                ApplyRaidModifiers()
+                task.wait(0.2)
+                if not raidRunning then break end
+                StartRaid()
+                local startTick = tick()
+                repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 0.45
+            end
+            raidBusy = false
+        end
+    end
+
+    RaidTab:AddDropdown("RaidBossDropdown", {
+        Values = {"Attack Titan","Armored Titan","Female Titan","Colossal Titan"},
+        Default = State_Raid.Boss,
+        Text = "Raid Boss",
+        Callback = function(v) State_Raid.Boss = v end
+    })
+
+    RaidTab:AddDropdown("RaidDifficultyDropdown", {
+        Values = {"Easy","Normal","Hard","Severe","Aberrant","Hardest"},
+        Default = State_Raid.Difficulty,
+        Text = "Mode",
+        Callback = function(v) State_Raid.Difficulty = v end
+    })
+
+    RaidTab:AddDropdown("RaidModifiersDropdown", {
+        Values = ModifiersList,
+        Default = {},
+        Multi = true,
+        Text = "Modifiers",
+        Callback = function() end
+    })
+
+    RaidTab:AddSlider("RaidDelaySlider", {
+        Text = "Delay",
+        Default = RaidDelay,
+        Min = 0, Max = 60, Rounding = 0,
+        Callback = function(v) RaidDelay = v end
+    })
+
+    local raidToggle = RaidTab:AddToggle("AutoRaidToggle", {
+        Text = "Start Raid",
+        Default = false,
+        Callback = function(v)
+            if v then
+                if raidRunning then return end
+                raidRunning = true
+                raidBusy = false
+                raidSessionId = raidSessionId + 1
+                task.spawn(RaidLoop, raidSessionId)
+            else
+                raidRunning = false
+                raidSessionId = raidSessionId + 1
+                LeaveRaid()
+            end
+        end
+    })
+
+    task.spawn(function()
+        task.wait(1.5)
+        pcall(function()
+            if Options and Options.AutoRaidToggle and Options.AutoRaidToggle.Value == true and not raidRunning then
+                raidRunning = true
+                raidBusy = false
+                raidSessionId = raidSessionId + 1
+                task.spawn(RaidLoop, raidSessionId)
+            end
+        end)
+    end)
+
+    -- ============================== TAB: WAVES ==============================
+    local WavesTab = AutoMissionTabbox:AddTab("Waves")
+
+    local wavesRunning = false
+    local wavesBusy = false
+    local wavesSessionId = 0
+
+    local function CreateWave()
+        if not wavesRunning then return false end
+        local args = {
+            "S_Missions",
+            "Create",
+            {
+                Difficulty = "Easy",
+                Type = "Waves",
+                Name = "Trost",
+                Objective = "Waves"
+            }
+        }
+        local success = pcall(function() GET:InvokeServer(unpack(args)) end)
+        task.wait(0.15)
+        return success
+    end
+
+    local function StartWave()
+        if not wavesRunning then return end
+        task.wait(0.1)
+        pcall(function() GET:InvokeServer("S_Missions", "Start") end)
+    end
+
+    local function LeaveWave()
+        pcall(function() GET:InvokeServer("S_Missions", "Leave") end)
+    end
+
+    local function WavesLoop(mySession)
+        while wavesRunning and wavesSessionId == mySession do
+            if wavesBusy then
+                task.wait(0.05)
+                continue
+            end
+            wavesBusy = true
+
+            CreateWave()
+            task.wait(0.2)
+
+            if not wavesRunning then break end
+
+            StartWave()
+
+            local startTick = tick()
+            repeat
+                task.wait(0.05)
+                if not wavesRunning or wavesSessionId ~= mySession then break end
+            until tick() - startTick >= 0.45
+
+            wavesBusy = false
+        end
+    end
+
+    local wavesToggle = WavesTab:AddToggle("AutoWavesToggle", {
+        Text = "Start Waves",
+        Default = false,
+        Callback = function(v)
+            if v then
+                if wavesRunning then return end
+                wavesRunning = true
+                wavesBusy = false
+                wavesSessionId = wavesSessionId + 1
+                local mySession = wavesSessionId
                 task.spawn(function()
-                    MissionLoop(mySession)
+                    WavesLoop(mySession)
+                end)
+            else
+                wavesRunning = false
+                wavesBusy = false
+                wavesSessionId = wavesSessionId + 1
+                LeaveWave()
+            end
+        end
+    })
+
+    task.spawn(function()
+        task.wait(1.5)
+        pcall(function()
+            if Options and Options.AutoWavesToggle and Options.AutoWavesToggle.Value == true and not wavesRunning then
+                wavesRunning = true
+                wavesBusy = false
+                wavesSessionId = wavesSessionId + 1
+                local mySession = wavesSessionId
+                task.spawn(function()
+                    WavesLoop(mySession)
                 end)
             end
         end)
     end)
 
-    updateSelectedModifiers()
 end
 -- ============================== UNLOCK SKILLS ==============================
 if IsLobbyLobby() then
@@ -5424,38 +5369,6 @@ end
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
-local function AreBladesEmpty()
-    local success, result = pcall(function()
-        local player = game:GetService("Players").LocalPlayer
-        local sets = player.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
-        if sets and sets:IsA("TextLabel") then
-            local text = sets.Text
-            return text:match("^0%s*/") ~= nil
-        end
-        return false
-    end)
-    return success and result
-end
-
-local function GetBrokenBladeCount()
-    local success, count = pcall(function()
-        local char = game:GetService("Players").LocalPlayer.Character
-        if not char then return 0 end
-        local broken = 0
-        for _, child in ipairs(char:GetDescendants()) do
-            if child.Name:match("^Blade_%d+$") and child:GetAttribute("Broken") == true then
-                broken = broken + 1
-            end
-        end
-        return broken
-    end)
-    return (success and count) or 0
-end
-
-local function IsReloadingOrEmpty()
-    return AreBladesEmpty() or GetBrokenBladeCount() >= 14
-end
-
 -- ตารางรวมข้อมูลไททันที่มีชีวิต (โมเดล + Nape) – รีเฟรชทุก 0.02 วินาที
 local ActiveTitans = {}          -- {titanModel, napePart}
 local LastScan = 0
@@ -5800,8 +5713,6 @@ local function CreateFarmLoop()
                 MoveFastTween(tp, G.HoverSpeed)
             end
 
-            if IsReloadingOrEmpty() then return end
-
             if now - LastAtk < ATK_DELAY then return end
             LastAtk = now
 
@@ -5825,56 +5736,460 @@ task.spawn(function()
         end
     end
 end)
+-- ============================== THUNDER SPEAR CORE LOGIC (AGGRESSIVE AOE + CONTINUOUS BURST + SAFETY) ==============================
+if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
+
+local TitansFolder = workspace:WaitForChild("Titans")
+
+task.spawn(function()
+    task.wait(1)
+
+    local player = game:GetService("Players").LocalPlayer
+    local RunService = game:GetService("RunService")
+    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+    local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
+
+    local CurrentTarget = nil
+    local LastRefill = 0
+    local LastUpdate = 0
+    local HasTeleported = false
+    local BodyPosition = nil
+    local BodyGyro = nil
+
+    -- กระสุนจริง
+    local CurrentFirePower = 8
+    local EXPLODE_RADIUS = 35
+    local BURST_SHOTS = 3
+    local AOE_EXPLOSIONS_PER_TARGET = 6
+
+    -- ========== เพิ่มฟังก์ชันตรวจสอบโหมด (ใช้แบบเดียวกับ Farm Core) ==========
+    local function getGameMode()
+        local success, data = pcall(function()
+            return GET:InvokeServer("Data", "Copy")
+        end)
+        if success and data then
+            if data.Map and data.Map.Type then
+                return data.Map.Type
+            elseif data.Raid then
+                return "Raid"
+            elseif data.Waves then
+                return "Waves"
+            end
+        end
+        local success2, state = pcall(function()
+            return player.PlayerGui.Interface.Rewards.Main.Info.State.Text
+        end)
+        if success2 and state then
+            if state:find("MISSION") then return "Mission"
+            elseif state:find("RAID") then return "Raid"
+            elseif state:find("WAVE") then return "Waves"
+            end
+        end
+        return "Mission"
+    end
+    -- ==================================================
+
+    -- Cache Nape
+    local NapeCache = {}
+    local function GetNape(titan)
+        if not titan or not titan.Parent then return nil end
+        if NapeCache[titan] then return NapeCache[titan] end
+        local hitboxes = titan:FindFirstChild("Hitboxes")
+        if not hitboxes then return nil end
+        local hit = hitboxes:FindFirstChild("Hit")
+        if not hit then return nil end
+        local nape = hit:FindFirstChild("Nape")
+        if nape and nape:IsA("BasePart") then
+            NapeCache[titan] = nape
+            return nape
+        end
+        return nil
+    end
+
+    -- Cache ไททัน
+    local CachedTitans = {}
+    local LastTitanUpdate = 0
+    local TITAN_CACHE_TIME = 0.02
+    local function GetAliveTitans()
+        local now = tick()
+        if now - LastTitanUpdate < TITAN_CACHE_TIME then return CachedTitans end
+        LastTitanUpdate = now
+        CachedTitans = {}
+        for _, titan in ipairs(TitansFolder:GetChildren()) do
+            local hum = titan:FindFirstChildOfClass("Humanoid")
+            if hum and hum.Health > 10 then
+                CachedTitans[#CachedTitans+1] = titan
+            end
+        end
+        return CachedTitans
+    end
+
+    -- หาไททันใกล้สุด
+    local function GetNearestTitan(titans, hrp)
+        local nearest, shortest = nil, math.huge
+        local hrpPos = hrp.Position
+        for _, titan in ipairs(titans) do
+            local nape = GetNape(titan)
+            if nape then
+                local dist = (hrpPos - nape.Position).Magnitude
+                if dist < shortest then shortest = dist; nearest = titan end
+            end
+        end
+        return nearest
+    end
+
+    -- Noclip
+    local CachedCharParts = {}
+    local CachedCharRef = nil
+    local function ForceNoclip()
+        local char = player.Character
+        if not char then return end
+        if char ~= CachedCharRef then
+            CachedCharRef = char
+            CachedCharParts = {}
+            for _, v in ipairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then
+                    CachedCharParts[#CachedCharParts+1] = v
+                end
+            end
+        end
+        for i = 1, #CachedCharParts do
+            local part = CachedCharParts[i]
+            if part and part.Parent then part.CanCollide = false end
+        end
+    end
+
+    local function RestoreCollision()
+        for i = 1, #CachedCharParts do
+            local part = CachedCharParts[i]
+            if part and part.Parent then part.CanCollide = true end
+        end
+    end
+
+    -- เคลื่อนที่
+    local function MoveToTween(targetPos, speed)
+        local char = player.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        ForceNoclip()
+        local diff = targetPos - hrp.Position
+        local distH = math.sqrt(diff.X * diff.X + diff.Z * diff.Z)
+        local hVel = Vector3.zero
+        if distH > 0.5 then
+            local mul = math.min(distH * 15, speed * 1.8) / distH
+            hVel = Vector3.new(diff.X * mul, 0, diff.Z * mul)
+        end
+        local absY = diff.Y < 0 and -diff.Y or diff.Y
+        local vVel = absY > 0.5 and (diff.Y > 0 and math.min(diff.Y * 12, speed * 1.5) or math.max(diff.Y * 12, -speed * 1.5)) or 0
+        hrp.AssemblyLinearVelocity = Vector3.new(hVel.X, vVel, hVel.Z)
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end
+
+    -- รีโหลด
+    local function ReloadSpears()
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill"))
+        end)
+        CurrentFirePower = 8
+    end
+
+    -- ยิง 1 นัด
+    local function FireSingleShot()
+        if CurrentFirePower <= 0 then
+            ReloadSpears()
+            task.wait(0.05)
+            if CurrentFirePower == 0 then return end
+        end
+        pcall(function()
+            GET:InvokeServer("Spears", "S_Fire", "1")
+            CurrentFirePower = CurrentFirePower - 1
+        end)
+    end
+
+    -- ระเบิดซ้ำ
+    local function ExplodeAt(position)
+        for i = 1, AOE_EXPLOSIONS_PER_TARGET do
+            pcall(function()
+                POST:FireServer("Spears", "S_Explode", position, EXPLODE_RADIUS)
+            end)
+            task.wait(0.002)
+        end
+    end
+
+    -- AOE รอบศูนย์กลาง
+    local function AOEBombardment(centerPos, radius)
+        local titans = GetAliveTitans()
+        for _, titan in ipairs(titans) do
+            local nape = GetNape(titan)
+            if nape then
+                local dist = (centerPos - nape.Position).Magnitude
+                if dist <= radius then
+                    ExplodeAt(nape.Position)
+                end
+            end
+        end
+        ExplodeAt(centerPos)
+    end
+
+    -- ฟังก์ชันโจมตีหลัก
+    local function ThunderBurstAttack(napePos)
+        for i = 1, BURST_SHOTS do
+            FireSingleShot()
+            task.wait(0.008)
+        end
+        AOEBombardment(napePos, 120)
+    end
+
+    local function IsTitanValid(titan)
+        if not titan or not titan.Parent then return false end
+        local hum = titan:FindFirstChildOfClass("Humanoid")
+        return hum and hum.Health > 10
+    end
+
+    -- Main loop
+    RunService.Heartbeat:Connect(function()
+        pcall(function()
+            local now = tick()
+            if now - LastUpdate < 0.02 then return end
+            LastUpdate = now
+
+            local G = getgenv()
+            if not G.AutoThunderSpear then
+                RestoreCollision()
+                CurrentTarget = nil
+                HasTeleported = false
+                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
+                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+                return
+            end
+
+            local char = player.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            if not hum or not hrp then return end
+            if hum.Health <= 0 then return end
+
+            hrp.AssemblyAngularVelocity = Vector3.zero
+
+            local titans = GetAliveTitans()
+            if #titans == 0 then
+                CurrentTarget = nil
+                HasTeleported = false
+                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
+                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+                return
+            end
+
+            if not IsTitanValid(CurrentTarget) then
+                CurrentTarget = nil
+                HasTeleported = false
+                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
+                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+            end
+
+            if not CurrentTarget then
+                CurrentTarget = GetNearestTitan(titans, hrp)
+                HasTeleported = false
+                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
+                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+            end
+            if not CurrentTarget then return end
+
+            local nape = GetNape(CurrentTarget)
+            if not nape then
+                CurrentTarget = nil
+                HasTeleported = false
+                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
+                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+                return
+            end
+
+            local hoverHeight = G.ThunderSpearHoverHeight or 120
+            local hoverSpeed = G.ThunderSpearHoverSpeed or 250
+            local targetHeight = nape.Position.Y + hoverHeight
+            local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
+
+            if G.ThunderSpearFarmMode == "Teleport" then
+                if not HasTeleported then
+                    ForceNoclip()
+                    hrp.CFrame = CFrame.new(targetPos)
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+
+                    if BodyPosition then BodyPosition:Destroy() end
+                    if BodyGyro then BodyGyro:Destroy() end
+                    BodyPosition = Instance.new("BodyPosition")
+                    BodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                    BodyPosition.P = 50000
+                    BodyPosition.D = 500
+                    BodyPosition.Position = targetPos
+                    BodyPosition.Parent = hrp
+
+                    BodyGyro = Instance.new("BodyGyro")
+                    BodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+                    BodyGyro.P = 50000
+                    BodyGyro.D = 500
+                    local direction = Vector3.new(nape.Position.X - targetPos.X, 0, nape.Position.Z - targetPos.Z)
+                    BodyGyro.CFrame = direction.Magnitude > 0 and CFrame.new(Vector3.zero, direction) or CFrame.new(Vector3.zero)
+                    BodyGyro.Parent = hrp
+
+                    HasTeleported = true
+                else
+                    ForceNoclip()
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+            else
+                MoveToTween(targetPos, hoverSpeed)
+            end
+
+            -- ========== เพิ่ม Safety (เหมือน Blade) ==========
+            local gameMode = getGameMode()
+            if gameMode == "Mission" then
+                local elapsed = (G.FarmStartTime and (tick() - G.FarmStartTime)) or 0
+                local safe = elapsed >= (G.SafetyTime or 25)
+                local stopAt = G.StopAtTitansLeft or 1
+                if not safe and #titans <= stopAt then
+                    return  -- ข้ามการโจมตีในรอบนี้
+                end
+            end
+            -- ===============================================
+
+            ThunderBurstAttack(nape.Position)
+        end)
+    end)
+end)
 
 
 getgenv().AutoReloadBlade = false
 
-getgenv().ReloadConfig = {
-    LoopDelay = 0.01,
-    RefillCooldown = 2,
-    ReloadAtBroken = 14,
-    RefillAtHUD = "0/x",
-    HUDCheckPattern = "^0%s*/",
-}
+local player = game:GetService("Players").LocalPlayer
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
 
+-- Cooldown settings
+local RELOAD_COOLDOWN = 2      -- cooldown สำหรับ Blades Reload (GET)
+local REFILL_COOLDOWN = 3      -- cooldown สำหรับ Full Refill (POST)
+local DOUBLE_CHECK_DELAY = 0.2 -- delay ก่อนตรวจสอบซ้ำเพื่อความแน่ใจ
+
+local lastReload = 0
+local lastRefill = 0
+local isProcessing = false
+
+-- ฟังก์ชันตรวจสอบว่าใบมีดทั้งหมดหัก (Transparency == 1) ทุกเล่ม (14 เล่ม)
+local function areAllBladesBroken()
+    local char = player.Character
+    if not char then return false end
+    local rig = char:FindFirstChild("Rig_" .. player.Name)
+    if not rig then return false end
+    local leftHand = rig:FindFirstChild("LeftHand")
+    local rightHand = rig:FindFirstChild("RightHand")
+    if not leftHand or not rightHand then return false end
+
+    -- ตรวจ LeftHand 7 เล่ม
+    for i = 1, 7 do
+        local blade = leftHand:FindFirstChild("Blade_" .. i)
+        if not blade or blade.Transparency ~= 1 then
+            return false
+        end
+    end
+    -- ตรวจ RightHand 7 เล่ม
+    for i = 1, 7 do
+        local blade = rightHand:FindFirstChild("Blade_" .. i)
+        if not blade or blade.Transparency ~= 1 then
+            return false
+        end
+    end
+    return true
+end
+
+-- ฟังก์ชันตรวจสอบว่า HUD Sets เป็น "0/x" (เช่น 0/3, 0/7)
+local function isSetsEmpty()
+    local success, sets = pcall(function()
+        return player.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
+    end)
+    if not success or not sets then return false end
+    return sets.Text:match("^0%s*/") ~= nil
+end
+
+-- ฟังก์ชันรีโหลดดาบ (Blades Reload)
+local function doReloadBlades()
+    local args = {"Blades", "Reload"}
+    return pcall(function()
+        GET:InvokeServer(unpack(args))
+    end)
+end
+
+-- ฟังก์ชันรีฟิลแบบเต็ม (Full Refill)
+local function doFullRefill()
+    local success, refillPart = pcall(function()
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+    end)
+    if not success or not refillPart then return false end
+    local args = {"Attacks", "Reload", refillPart}
+    return pcall(function()
+        POST:FireServer(unpack(args))
+    end)
+end
+
+-- Main loop
 task.spawn(function()
-    local player = game:GetService("Players").LocalPlayer
-    local lastRefill = 0
-
     while true do
-        task.wait(getgenv().ReloadConfig.LoopDelay)
-
+        task.wait(0.3)   -- ตรวจจับทุก 0.3 วินาที
+        
         pcall(function()
-            if not getgenv().AutoReloadBlade then return end
-
-            local char = player.Character
-            if not char then return end
-
-            local cfg = getgenv().ReloadConfig
+            if not getgenv().AutoReloadBlade then
+                isProcessing = false
+                return
+            end
+            if isProcessing then return end
+            
             local now = tick()
-
-            local broken = 0
-            for _, child in ipairs(char:GetDescendants()) do
-                if child.Name:match("^Blade_%d+$") and child:GetAttribute("Broken") == true then
-                    broken = broken + 1
+            local bladesBroken = areAllBladesBroken()
+            local setsEmpty = isSetsEmpty()
+            
+            if not bladesBroken then
+                return
+            end
+            
+            -- กรณีที่ blades broken แต่ sets ไม่ empty (ยังมีแก๊สเหลือ) -> รอ 0.75 วิ แล้วทำ Blades Reload
+            if not setsEmpty then
+                if (now - lastReload) >= RELOAD_COOLDOWN then
+                    task.wait(0.75)
+                    if not getgenv().AutoReloadBlade then return end
+                    if not areAllBladesBroken() then return end
+                    -- ถ้าตอนนี้ sets กลายเป็น empty ให้ข้ามไปให้ Full Refill จัดการ
+                    if isSetsEmpty() then
+                        return
+                    end
+                    
+                    isProcessing = true
+                    local success = doReloadBlades()
+                    if success then
+                        lastReload = tick()
+                    end
+                    task.wait(0.2)
+                    isProcessing = false
                 end
             end
-
-            local sets = player.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
-            local setsText = sets and sets.Text or ""
-
-            if broken >= cfg.ReloadAtBroken then
-                game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                    :WaitForChild("Remotes"):WaitForChild("GET")
-                    :InvokeServer("Blades", "Reload")
-            end
-
-            if now - lastRefill >= cfg.RefillCooldown and setsText:match(cfg.HUDCheckPattern) then
-                game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                    :WaitForChild("Remotes"):WaitForChild("POST")
-                    :FireServer("Attacks", "Reload",
-                        workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill"))
-                lastRefill = now
+            
+            -- กรณีที่ blades broken และ sets empty -> ทำ Full Refill ทันที (ตรวจสอบซ้ำสั้นๆ)
+            if bladesBroken and setsEmpty then
+                if (now - lastRefill) >= REFILL_COOLDOWN then
+                    task.wait(DOUBLE_CHECK_DELAY)
+                    if not getgenv().AutoReloadBlade then return end
+                    if not areAllBladesBroken() or not isSetsEmpty() then return end
+                    
+                    isProcessing = true
+                    local success = doFullRefill()
+                    if success then
+                        lastRefill = tick()
+                    end
+                    task.wait(0.2)
+                    isProcessing = false
+                end
             end
         end)
     end
