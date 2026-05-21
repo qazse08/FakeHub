@@ -1,12 +1,9 @@
---loadstring(game:HttpGet("https://raw.githubusercontent.com/TITANIC-HUB/THUB/main/Loader.lua"))()
-
-
 -- ============================== FULL LOAD CHECK ==============================
 repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(0)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
