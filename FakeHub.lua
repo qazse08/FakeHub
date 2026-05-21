@@ -6770,6 +6770,66 @@ if Tabs.Webhook then
         return statsFrame, itemsFrame
     end
     
+    -- ฟังก์ชันรอข้อมูล Server ให้สมบูรณ์ (เพิ่ม)
+    local function waitForServerData(maxWait)
+        local start = tick()
+        local lastData = nil
+        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+        while tick() - start < maxWait do
+            local success, data = pcall(function()
+                return GET:InvokeServer("Data", "Copy")
+            end)
+            if success and data and data.Slots then
+                local slot = data.Slots[data.Current_Slot or "A"]
+                if slot and slot.Currency and slot.Progression then
+                    if (slot.Currency.Gold or 0) > 0 or (slot.Currency.Gems or 0) > 0 or (slot.Progression.Level or 0) > 0 then
+                        lastData = data
+                        break
+                    end
+                end
+                lastData = data
+            end
+            task.wait(0.3)
+        end
+        return lastData
+    end
+    
+    -- ฟังก์ชันรอ UI Elements ให้มีข้อมูลไม่เป็นศูนย์ (เพิ่ม)
+    local function waitForUIElements(maxWait)
+        local start = tick()
+        local statsFrame, itemsFrame = nil, nil
+        while tick() - start < maxWait do
+            statsFrame, itemsFrame = findUIElements()
+            local hasStat = false
+            local hasItem = false
+            if statsFrame then
+                for _, v in ipairs(statsFrame:GetChildren()) do
+                    if v:IsA("Frame") and v:FindFirstChild("Amount") then
+                        local amount = v.Amount.Text
+                        if amount and amount ~= "0" and amount ~= "" then
+                            hasStat = true
+                            break
+                        end
+                    end
+                end
+            end
+            if itemsFrame then
+                for _, v in ipairs(itemsFrame:GetChildren()) do
+                    if v:IsA("Frame") and v:FindFirstChild("Main") then
+                        local inner = v.Main:FindFirstChild("Inner")
+                        if inner and inner.Quantity and inner.Quantity.Text ~= "0" and inner.Quantity.Text ~= "" then
+                            hasItem = true
+                            break
+                        end
+                    end
+                end
+            end
+            if hasStat or hasItem then break end
+            task.wait(0.2)
+        end
+        return findUIElements()
+    end
+    
     local function sendRewardWebhook()
         if webhookURL == "" then return end
         incrementGamesPlayed()
@@ -6935,20 +6995,11 @@ if Tabs.Webhook then
         return ok and state or ""
     end
     
+    -- ปรับปรุง formatModifiersText ให้แสดงผลชัดเจนขึ้น
     local function formatModifiersText(modifiers)
         local order = {
-            "No Perks",
-            "No Skills",
-            "No Memories",
-            "Nightmare",
-            "Oddball",
-            "Injury Prone",
-            "Chronic Injuries",
-            "Fog",
-            "Glass Cannon",
-            "Time Trial",
-            "Boring",
-            "Simple"
+            "No Perks", "No Skills", "No Memories", "Nightmare", "Oddball",
+            "Injury Prone", "Chronic Injuries", "Fog", "Glass Cannon", "Time Trial", "Boring", "Simple"
         }
         
         if not modifiers or type(modifiers) ~= "table" then
@@ -6993,46 +7044,49 @@ if Tabs.Webhook then
             return "None"
         end
         
-        return table.concat(sortedMods, "\n")
+        return "- " .. table.concat(sortedMods, "\n- ")
     end
     
+    -- แก้ไข sendMissionEndWebhook ให้รอข้อมูลให้สมบูรณ์ก่อนส่ง
     local function sendMissionEndWebhook(missionState)
         if webhookURL == "" then return end
         
-        local player = game:GetService("Players").LocalPlayer
-        
-        local data = nil
-        local ok, d = pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            return GET:InvokeServer("Data", "Copy")
-        end)
-        if ok and d then data = d
-        else
-            local ok2, d2 = pcall(function()
-                return run_on_actor(getactors()[1], [[
-                    local args = {"Data", "Copy"}
-                    return game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
-                ]])
-            end)
-            if ok2 and d2 then data = d2 else return end
+        -- รอให้ข้อมูล server โหลดสมบูรณ์ (สูงสุด 3 วินาที)
+        local serverData = waitForServerData(3)
+        if not serverData or not serverData.Slots then
+            task.wait(0.5)
+            serverData = waitForServerData(1)
         end
         
-        if not data or not data.Slots then return end
-        local slot = data.Slots[data.Current_Slot or "A"]
+        -- รอให้ UI elements มีข้อมูล (สูงสุด 2 วินาที)
+        waitForUIElements(2)
+        
+        local player = game:GetService("Players").LocalPlayer
+        
+        if not serverData then
+            pcall(function()
+                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                serverData = GET:InvokeServer("Data", "Copy")
+            end)
+        end
+        
+        if not serverData or not serverData.Slots then return end
+        
+        local slot = serverData.Slots[serverData.Current_Slot or "A"]
         if not slot then return end
         
         local fields = {}
         
-        if data.Map then
-            local modsText = formatModifiersText(data.Map.Modifiers)
+        if serverData.Map then
+            local modsText = formatModifiersText(serverData.Map.Modifiers)
             local mapValue = string.format("```Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s```",
-                data.Map.Map or "Unknown",
-                data.Map.Difficulty or "Unknown",
-                data.Map.Objective or "Unknown",
+                serverData.Map.Map or "Unknown",
+                serverData.Map.Difficulty or "Unknown",
+                serverData.Map.Objective or "Unknown",
                 modsText
             )
             table.insert(fields, {
-                name = "📍 Mission Info",
+                name = "Mission Info",
                 value = mapValue,
                 inline = false
             })
@@ -7040,7 +7094,7 @@ if Tabs.Webhook then
         
         if filters.Currency then
             table.insert(fields, {
-                name = "💰 Currency",
+                name = "Currency",
                 value = string.format("```Gold: %s\nGems: %s\nCanes: %s\nShards: %s```",
                     fmt(slot.Currency and slot.Currency.Gold or 0),
                     fmt(slot.Currency and slot.Currency.Gems or 0),
@@ -7053,7 +7107,7 @@ if Tabs.Webhook then
         
         if filters.Progression then
             table.insert(fields, {
-                name = "📈 Progression",
+                name = "Progression",
                 value = string.format("```Level: %s\nPrestige: %s\nXP: %s/%s```",
                     slot.Progression and slot.Progression.Level or 0,
                     slot.Progression and slot.Progression.Prestige or 0,
@@ -7066,10 +7120,10 @@ if Tabs.Webhook then
         
         if filters.Loadout then
             table.insert(fields, {
-                name = "⚔️ Loadout",
+                name = "Loadout",
                 value = string.format("```Weapon: %s\nSlot: %s\nSpins: %s```",
                     slot.Weapon or "?",
-                    data.Current_Slot or "A",
+                    serverData.Current_Slot or "A",
                     fmt(slot.Total_Spins or 0)
                 ),
                 inline = true
@@ -7080,7 +7134,7 @@ if Tabs.Webhook then
             local text, count = getItems(slot.Inventory.Items, "• ")
             if text then
                 table.insert(fields, {
-                    name = "📦 Inventory (" .. count .. " items)",
+                    name = "Inventory (" .. count .. " items)",
                     value = "```" .. text .. "```",
                     inline = false
                 })
@@ -7091,7 +7145,7 @@ if Tabs.Webhook then
             local text, count = getItems(slot.Inventory.Cosmetics, "• ")
             if text then
                 table.insert(fields, {
-                    name = "🎨 Cosmetics (" .. count .. " items)",
+                    name = "Cosmetics (" .. count .. " items)",
                     value = "```" .. text .. "```",
                     inline = false
                 })
@@ -7130,7 +7184,6 @@ if Tabs.Webhook then
             if hasSentWebhook then return end
             if webhookURL == "" then return end
             
-            -- รอ 2.5 วินาทีให้ข้อมูลโหลดสมบูรณ์
             task.wait(2.5)
             
             if webhookMode == "Reward Webhook" then
@@ -7161,9 +7214,7 @@ if Tabs.Webhook then
         Values = {"All Data", "Reward Webhook"},
         Default = "All Data",
         Multi = false,
-        Callback = function(v)
-            webhookMode = v
-        end
+        Callback = function(v) webhookMode = v end
     })
     
     WebhookGroup:AddDivider()
@@ -7202,7 +7253,7 @@ if Tabs.Webhook then
         local testBody = game:GetService("HttpService"):JSONEncode({
             content = "Test from FakeHUB!",
             embeds = {{
-                title = "✅ Webhook Working!",
+                title = "Webhook Working!",
                 color = 65280,
                 fields = {
                     {name = "Mode", value = webhookMode, inline = true},
