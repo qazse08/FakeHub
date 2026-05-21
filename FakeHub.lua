@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(0)
+task.wait(6)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -4430,145 +4430,177 @@ end
 -- ============================== PRESTIGE ==============================
 if IsLobbyLobby() then
     local PrestigeGroup = Tabs.Session:AddRightGroupbox("Prestige")
-    
+
     getgenv().PrestigeEnabled = false
-    getgenv().PrestigeRunning = false
     getgenv().SelectedBoost = nil
-    getgenv().SelectedTalent = nil
-    
-    local TalentsDB = {
-        ["Offense ☆"] = {"Crescendo", "Blitzblade", "Swiftshot", "Surgeshot"},
-        ["Offense ☆☆"] = {"Stalwart", "Stormcharged"},
-        ["Offense ☆☆☆"] = {"Quakestrike", "Furyforge", "Assassin", "Amputation", "Marksman"},
-        ["Offense ☆☆☆☆"] = {"Overslash", "Gambler", "Afterimages"},
-        ["Defense ☆"] = {"Guardian", "Deflectra"},
-        ["Defense ☆☆"] = {"Aegisurge", "Riposte"},
-        ["Defense ☆☆☆"] = {"Resilience", "Vengeflare", "Steel Frame"},
-        ["Defense ☆☆☆☆"] = {"Necromantic", "Thanatophobia"},
-        ["Support ☆"] = {"Cooldown Blitz", "Mendmaster"},
-        ["Support ☆☆"] = {"Lifefeed", "Vitalize", "Gem Fiend"},
-        ["Support ☆☆☆"] = {"Omnirange", "Flashstep", "Tactician"},
-        ["Support ☆☆☆☆"] = {"Bloodthief", "Apotheosis"}
+
+    -- ============================== TALENTS ==============================
+
+    local AllTalents = {
+        "Crescendo",
+        "Blitzblade",
+        "Swiftshot",
+        "Surgeshot",
+
+        "Stalwart",
+        "Stormcharged",
+
+        "Quakestrike",
+        "Furyforge",
+        "Assassin",
+        "Amputation",
+        "Marksman",
+
+        "Overslash",
+        "Gambler",
+        "Afterimages",
+
+        "Guardian",
+        "Deflectra",
+
+        "Aegisurge",
+        "Riposte",
+
+        "Resilience",
+        "Vengeflare",
+        "Steel Frame",
+
+        "Necromantic",
+        "Thanatophobia",
+
+        "Cooldown Blitz",
+        "Mendmaster",
+
+        "Lifefeed",
+        "Vitalize",
+        "Gem Fiend",
+
+        "Omnirange",
+        "Flashstep",
+        "Tactician",
+
+        "Bloodthief",
+        "Apotheosis"
     }
-    
-    -- 🔥 ฟังก์ชันสุ่ม Talent จากทั้งหมด
+
     local function getRandomTalent()
-        local allTalents = {}
-        for _, talents in pairs(TalentsDB) do
-            for _, talent in ipairs(talents) do
-                table.insert(allTalents, talent)
-            end
+        if #AllTalents <= 0 then
+            return nil
         end
-        if #allTalents == 0 then return nil end
-        return allTalents[math.random(#allTalents)]
+
+        return AllTalents[math.random(1, #AllTalents)]
     end
-    
+
+    -- ============================== PRESTIGE FUNCTION ==============================
+
+    local PrestigeCooldown = 3
+    local PrestigeRunning = false
+
     local function doPrestige()
-        if not getgenv().PrestigeEnabled then return false end
-        if not getgenv().SelectedBoost then return false end
-        
-        local talent = getgenv().SelectedTalent
-        if talent == "Random" then
-            talent = getRandomTalent()
-            if not talent then return false end
+        if not getgenv().PrestigeEnabled then
+            return
         end
-        
-        if not talent then return false end
-        
+
+        if not getgenv().SelectedBoost then
+            return
+        end
+
+        local talent = getRandomTalent()
+
+        if not talent then
+            return
+        end
+
+        -- โหลด talents
         SafeInvoke(GET, "S_Equipment", "Talents")
+
         task.wait(1)
-        return pcall(function()
+
+        -- prestige
+        pcall(function()
             SafeInvoke(GET, "S_Equipment", "Prestige", {
                 Boosts = getgenv().SelectedBoost,
                 Talents = talent
             })
         end)
     end
-    
+
+    -- ============================== UI ==============================
+
     PrestigeGroup:AddDropdown("BoostDropdown", {
-        Values = {"None","Luck Boost","Exp Boost","Gold Boost"},
+        Values = {
+            "None",
+            "Luck Boost",
+            "Exp Boost",
+            "Gold Boost"
+        },
+
         Default = "None",
         Multi = false,
         Text = "Boost Type",
+
         Callback = function(v)
             getgenv().SelectedBoost = (v ~= "None") and v or nil
         end
     })
-    
-    PrestigeGroup:AddDropdown("TalentCategoryDropdown", {
-        Values = {"Offense ☆","Offense ☆☆","Offense ☆☆☆","Offense ☆☆☆☆",
-                  "Defense ☆","Defense ☆☆","Defense ☆☆☆","Defense ☆☆☆☆",
-                  "Support ☆","Support ☆☆","Support ☆☆☆","Support ☆☆☆☆"},
-        Default = "Offense ☆",
-        Multi = false,
-        Text = "Category",
+
+    PrestigeGroup:AddLabel("Talent : Random Only")
+
+    PrestigeGroup:AddSlider("PrestigeCooldownSlider", {
+        Text = "Delay",
+        Default = 3,
+        Min = 1,
+        Max = 30,
+        Rounding = 0,
+        Suffix = "s",
+
         Callback = function(v)
-            if Options and Options.TalentDropdown then
-                local talents = TalentsDB[v] or {}
-                -- 🔥 เพิ่มตัวเลือก "Random" ไว้หน้า list
-                local talentList = {"Random"}
-                for _, t in ipairs(talents) do
-                    table.insert(talentList, t)
-                end
-                Options.TalentDropdown:SetValues(talentList)
-                -- ถ้าเดิมเลือก "Random" ไว้ก็คงไว้ ไม่งั้นไปที่ตัวแรกใน list (Random หรือ Talent แรก)
-                local current = getgenv().SelectedTalent
-                if current == "Random" or (current and table.find(talentList, current)) then
-                    Options.TalentDropdown:SetValue(current)
-                else
-                    Options.TalentDropdown:SetValue(talentList[1])  -- "Random"
-                    getgenv().SelectedTalent = talentList[1]
-                end
-            end
+            PrestigeCooldown = v
         end
     })
-    
-    -- 🔥 TalentDropdown เริ่มต้นใส่ "Random" ด้วย
-    local initialTalents = TalentsDB["Offense ☆"]
-    local talentList = {"Random"}
-    for _, t in ipairs(initialTalents) do
-        table.insert(talentList, t)
-    end
-    
-    PrestigeGroup:AddDropdown("TalentDropdown", {
-        Values = talentList,
-        Default = talentList[2],  -- "Crescendo" (ข้าม "Random")
-        Multi = false,
-        Text = "Talent",
-        Callback = function(v)
-            getgenv().SelectedTalent = v
-        end
-    })
-    
+
     PrestigeGroup:AddDivider()
-    
+
     PrestigeGroup:AddToggle("PrestigeToggle", {
         Text = "Auto Prestige",
         Default = false,
+
         Callback = function(v)
             getgenv().PrestigeEnabled = v
-            if v then
-                if not getgenv().SelectedBoost then
-                    getgenv().PrestigeEnabled = false
-                    return
-                end
-                if not getgenv().SelectedTalent then
-                    getgenv().PrestigeEnabled = false
-                    return
-                end
-                if not getgenv().PrestigeRunning then
-                    getgenv().PrestigeRunning = true
-                    task.spawn(function()
-                        local success = doPrestige()
-                        getgenv().PrestigeEnabled = false
-                        getgenv().PrestigeRunning = false
-                    end)
-                end
-            else
-                getgenv().PrestigeRunning = false
-            end
         end
     })
+
+    -- ============================== LOOP ==============================
+
+    task.spawn(function()
+
+        while true do
+            task.wait(PrestigeCooldown)
+
+            pcall(function()
+
+                if not getgenv().PrestigeEnabled then
+                    return
+                end
+
+                if PrestigeRunning then
+                    return
+                end
+
+                if not getgenv().SelectedBoost then
+                    return
+                end
+
+                PrestigeRunning = true
+
+                doPrestige()
+
+                PrestigeRunning = false
+
+            end)
+        end
+
+    end)
 end
 -- ============================== AUTO CLAIMS ==============================
 if IsLobbyLobby() then
