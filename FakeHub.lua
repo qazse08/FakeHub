@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(6)
+task.wait(10)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -2706,93 +2706,155 @@ local UISettingsTab = Window:AddTab("Settings")
 
 local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
 
-local hideUIFile = FakeHUBFolder .. "/hide_ui.txt"
+-- 🔥 MULTI ACCOUNT SUPPORT
+-- ใช้แยกตาม PLACE ID เท่านั้น
+-- ทุก account ใช้ร่วมกันได้
+local hideUIFile =
+    FakeHUBFolder
+    .. "/hide_ui_"
+    .. tostring(game.PlaceId)
+    .. ".txt"
 
 -- ============================== LOAD HIDE STATE ==============================
 local shouldHideUI = false
 
 pcall(function()
+
     if isfile(hideUIFile) then
-        shouldHideUI = (readfile(hideUIFile) == "true")
+
+        shouldHideUI =
+            (readfile(hideUIFile) == "true")
+
     end
+
 end)
 
 -- ============================== SAFE TOGGLE FUNCTIONS ==============================
 local function IsUIVisible()
-    return Window and Window.Holder and Window.Holder.Visible
+
+    return Window
+        and Window.Holder
+        and Window.Holder.Visible
+
 end
 
 local function HideUI()
+
     pcall(function()
+
         if IsUIVisible() then
             Library:Toggle()
         end
+
     end)
+
 end
 
 local function ShowUI()
+
     pcall(function()
-        if Window and Window.Holder and not Window.Holder.Visible then
+
+        if Window
+            and Window.Holder
+            and not Window.Holder.Visible
+        then
             Library:Toggle()
         end
+
     end)
+
 end
 
 -- ============================== AUTO HIDE TOGGLE ==============================
 MenuGroup:AddToggle("HideUIToggle", {
+
     Text = "Auto Hide UI",
+
     Default = shouldHideUI,
+
     Callback = function(v)
+
         pcall(function()
-            writefile(hideUIFile, tostring(v))
+
+            -- 🔥 SAVE SHARED FOR ALL ACCOUNTS
+            writefile(
+                hideUIFile,
+                tostring(v)
+            )
+
         end)
+
     end
 })
 
 -- ============================== UNLOAD ==============================
 MenuGroup:AddButton("Unload", function()
+
     Library:Unload()
+
 end)
 
 -- ============================== KEYBIND ==============================
-MenuGroup:AddLabel("Menu Bind"):AddKeyPicker("MenuKeybind", {
-    Default = "End",
-    NoUI = true,
-    Text = "Menu Keybind"
-})
+MenuGroup:AddLabel("Menu Bind"):AddKeyPicker(
+    "MenuKeybind",
+    {
+        Default = "End",
+        NoUI = true,
+        Text = "Menu Keybind"
+    }
+)
 
 task.defer(function()
+
     pcall(function()
-        if Options and Options.MenuKeybind then
-            Library.ToggleKeybind = Options.MenuKeybind
+
+        if Options
+            and Options.MenuKeybind
+        then
+            Library.ToggleKeybind =
+                Options.MenuKeybind
         end
+
     end)
+
 end)
 
 -- ============================== CONFIG SECTION PATCH ==============================
-local oldBuildConfigSection = SaveManager.BuildConfigSection
+local oldBuildConfigSection =
+    SaveManager.BuildConfigSection
 
 function SaveManager:BuildConfigSection(tab)
+
     if oldBuildConfigSection then
         oldBuildConfigSection(self, tab)
     end
 
-    local section = tab:AddRightGroupbox("Configuration")
+    local section =
+        tab:AddRightGroupbox("Configuration")
 
     section:AddButton("Delete config", function()
-        if not Options or not Options.SaveManager_ConfigList then
+
+        if not Options
+            or not Options.SaveManager_ConfigList
+        then
             return
         end
 
-        local name = Options.SaveManager_ConfigList.Value
+        local name =
+            Options.SaveManager_ConfigList.Value
 
         if not name then
             return
         end
 
-        local filePath = self.Folder .. "/settings/" .. name .. ".json"
+        local filePath =
+            self.Folder
+            .. "/settings/"
+            .. name
+            .. ".json"
 
         if isfile(filePath) then
+
             delfile(filePath)
 
             Options.SaveManager_ConfigList:SetValues(
@@ -2800,69 +2862,101 @@ function SaveManager:BuildConfigSection(tab)
             )
 
             Options.SaveManager_ConfigList:SetValue(nil)
+
         end
+
     end)
+
 end
 
-SaveManager:BuildConfigSection(UISettingsTab)
+SaveManager:BuildConfigSection(
+    UISettingsTab
+)
 
--- ============================== THEME (BACKGROUND ONLY) ==============================
+-- ============================== THEME ==============================
 pcall(function()
 
     if ThemeManager
         and ThemeManager.BuiltInThemes
         and ThemeManager.BuiltInThemes["Jester"]
     then
+
         ThemeManager:ApplyTheme("Jester")
+
         ThemeManager:SaveDefault("Jester")
 
-    elseif ThemeManager and ThemeManager.ApplyTheme then
+    elseif ThemeManager
+        and ThemeManager.ApplyTheme
+    then
+
         ThemeManager:ApplyTheme("Default")
+
     end
 
 end)
 
 -- ============================== FORCE DEFAULT THEME ==============================
 pcall(function()
+
     if ThemeManager
         and ThemeManager.BuiltInThemes
         and ThemeManager.BuiltInThemes["Jester"]
     then
+
         ThemeManager:ApplyTheme("Jester")
+
         ThemeManager:SaveDefault("Jester")
 
-    elseif ThemeManager and ThemeManager.ApplyTheme then
+    elseif ThemeManager
+        and ThemeManager.ApplyTheme
+    then
+
         ThemeManager:ApplyTheme("Default")
+
     end
+
 end)
 
 -- ============================== AUTOLOAD + AUTO HIDE ==============================
 task.spawn(function()
 
+    -- 🔥 รอระบบ UI โหลดก่อน
     task.wait(0.25)
 
+    -- 🔥 LOAD CONFIG
     pcall(function()
+
         SaveManager:LoadAutoloadConfig()
+
     end)
 
-    -- รอ Window โหลดจริง
+    -- 🔥 รอ WINDOW
     for i = 1, 40 do
-        if Window and Window.Holder then
+
+        if Window
+            and Window.Holder
+        then
             break
         end
 
         task.wait(0.05)
+
     end
 
+    -- 🔥 รอ CONFIG APPLY
     task.wait(0.15)
 
-    -- ใช้ Toggle ของ Linoria เท่านั้น
+    -- ============================== AUTO HIDE ==============================
     pcall(function()
+
         if isfile(hideUIFile)
             and readfile(hideUIFile) == "true"
         then
+
             HideUI()
+
         end
+
     end)
 
 end)
@@ -3390,6 +3484,9 @@ if Tabs.Lobby then
     end
 
     local function MissionLoop(mySession)
+        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
+        task.wait(1)
+        
         if MissionDelay > 0 then task.wait(MissionDelay) end
         
         while missionRunning and missionSessionId == mySession do
@@ -3538,6 +3635,8 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if missionRunning then return end
+                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
+                task.wait(0.5)
                 missionRunning = true
                 missionBusy = false
                 missionSessionId = missionSessionId + 1
@@ -3638,6 +3737,9 @@ if Tabs.Lobby then
     end
 
     local function RaidLoop(mySession)
+        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
+        task.wait(1)
+        
         if RaidDelay > 0 then task.wait(RaidDelay) end
         
         while raidRunning and raidSessionId == mySession do
@@ -3748,6 +3850,8 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if raidRunning then return end
+                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
+                task.wait(0.5)
                 raidRunning = true
                 raidBusy = false
                 raidSessionId = raidSessionId + 1
@@ -3790,6 +3894,9 @@ if Tabs.Lobby then
     end
 
     local function WavesLoop(mySession)
+        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
+        task.wait(1)
+        
         while wavesRunning and wavesSessionId == mySession do
             if wavesBusy then
                 task.wait(0.05)
@@ -3820,6 +3927,8 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if wavesRunning then return end
+                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
+                task.wait(0.5)
                 wavesRunning = true
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
