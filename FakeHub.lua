@@ -4441,165 +4441,212 @@ if IsLobbyLobby() then
         "Blitzblade",
         "Swiftshot",
         "Surgeshot",
-
         "Stalwart",
         "Stormcharged",
-
         "Quakestrike",
         "Furyforge",
         "Assassin",
         "Amputation",
         "Marksman",
-
         "Overslash",
         "Gambler",
         "Afterimages",
-
         "Guardian",
         "Deflectra",
-
         "Aegisurge",
         "Riposte",
-
         "Resilience",
         "Vengeflare",
         "Steel Frame",
-
         "Necromantic",
         "Thanatophobia",
-
         "Cooldown Blitz",
         "Mendmaster",
-
         "Lifefeed",
         "Vitalize",
         "Gem Fiend",
-
         "Omnirange",
         "Flashstep",
         "Tactician",
-
         "Bloodthief",
         "Apotheosis"
     }
 
+    -- คัดลอกรายการ Talent สำหรับสุ่มแบบไม่ซ้ำ
+    local RemainingTalents = {}
+    local function resetTalentPool()
+        RemainingTalents = {}
+        for _, t in ipairs(AllTalents) do
+            table.insert(RemainingTalents, t)
+        end
+    end
+    resetTalentPool() -- เริ่มต้น
+
     local function getRandomTalent()
-        if #AllTalents <= 0 then
+        if #RemainingTalents == 0 then
             return nil
         end
-
-        return AllTalents[math.random(1, #AllTalents)]
+        local idx = math.random(1, #RemainingTalents)
+        local talent = RemainingTalents[idx]
+        table.remove(RemainingTalents, idx)
+        return talent
     end
 
     -- ============================== PRESTIGE FUNCTION ==============================
 
     local PrestigeCooldown = 3
     local PrestigeRunning = false
+    local StopAfterAllTalents = true  -- หยุดเมื่อใช้ครบทุก Talent
 
     local function doPrestige()
         if not getgenv().PrestigeEnabled then
-            return
+            return false
         end
-
         if not getgenv().SelectedBoost then
-            return
+            Library:Notify("⚠️ No boost selected, stopping Auto Prestige", 3)
+            getgenv().PrestigeEnabled = false
+            if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
+            return false
         end
 
         local talent = getRandomTalent()
-
         if not talent then
-            return
+            if StopAfterAllTalents then
+                Library:Notify("✅ All talents have been used! Auto Prestige stopped.", 5)
+                getgenv().PrestigeEnabled = false
+                if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
+            else
+                -- ถ้าไม่หยุดก็ reset เอง (วนใหม่)
+                resetTalentPool()
+                talent = getRandomTalent()
+                if talent then
+                    Library:Notify("🔄 Talent pool reset, continuing...", 3)
+                else
+                    return false
+                end
+            end
+            return false
         end
 
+        local boost = getgenv().SelectedBoost
+        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+
         -- โหลด talents
-        SafeInvoke(GET, "S_Equipment", "Talents")
+        local success1 = pcall(function()
+            Event:InvokeServer("S_Equipment", "Talents")
+        end)
+        if not success1 then return false end
 
-        task.wait(1)
+        task.wait(0.5) -- ลดหน่วงเล็กน้อย
 
-        -- prestige
-        pcall(function()
-            SafeInvoke(GET, "S_Equipment", "Prestige", {
-                Boosts = getgenv().SelectedBoost,
+        -- Prestige
+        local success2 = pcall(function()
+            Event:InvokeServer("S_Equipment", "Prestige", {
+                Boosts = boost,
                 Talents = talent
             })
         end)
+
+        if success2 then
+            local remain = #RemainingTalents
+            Library:Notify(string.format("✅ Prestiged with %s + %s (%d left)", boost, talent, remain), 2)
+        else
+            Library:Notify("❌ Prestige failed, retrying...", 2)
+        end
+
+        return success2
     end
 
     -- ============================== UI ==============================
 
     PrestigeGroup:AddDropdown("BoostDropdown", {
-        Values = {
-            "None",
-            "Luck Boost",
-            "Exp Boost",
-            "Gold Boost"
-        },
-
-        Default = "None",
+        Values = {"Luck Boost", "Exp Boost", "Gold Boost"},
+        Default = "Gold Boost",
         Multi = false,
         Text = "Boost Type",
-
         Callback = function(v)
-            getgenv().SelectedBoost = (v ~= "None") and v or nil
+            getgenv().SelectedBoost = v
         end
     })
 
-    PrestigeGroup:AddLabel("Talent : Random Only")
+    PrestigeGroup:AddLabel("Talent: Random (no duplicate until all used)")
 
     PrestigeGroup:AddSlider("PrestigeCooldownSlider", {
-        Text = "Delay",
-        Default = 3,
-        Min = 1,
-        Max = 30,
-        Rounding = 0,
+        Text = "Delay between prestiges",
+        Default = 0.3,
+        Min = 0.2,
+        Max = 5,
+        Rounding = 1,
         Suffix = "s",
-
         Callback = function(v)
             PrestigeCooldown = v
         end
     })
 
+    PrestigeGroup:AddToggle("StopAfterAllTalentsToggle", {
+        Text = "Stop when all talents used",
+        Default = true,
+        Callback = function(v)
+            StopAfterAllTalents = v
+        end
+    })
+
+    PrestigeGroup:AddButton("Reset Talent Pool", function()
+        resetTalentPool()
+        Library:Notify("🔄 Talent pool reset. All talents available again.", 3)
+    end)
+
     PrestigeGroup:AddDivider()
 
     PrestigeGroup:AddToggle("PrestigeToggle", {
-        Text = "Auto Prestige",
+        Text = "Auto Prestige (Fast Random, No Duplicate)",
         Default = false,
-
         Callback = function(v)
             getgenv().PrestigeEnabled = v
+            if v and not getgenv().SelectedBoost then
+                Library:Notify("❌ Please select a Boost first!", 3)
+                getgenv().PrestigeEnabled = false
+                if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
+            end
         end
     })
+
+    -- ปุ่ม Prestige ครั้งเดียว (สุ่มแบบไม่ซ้ำ)
+    PrestigeGroup:AddButton("Prestige Once (Random Talent)", function()
+        if not getgenv().SelectedBoost then
+            Library:Notify("❌ Please select a Boost first!", 3)
+            return
+        end
+        if PrestigeRunning then
+            Library:Notify("⏳ Prestige already in progress, wait...", 2)
+            return
+        end
+        PrestigeRunning = true
+        task.spawn(function()
+            doPrestige()
+            PrestigeRunning = false
+        end)
+    end)
 
     -- ============================== LOOP ==============================
 
     task.spawn(function()
-
         while true do
             task.wait(PrestigeCooldown)
-
             pcall(function()
-
-                if not getgenv().PrestigeEnabled then
-                    return
-                end
-
-                if PrestigeRunning then
-                    return
-                end
-
+                if not getgenv().PrestigeEnabled then return end
+                if PrestigeRunning then return end
                 if not getgenv().SelectedBoost then
+                    getgenv().PrestigeEnabled = false
+                    if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end
                     return
                 end
 
                 PrestigeRunning = true
-
                 doPrestige()
-
                 PrestigeRunning = false
-
             end)
         end
-
     end)
 end
 -- ============================== AUTO CLAIMS ==============================
