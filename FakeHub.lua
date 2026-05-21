@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(10)
+task.wait(6)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -4465,23 +4465,13 @@ if IsLobbyLobby() then
         "2x Luck Boost [5m]"
     }
 
+    -- ฟังก์ชัน useBoost แบบรวดเร็ว (ไม่มี retry, delay น้อยที่สุด)
     local function useBoost(boostName)
         local args = {"S_Inventory", "Item", boostName}
-        
-        local success = false
-        local retryCount = 0
-        
-        while retryCount < 3 and not success do
-            success = pcall(function()
-                GET:InvokeServer(unpack(args))
-            end)
-            if not success then
-                retryCount = retryCount + 1
-                task.wait(0.3)
-            end
-        end
-        
-        return success
+        -- ส่งคำสั่งทันที ไม่ retry ไม่ delay
+        return pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
     end
 
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
@@ -4502,9 +4492,11 @@ if IsLobbyLobby() then
             end
 
             task.spawn(function()
+                local startTime = tick()
                 local gemsAmount, goldAmount = checkCurrencies()
-                Library:Notify(string.format("💰 Starting Auto Use - Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
-                
+              
+                local totalUsed = 0
+                -- รันทุก boost อย่างรวดเร็ว (ไม่มี delay เกิน 0.01)
                 for _, boostName in ipairs(ALL_USE_BOOSTS) do
                     if not isReady then
                         break
@@ -4514,19 +4506,21 @@ if IsLobbyLobby() then
                             break
                         end
                         local success = useBoost(boostName)
-                        if not success then
-                            task.wait(0.5)
+                        if success then
+                            totalUsed = totalUsed + 1
                         end
-                        task.wait(0.2)
+                        -- delay เพียง 0.005 วินาที เพื่อไม่ให้ server โอเวอร์โหลด
+                        task.wait(0.005)
                     end
-                    task.wait(0.3)
+                    -- delay เล็กน้อยระหว่างประเภท boost
+                    task.wait(0.01)
                 end
 
+                local elapsed = tick() - startTime
                 gemsAmount, goldAmount = checkCurrencies()
-                Library:Notify(string.format("✅ Auto Use Complete - Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
-
-                task.wait(0.3)
-
+                
+                -- ปิด toggle อัตโนมัติ
+                task.wait(0.2)
                 pcall(function()
                     if Options and Options.Boost_AutoUseToggle then
                         Options.Boost_AutoUseToggle:SetValue(false)
@@ -5313,12 +5307,10 @@ if Tabs.AutoFarm then
                 G.AutoFarmBlade = true
                 G.Farm = true
                 PendingFarmStart = false
-                Library:Notify("✅ Auto Farm Blade started", 2)
             else
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                Library:Notify("❌ Auto Farm Blade stopped", 2)
             end
         end
     })
@@ -6568,107 +6560,145 @@ end)
 -- ============================== AUTO RETRY ==============================
 if Tabs.AutoFarm then
     task.spawn(function()
+        local cooldown = 2.5
         local lastClick = 0
-        local cooldown = 2
-        local hasNotifiedThisRound = false  -- 🔥 เช็คว่าแจ้งเตือนไปแล้วหรือยังในรอบนี้
+        local hasNotifiedThisRound = false
+        local rewardDetectedTime = 0   -- เวลาที่ตรวจพบ Rewards
+        local waitingForRetry = false   -- กำลังรอเพื่อกด Retry
+        local retryAttempts = 0
+        local maxAttempts = 3
         
-        -- ฟังก์ชันเช็ค visibility แบบเดียวกับที่คุณให้มา
         local function IsActuallyVisible(gui)
-            if not gui or not gui.Visible then
-                return false
-            end
+            if not gui or not gui.Visible then return false end
             local current = gui.Parent
             while current and current ~= game do
-                if current:IsA("GuiObject") then
-                    if not current.Visible then
-                        return false
-                    end
-                end
+                if current:IsA("GuiObject") and not current.Visible then return false end
                 current = current.Parent
             end
             return true
         end
         
-        -- 🔥 ตัวแปรตามสถานะ open/close
         local LastState = nil
         
         while true do
             task.wait(0.2)
             
-            if not getgenv().StartRejoin then 
+            if not getgenv().StartRejoin then
                 LastState = nil
-                hasNotifiedThisRound = false  -- 🔥 รีเซ็ตเมื่อปิด
-                continue 
+                hasNotifiedThisRound = false
+                waitingForRetry = false
+                rewardDetectedTime = 0
+                retryAttempts = 0
+                continue
             end
             
             local player = game:GetService("Players").LocalPlayer
             local VIM = game:GetService("VirtualInputManager")
             local GS = game:GetService("GuiService")
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
             
             local interface = player.PlayerGui:FindFirstChild("Interface")
-            if not interface then 
+            if not interface then
                 LastState = nil
-                hasNotifiedThisRound = false  -- 🔥 รีเซ็ตเมื่อไม่มี Interface
-                continue 
+                hasNotifiedThisRound = false
+                waitingForRetry = false
+                rewardDetectedTime = 0
+                retryAttempts = 0
+                continue
             end
             
             local rewards = interface:FindFirstChild("Rewards")
-            if not rewards then 
+            if not rewards then
                 LastState = nil
-                hasNotifiedThisRound = false  -- 🔥 รีเซ็ตเมื่อไม่มี Rewards
-                continue 
+                hasNotifiedThisRound = false
+                waitingForRetry = false
+                rewardDetectedTime = 0
+                retryAttempts = 0
+                continue
             end
             
             local retry = rewards.Main.Info.Main.Buttons.Retry
-            if not retry then 
+            if not retry then
                 LastState = nil
-                hasNotifiedThisRound = false  -- 🔥 รีเซ็ตเมื่อไม่มีปุ่ม
-                continue 
+                hasNotifiedThisRound = false
+                waitingForRetry = false
+                rewardDetectedTime = 0
+                retryAttempts = 0
+                continue
             end
             
-            -- 🔥 เช็คสถานะ open/close
             local currentState = IsActuallyVisible(retry) and "open" or "close"
             
-            -- 🔥 รีเซ็ต notify flag เมื่อปุ่มปิดไปแล้วเปิดใหม่
-            if currentState ~= LastState then
-                LastState = currentState
-                if currentState == "open" then
-                    hasNotifiedThisRound = false  -- 🔥 ปุ่มเปิดใหม่ ให้ notify ได้อีกครั้ง
-                end
-            end
-            
-            -- 🔥 ต้องเป็น OPEN เท่านั้นถึงจะทำงานต่อ
-            if currentState ~= "open" then continue end
-            if not retry.Visible then continue end
-            if retry.AbsoluteSize.X <= 0 or retry.AbsoluteSize.Y <= 0 then continue end
-            
-            if tick() - lastClick < cooldown then continue end
-            
-            local obj = retry
-            local allVisible = true
-            while obj and obj ~= player.PlayerGui do
-                if obj:IsA("GuiObject") and not obj.Visible then allVisible = false; break end
-                if obj:IsA("ScreenGui") and not obj.Enabled then allVisible = false; break end
-                obj = obj.Parent
-            end
-            if not allVisible then continue end
-            
-            GS.SelectedObject = retry
-            task.wait(0.05)
-            VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            task.wait(0.05)
-            VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            task.wait(0.1)
-            GS.SelectedObject = nil
-            
-            lastClick = tick()
-            
-            -- 🔥 แจ้งเตือนครั้งเดียวต่อรอบ
-            if not hasNotifiedThisRound then
-                hasNotifiedThisRound = true
+            -- ตรวจจับการเปิดหน้า Reward (เปลี่ยนจาก close -> open)
+            if currentState == "open" and LastState ~= "open" then
+                rewardDetectedTime = tick()
+                waitingForRetry = true
+                retryAttempts = 0
                 pcall(function()
-                    Library:Notify("🔄 Retry Clicked!", 3)
+                    Library:Notify("🎁 Reward window detected, waiting 2.5 seconds before retry...", 3)
                 end)
+            end
+            
+            LastState = currentState
+            
+            -- ถ้ายังไม่เจอ Reward หรือไม่ได้รอให้กด ให้ข้าม
+            if not waitingForRetry then continue end
+            
+            -- เช็คว่าผ่านไป 2.5 วินาทีแล้ว
+            if tick() - rewardDetectedTime >= 2.5 then
+                if retryAttempts >= maxAttempts then
+                    -- ใช้ Remote แทน
+                    pcall(function()
+                        GET:InvokeServer("Functions", "Retry", "Add")
+                    end)
+                    pcall(function()
+                        Library:Notify("🔄 Remote Retry triggered after " .. maxAttempts .. " failed clicks", 3)
+                    end)
+                    waitingForRetry = false
+                    retryAttempts = 0
+                    task.wait(2)  -- พักสักครู่
+                    continue
+                end
+                
+                -- ตรวจสอบว่า Retry ยัง Visible อยู่
+                if not IsActuallyVisible(retry) then
+                    pcall(function()
+                        Library:Notify("⚠️ Retry button disappeared, aborting", 2)
+                    end)
+                    waitingForRetry = false
+                    retryAttempts = 0
+                    continue
+                end
+                
+                -- ตรวจสอบ parent chain
+                local allVisible = true
+                local obj = retry
+                while obj and obj ~= player.PlayerGui do
+                    if obj:IsA("GuiObject") and not obj.Visible then allVisible = false break end
+                    if obj:IsA("ScreenGui") and not obj.Enabled then allVisible = false break end
+                    obj = obj.Parent
+                end
+                if not allVisible then
+                    waitingForRetry = false
+                    continue
+                end
+                
+                -- กด Retry
+                GS.SelectedObject = retry
+                task.wait(0.05)
+                VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+                task.wait(0.05)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+                task.wait(0.1)
+                GS.SelectedObject = nil
+                
+                retryAttempts = retryAttempts + 1
+                pcall(function()
+                    Library:Notify(string.format("🔄 Retry clicked (%d/%d)", retryAttempts, maxAttempts), 2)
+                end)
+                
+                -- หากกดครบ 3 ครั้งแล้วยังไม่สำเร็จ? ปล่อยให้ลูปรันต่อไป แล้วจะโดน Remote แทน
+                waitingForRetry = false   -- รอให้ปุ่มปิดแล้วเปิดใหม่จึงเริ่มรอบใหม่
             end
         end
     end)
@@ -7181,36 +7211,39 @@ if Tabs.AutoFarm then
     local skipEnabled = false
     local skipRunning = false
     
+    local Players = game:GetService("Players")
+    local GuiService = game:GetService("GuiService")
+    local VirtualInputManager = game:GetService("VirtualInputManager")
+    local lp = Players.LocalPlayer
+    
     local function clickSkipButton()
-        local player = game:GetService("Players").LocalPlayer
-        local VIM = game:GetService("VirtualInputManager")
-        local GS = game:GetService("GuiService")
+        local playerGui = lp:FindFirstChild("PlayerGui")
+        if not playerGui then return false end
         
-        local interface = player.PlayerGui:FindFirstChild("Interface")
+        local interface = playerGui:FindFirstChild("Interface")
         if not interface then return false end
         
-        local skip = interface:FindFirstChild("Skip")
-        if not skip or not skip.Visible then return false end
+        local skipFrame = interface:FindFirstChild("Skip")
+        if not skipFrame or not skipFrame.Visible then return false end
         
-        local target = skip:FindFirstChild("Main")
-        if not target then return false end
-        if not target.Visible then return false end
-        if target.AbsoluteSize.X <= 0 or target.AbsoluteSize.Y <= 0 then return false end
+        -- หาปุ่ม Interact (ตามตัวอย่างที่ให้มา)
+        local interactBtn = skipFrame:FindFirstChild("Interact")
+        if not interactBtn or not interactBtn.Visible then return false end
         
-        local obj = target
-        while obj and obj ~= player.PlayerGui do
-            if obj:IsA("GuiObject") and not obj.Visible then return false end
-            if obj:IsA("ScreenGui") and not obj.Enabled then return false end
-            obj = obj.Parent
+        -- ปิดเมนูค้าง (ถ้ามี)
+        if GuiService.MenuIsOpen then
+            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
+            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
+            task.wait(0.1)
         end
         
-        GS.SelectedObject = target
+        -- กดปุ่มโดยใช้ SelectedObject
+        GuiService.SelectedObject = interactBtn
         task.wait(0.05)
-        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         task.wait(0.05)
-        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        task.wait(0.1)
-        GS.SelectedObject = nil
+        GuiService.SelectedObject = nil
         
         return true
     end
@@ -7226,7 +7259,7 @@ if Tabs.AutoFarm then
                 continue
             end
             
-            local interface = game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
+            local interface = lp.PlayerGui:FindFirstChild("Interface")
             local skip = interface and interface:FindFirstChild("Skip")
             if not skip or not skip.Visible then
                 hasClicked = false
@@ -7252,7 +7285,6 @@ if Tabs.AutoFarm then
         end
     })
 end
-
 
 -- ============================== AUTO SPEAR QUEST ==============================
 if Tabs.AutoFarm then
