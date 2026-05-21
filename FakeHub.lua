@@ -3253,7 +3253,7 @@ if IsMainmenuLobby() or IsLobbyLobby() then
 end
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 -- แก้ไข: ใช้ Tabs.Lobby เหมือนของเก่า แต่ระบบภายในเป็น Us Suite (AOTR Style)
--- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง
+-- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง และเพิ่ม retry เมื่อล้มเหลว
 
 -- หา Remote แบบไดนามิก (Us Suite style)
 local function findMissionRemote()
@@ -3343,7 +3343,7 @@ if Tabs.Lobby then
     local missionSessionId = 0
     local lastNotifiedMissionMods = ""
 
-    -- ดึงค่าจาก Options (เหมือนของเก่า)
+    -- ดึงค่าจาก Options
     pcall(function()
         if Options and Options.MissionDropdown and Options.MissionDropdown.Value then State_Mission.Name = Options.MissionDropdown.Value end
         if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then State_Mission.Objective = Options.ObjectiveDropdown.Value end
@@ -3351,7 +3351,7 @@ if Tabs.Lobby then
         if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0 end
     end)
 
-    -- ฟังก์ชัน GetPlayerLevel (Us Suite style)
+    -- ฟังก์ชัน GetPlayerLevel
     local function GetPlayerLevel()
         local success, level = pcall(function()
             local player = game:GetService("Players").LocalPlayer
@@ -3374,17 +3374,14 @@ if Tabs.Lobby then
         return success and level or 1
     end
 
-    -- ระบบ Hardest cycle แบบ Us Suite (ตาม Level)
     local function GetDifficultyCycle(missionType)
         local level = GetPlayerLevel()
-        
         if missionType == "Raids" then
             if level >= 100 then return {"Aberrant"}
             elseif level >= 60 then return {"Aberrant", "Severe", "Hard"}
             elseif level >= 40 then return {"Severe", "Hard", "Normal"}
             else return {"Hard", "Normal", "Easy"} end
         end
-        
         if level >= 100 then return {"Aberrant"}
         elseif level >= 60 then return {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
         elseif level >= 40 then return {"Severe", "Hard", "Normal", "Easy"}
@@ -3421,10 +3418,16 @@ if Tabs.Lobby then
         return success
     end
 
+    -- CLEAR + APPLY แบบมี retry และ delay เพิ่ม
     local function ClearMissionModifiers()
         if not missionRunning then return end
-        SafeMissionCall("S_Missions", "ClearModifiers")
-        task.wait(0.25) -- เพิ่ม delay เพื่อให้ล้าง modifiers ทัน
+        for retry = 1, 2 do
+            if not missionRunning then break end
+            local success = SafeMissionCall("S_Missions", "ClearModifiers")
+            if success then break end
+            task.wait(0.2)
+        end
+        task.wait(0.3)
     end
 
     local function ApplyMissionModifiers()
@@ -3441,24 +3444,32 @@ if Tabs.Lobby then
             end
         end)
         if #selected == 0 then return end
-        
+
         local modsString = table.concat(selected, ", ")
         if lastNotifiedMissionMods ~= modsString then
             lastNotifiedMissionMods = modsString
             local txt = formatMissionModifiers(selected)
             if txt then Library:Notify(txt, 4) end
         end
-        
+
         ClearMissionModifiers()
         if not missionRunning then return end
-        
-        -- ส่ง modifiers ทีละตัว พร้อม delay เพิ่มขึ้นเล็กน้อยเพื่อให้เกมรับรู้
+
         for _, mod in ipairs(selected) do
             if not missionRunning then break end
-            SafeMissionCall("S_Missions", "Modify", mod)
-            task.wait(0.15) -- เพิ่มจาก 0.12 เป็น 0.15
+            local success = false
+            for retry = 1, 3 do
+                if not missionRunning then break end
+                success = SafeMissionCall("S_Missions", "Modify", mod)
+                if success then break end
+                task.wait(0.2)
+            end
+            if not success then
+                Library:Notify(string.format("⚠️ Failed to apply modifier: %s", mod), 3)
+            end
+            task.wait(0.15)
         end
-        task.wait(0.3) -- เพิ่ม delay รวมหลัง modifiers ครบ
+        task.wait(0.4)  -- พอให้ modifier ซิงก์
     end
 
     local function StartMission()
@@ -3471,7 +3482,6 @@ if Tabs.Lobby then
         SafeMissionCall("S_Missions", "Leave")
     end
 
-    -- ฟังก์ชันตรวจสอบว่าสร้าง Mission สำเร็จไหม (Us Suite style)
     local function GetMyMission()
         local start = tick()
         while (tick() - start) < 2 do
@@ -3490,7 +3500,6 @@ if Tabs.Lobby then
 
     local function MissionLoop(mySession)
         task.wait(1)
-        
         if MissionDelay > 0 then task.wait(MissionDelay) end
         
         while missionRunning and missionSessionId == mySession do
@@ -3504,95 +3513,60 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Missions")
                 local created = false
-                
                 for _, diff in ipairs(cycle) do
                     if not missionRunning or missionSessionId ~= mySession then break end
                     if State_Mission.Difficulty ~= "Hardest" then break end
-                    
                     local objList = MissionObjectives[currentMission] or {"Skirmish"}
                     local obj = currentObjective
                     if obj == "Random" then
                         local filtered = {}
-                        for _, v in ipairs(objList) do 
-                            if v ~= "Random" then filtered[#filtered+1] = v end 
-                        end
+                        for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
                         obj = filtered[math.random(#filtered)]
                     end
-                    
                     CreateMission(currentMission, obj, diff)
                     task.wait(0.2)
-                    
                     if GetMyMission() then
                         created = true
                         if Library then Library:Notify("✓ Mission created: " .. diff, 2) end
                         break
                     end
-                    
                     if not missionRunning then break end
                 end
-                
                 if not created then
                     missionBusy = false
                     task.wait(1)
                     continue
                 end
-                
-                -- 🔥 โหลด modifiers ให้ครบก่อน start
                 ApplyMissionModifiers()
-                if not missionRunning then 
-                    missionBusy = false
-                    continue
-                end
-                
-                -- รอให้ modifiers ทำงานเสร็จสมบูรณ์
-                task.wait(0.3)
-                
+                if not missionRunning then missionBusy = false; continue end
+                task.wait(0.3) -- สำรอง
                 StartMission()
                 local startTick = tick()
-                repeat 
-                    task.wait(0.05) 
-                until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 3.5
-                
+                repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 3.5
                 if MissionDelay > 0 then task.wait(MissionDelay) end
-                
             else
                 local objList = MissionObjectives[currentMission] or {"Skirmish"}
                 local obj = currentObjective
                 if obj == "Random" then
                     local filtered = {}
-                    for _, v in ipairs(objList) do 
-                        if v ~= "Random" then filtered[#filtered+1] = v end 
-                    end
+                    for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
                     obj = filtered[math.random(#filtered)]
                 end
-                
                 CreateMission(currentMission, obj, currentDifficulty)
                 task.wait(0.15 + MissionDelay)
-                if not missionRunning then 
-                    missionBusy = false
-                    continue
-                end
-                
-                -- 🔥 โหลด modifiers ให้ครบก่อน start
+                if not missionRunning then missionBusy = false; continue end
                 ApplyMissionModifiers()
-                if not missionRunning then 
-                    missionBusy = false
-                    continue
-                end
-                
-                task.wait(0.3) -- รอ modifiers ครบ
-                
+                if not missionRunning then missionBusy = false; continue end
+                task.wait(0.3)
                 StartMission()
                 local startTick = tick()
-                repeat 
-                    task.wait(0.05) 
-                until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 0.45
+                repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 0.45
             end
             missionBusy = false
         end
     end
 
-    -- UI Elements (เหมือนของเก่า)
+    -- UI Elements
     MissionTab:AddDropdown("MissionDropdown", {
         Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
         Default = State_Mission.Name,
@@ -3683,7 +3657,6 @@ if Tabs.Lobby then
         if not raidRunning then return false end
         local data = RaidObjectives[bossName]
         if not data then return false end
-        
         local createArgs = {
             Difficulty = difficulty, 
             Type = "Raids", 
@@ -3691,7 +3664,6 @@ if Tabs.Lobby then
             Objective = data.objective
         }
         if data.hasMinimum then createArgs.Minimum = data.minimum end
-        
         local success, _ = SafeMissionCall("S_Missions", "Create", createArgs)
         task.wait(0.15)
         return success
@@ -3699,8 +3671,13 @@ if Tabs.Lobby then
 
     local function ClearRaidModifiers()
         if not raidRunning then return end
-        SafeMissionCall("S_Missions", "ClearModifiers")
-        task.wait(0.25)
+        for retry = 1, 2 do
+            if not raidRunning then break end
+            local success = SafeMissionCall("S_Missions", "ClearModifiers")
+            if success then break end
+            task.wait(0.2)
+        end
+        task.wait(0.3)
     end
 
     local function ApplyRaidModifiers()
@@ -3727,10 +3704,19 @@ if Tabs.Lobby then
         if not raidRunning then return end
         for _, mod in ipairs(selected) do
             if not raidRunning then break end
-            SafeMissionCall("S_Missions", "Modify", mod)
+            local success = false
+            for retry = 1, 3 do
+                if not raidRunning then break end
+                success = SafeMissionCall("S_Missions", "Modify", mod)
+                if success then break end
+                task.wait(0.2)
+            end
+            if not success then
+                Library:Notify(string.format("⚠️ Failed to apply modifier: %s", mod), 3)
+            end
             task.wait(0.15)
         end
-        task.wait(0.3)
+        task.wait(0.4)
     end
 
     local function StartRaid()
@@ -3745,77 +3731,51 @@ if Tabs.Lobby then
 
     local function RaidLoop(mySession)
         task.wait(1)
-        
         if RaidDelay > 0 then task.wait(RaidDelay) end
         
         while raidRunning and raidSessionId == mySession do
             if raidBusy then task.wait(0.05); continue end
             raidBusy = true
-            
             local currentBoss = State_Raid.Boss
             local currentDifficulty = State_Raid.Difficulty
 
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Raids")
                 local created = false
-                
                 for _, diff in ipairs(cycle) do
                     if not raidRunning or raidSessionId ~= mySession then break end
                     if State_Raid.Difficulty ~= "Hardest" then break end
-                    
                     CreateRaid(currentBoss, diff)
                     task.wait(0.2)
-                    
                     if GetMyMission() then
                         created = true
                         if Library then Library:Notify("✓ Raid created: " .. diff, 2) end
                         break
                     end
-                    
                     if not raidRunning then break end
                 end
-                
                 if not created then
                     raidBusy = false
                     task.wait(1)
                     continue
                 end
-                
                 ApplyRaidModifiers()
-                if not raidRunning then 
-                    raidBusy = false
-                    continue
-                end
-                task.wait(0.3) -- รอ modifiers ครบ
-                
+                if not raidRunning then raidBusy = false; continue end
+                task.wait(0.3)
                 StartRaid()
                 local startTick = tick()
-                repeat 
-                    task.wait(0.05) 
-                until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 3.5
-                
+                repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 3.5
                 if RaidDelay > 0 then task.wait(RaidDelay) end
-                
             else
                 CreateRaid(currentBoss, currentDifficulty)
                 task.wait(0.15 + RaidDelay)
-                if not raidRunning then 
-                    raidBusy = false
-                    continue
-                end
-                
+                if not raidRunning then raidBusy = false; continue end
                 ApplyRaidModifiers()
-                if not raidRunning then 
-                    raidBusy = false
-                    continue
-                end
+                if not raidRunning then raidBusy = false; continue end
                 task.wait(0.3)
-                
                 StartRaid()
                 local startTick = tick()
-                repeat 
-                    task.wait(0.05) 
-                until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 0.45
+                repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 0.45
             end
             raidBusy = false
         end
@@ -3900,27 +3860,15 @@ if Tabs.Lobby then
 
     local function WavesLoop(mySession)
         task.wait(1)
-        
         while wavesRunning and wavesSessionId == mySession do
-            if wavesBusy then
-                task.wait(0.05)
-                continue
-            end
+            if wavesBusy then task.wait(0.05); continue end
             wavesBusy = true
-
             CreateWave()
             task.wait(0.2)
-
             if not wavesRunning then break end
-
             StartWave()
-
             local startTick = tick()
-            repeat
-                task.wait(0.05)
-                if not wavesRunning or wavesSessionId ~= mySession then break end
-            until tick() - startTick >= 0.45
-
+            repeat task.wait(0.05) until not wavesRunning or wavesSessionId ~= mySession or tick() - startTick >= 0.45
             wavesBusy = false
         end
     end
@@ -3936,9 +3884,7 @@ if Tabs.Lobby then
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
                 local mySession = wavesSessionId
-                task.spawn(function()
-                    WavesLoop(mySession)
-                end)
+                task.spawn(function() WavesLoop(mySession) end)
             else
                 wavesRunning = false
                 wavesBusy = false
@@ -6715,9 +6661,9 @@ if Tabs.Webhook then
     local webhookEnabled = false
     local hasSentWebhook = false
     local lastMissionState = ""
-    local webhookMode = "All Data"  -- เพิ่ม: โหมด Webhook ("All Data" หรือ "Reward Webhook")
+    local webhookMode = "All Data"
     
-    -- ========== Reward Webhook variables (Us Suite style) ==========
+    -- Reward Webhook variables
     local gamesPlayed = 0
     local gamesPlayedPath = "FakeHUB/games_played.txt"
     
@@ -6732,7 +6678,6 @@ if Tabs.Webhook then
         writefile(gamesPlayedPath, tostring(gamesPlayed))
     end
     
-    -- ฟังก์ชันหา Stats/Items frames (Us Suite style)
     local function findUIElements()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:FindFirstChild("PlayerGui")
@@ -6752,7 +6697,6 @@ if Tabs.Webhook then
         return statsFrame, itemsFrame
     end
     
-    -- ส่ง Reward Webhook (Us Suite style)
     local function sendRewardWebhook()
         if webhookURL == "" then return end
         incrementGamesPlayed()
@@ -6766,7 +6710,6 @@ if Tabs.Webhook then
             Special = {}
         }
         
-        -- ดึงข้อมูล Stats
         if statsFrame then
             for _, v in ipairs(statsFrame:GetChildren()) do
                 if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
@@ -6776,7 +6719,6 @@ if Tabs.Webhook then
             end
         end
         
-        -- ดึงข้อมูล Items
         if itemsFrame then
             for _, v in ipairs(itemsFrame:GetChildren()) do
                 if v:IsA("Frame") and v:FindFirstChild("Main") then
@@ -6784,7 +6726,6 @@ if Tabs.Webhook then
                     if inner then
                         local qty = inner.Quantity.Text
                         data.Items[v.Name] = qty
-                        -- ตรวจสอบ mythical (สีแดง)
                         if inner:FindFirstChild("Rarity") and inner.Rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
                             data.Special[v.Name] = qty
                         end
@@ -6796,7 +6737,6 @@ if Tabs.Webhook then
         local player = game:GetService("Players").LocalPlayer
         local total = { Level = 1, Gold = 0, Gems = 0 }
         
-        -- ดึงข้อมูลเพิ่มเติมจาก Data
         pcall(function()
             local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
             local mapData = GET:InvokeServer("Data", "Copy")
@@ -6882,7 +6822,7 @@ if Tabs.Webhook then
         end)
     end
     
-    -- ========== All Data Webhook (ของเดิม) ==========
+    -- All Data Webhook
     local filters = {
         Currency = true,
         Progression = true,
@@ -7102,7 +7042,7 @@ if Tabs.Webhook then
         end)
     end
     
-    -- ตรวจจับการเปิด Rewards UI
+    -- ตรวจจับการเปิด Rewards UI โดยรอ 2.5 วินาทีก่อนส่ง เพื่อให้ข้อมูลสมบูรณ์
     task.spawn(function()
         local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
         local rewards = playerGui.Interface.Rewards
@@ -7117,14 +7057,13 @@ if Tabs.Webhook then
             if hasSentWebhook then return end
             if webhookURL == "" then return end
             
-            task.wait(1.5)
+            -- รอ 2.5 วินาทีให้ข้อมูลโหลดสมบูรณ์
+            task.wait(2.5)
             
             if webhookMode == "Reward Webhook" then
-                -- ส่ง Reward Webhook (Us Suite style)
                 sendRewardWebhook()
                 hasSentWebhook = true
             else
-                -- ส่ง All Data Webhook (แบบเดิม)
                 local missionState = getMissionState()
                 if missionState == lastMissionState and missionState ~= "" then return end
                 lastMissionState = missionState
@@ -7144,7 +7083,6 @@ if Tabs.Webhook then
     
     WebhookGroup:AddDivider()
     
-    -- เพิ่ม Dropdown สำหรับเลือกโหมด Webhook
     WebhookGroup:AddDropdown("WebhookMode", {
         Text = "Webhook Type",
         Values = {"All Data", "Reward Webhook"},
@@ -7157,7 +7095,6 @@ if Tabs.Webhook then
     
     WebhookGroup:AddDivider()
     
-    -- Filter dropdown (เฉพาะ All Data mode)
     local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
         Values = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
         Default = {"Currency", "Progression", "Loadout", "Inventory", "Cosmetics"},
