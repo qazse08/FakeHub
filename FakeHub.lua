@@ -4095,85 +4095,105 @@ if IsLobbyLobby() then
     })
 end
 
--- ============================== EQUIP SKILL ==============================
+-- ============================== EQUIP SKILL (RANDOM SLOT 1 & 5, NO OVERLAP, SILENT) ==============================
 if IsLobbyLobby() then
     local SkillGroupRight = Tabs.Session:AddLeftGroupbox("Equip Skill")
 
     local selectedSkills = {}
     local isEquipping = false
 
-    local SKILLS = {
-        ["Drill Thrust"] = {slot = 1, id = "14"},
-        ["Torrential Steel"] = {slot = 2, id = "23"}
-    }
-
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
-    local function clearSlot(slotNumber)
-        local args = {"S_Equipment", "Skill_State", slotNumber, "7"}
-        pcall(function() GET:InvokeServer(unpack(args)) end)
+    -- รีเซ็ตสล็อตเดียว
+    local function resetSlot(slot)
+        pcall(function() GET:InvokeServer("S_Equipment", "Skill_State", slot, "3") end)
     end
 
-    local function equipSkill(skillName)
-        local skillData = SKILLS[skillName]
-        if not skillData then return end
-        
-        local args = {"S_Equipment", "Skill_State", skillData.slot, skillData.id}
-        pcall(function() GET:InvokeServer(unpack(args)) end)
-    end
-
-    local function clearAllSlots()
+    -- รีเซ็ตทุกสล็อต 1-5 ตามลำดับ ห่าง 0.5 วินาที และรีเซ็ตสล็อต 5 ซ้ำ
+    local function resetAllSlots()
         for slot = 1, 5 do
-            clearSlot(slot)
-            task.wait(0.05)
+            resetSlot(slot)
+            task.wait(0.5)
         end
-        clearSlot(5)
-        task.wait(0.05)
+        resetSlot(5)
+        task.wait(0.5)
+    end
+
+    -- ใส่สกิลลง slot ที่กำหนด
+    local function equipSkillToSlot(slot, skillId)
+        pcall(function() GET:InvokeServer("S_Equipment", "Skill_State", slot, skillId) end)
     end
 
     local function executeEquip()
         if isEquipping then return end
         isEquipping = true
-        
+
         task.spawn(function()
-            clearAllSlots()
-            task.wait(0.1)
-            
-            for skillName, enabled in pairs(selectedSkills) do
-                if enabled then
-                    equipSkill(skillName)
-                    task.wait(0.05)
-                end
+            -- รีเซ็ตทุกสล็อต
+            resetAllSlots()
+
+            -- รวบรวมสกิลที่เลือก
+            local skills = {}
+            if selectedSkills["Drill Thrust"] then
+                table.insert(skills, {name = "Drill Thrust", id = "14"})
             end
-            
-            isEquipping = false
-        end)
-    end
+            if selectedSkills["Torrential Steel"] then
+                table.insert(skills, {name = "Torrential Steel", id = "23"})
+            end
 
-    SkillGroupRight:AddDropdown("EquipSkill_Dropdown", {
-        Text = "Select Skills",
-        Values = {"Drill Thrust", "Torrential Steel"},
-        Default = {},
-        Multi = true,
-        Callback = function(v)
-            selectedSkills = v
-        end
-    })
-
-    SkillGroupRight:AddToggle("EquipSkill_Toggle", {
-        Text = "Equip Skills",
-        Default = false,
-        Callback = function(v)
-            if v then
-                executeEquip()
-                task.wait(0.1)
+            if #skills == 0 then
+                isEquipping = false
                 pcall(function()
                     if Options and Options.EquipSkill_Toggle then
                         Options.EquipSkill_Toggle:SetValue(false)
                     end
                 end)
+                return
             end
-        end
+
+            -- กำหนด slot ที่ใช้ (1 และ 5)
+            local slots = {1, 5}
+            
+            -- ถ้ามีสกิลเดียว: สุ่มเลือก slot จาก 1 หรือ 5
+            if #skills == 1 then
+                local chosenSlot = slots[math.random(1, 2)]
+                equipSkillToSlot(chosenSlot, skills[1].id)
+            else
+                -- มีสองสกิล: สุ่มว่าอันไหนไป slot 1, อีกอันไป slot 5
+                local r = math.random(1, 2)
+                local skill1 = skills[r]          -- skill สำหรับ slot 1
+                local skill2 = skills[3 - r]      -- อีก skill สำหรับ slot 5
+                
+                equipSkillToSlot(1, skill1.id)
+                task.wait(0.1)
+                equipSkillToSlot(5, skill2.id)
+            end
+
+            task.wait(0.5)
+
+            isEquipping = false
+
+            pcall(function()
+                if Options and Options.EquipSkill_Toggle then
+                    Options.EquipSkill_Toggle:SetValue(false)
+                end
+            end)
+        end)
+    end
+
+    -- UI
+    SkillGroupRight:AddDropdown("EquipSkill_Dropdown", {
+        Text = "Select Skills",
+        Values = {"Drill Thrust", "Torrential Steel"},
+        Default = {},
+        Multi = true,
+        Callback = function(v) selectedSkills = v end
+    })
+
+    SkillGroupRight:AddToggle("EquipSkill_Toggle", {
+        Text = "Equip Skills (Random slot 1 or 5, no overlap)",
+        Default = false,
+        Callback = function(v) if v then executeEquip() end end
     })
 end
 -- ============================== UNLOCK SKILLS ==============================
@@ -4234,41 +4254,67 @@ if IsLobbyLobby() then
     UnlockGroupRight:AddDropdown("OffensiveSkillsDropdown", {Values=getOffensiveNames(), Default={}, Multi=true, Text="Offensive Skills", Callback=function(v) getgenv().SelectedOffensive=v end})
     UnlockGroupRight:AddDropdown("DefendSkillsDropdown", {Values=getDefendNames(), Default={}, Multi=true, Text="Defend Skills", Callback=function(v) getgenv().SelectedDefend=v end})
     UnlockGroupRight:AddDivider()
-    UnlockGroupRight:AddToggle("UnlockSkillsToggle", {Text="Unlock Selected Skills", Default=false, Callback=function(v)
-        if not v or getgenv().UnlockRunning then return end
-        getgenv().UnlockRunning = true
-        task.spawn(function()
-            local queue = {}
-            local function collectOrdered(selectedTable, getIDFunc)
-                local temp = {}
-                for name, enabled in pairs(selectedTable) do
-                    if enabled then
-                        local id = getIDFunc(name)
-                        if id then table.insert(temp, tonumber(id)) end
+    
+    UnlockGroupRight:AddToggle("UnlockSkillsToggle", {
+        Text = "Unlock Selected Skills",
+        Default = false,
+        Callback = function(v)
+            if not v or getgenv().UnlockRunning then return end
+            
+            -- รอให้ UI โหลดเสร็จ (1 วินาทีเพื่อเช็คว่าโหลดแล้ว)
+            local waited = 0
+            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+                task.wait(0.05)
+                waited = waited + 0.05
+            end
+            task.wait(0.1)
+            
+            getgenv().UnlockRunning = true
+            task.spawn(function()
+                local queue = {}
+                local function collectOrdered(selectedTable, getIDFunc)
+                    local temp = {}
+                    for name, enabled in pairs(selectedTable) do
+                        if enabled then
+                            local id = getIDFunc(name)
+                            if id then table.insert(temp, tonumber(id)) end
+                        end
                     end
+                    table.sort(temp)
+                    for _, id in ipairs(temp) do table.insert(queue, tostring(id)) end
                 end
-                table.sort(temp)
-                for _, id in ipairs(temp) do table.insert(queue, tostring(id)) end
-            end
-            collectOrdered(getgenv().SelectedSupport, getSupportID)
-            collectOrdered(getgenv().SelectedOffensive, getOffensiveID)
-            collectOrdered(getgenv().SelectedDefend, getDefendID)
-            if #queue == 0 then getgenv().UnlockRunning=false return end
-            for i, id in ipairs(queue) do
-                if not getgenv().UnlockRunning then break end
-                pcall(function() SafeInvoke(GET, "S_Equipment", "Unlock", { id }) end)
-                task.wait(0.03 + (i % 3 == 0 and 0.05 or 0))
-            end
-            getgenv().UnlockRunning = false
-        end)
-    end})
+                collectOrdered(getgenv().SelectedSupport, getSupportID)
+                collectOrdered(getgenv().SelectedOffensive, getOffensiveID)
+                collectOrdered(getgenv().SelectedDefend, getDefendID)
+                if #queue == 0 then
+                    getgenv().UnlockRunning = false
+                    pcall(function()
+                        if Options and Options.UnlockSkillsToggle then
+                            Options.UnlockSkillsToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                for i, id in ipairs(queue) do
+                    if not getgenv().UnlockRunning then break end
+                    pcall(function() SafeInvoke(GET, "S_Equipment", "Unlock", { id }) end)
+                    task.wait(0.03 + (i % 3 == 0 and 0.05 or 0))
+                end
+                getgenv().UnlockRunning = false
+                pcall(function()
+                    if Options and Options.UnlockSkillsToggle then
+                        Options.UnlockSkillsToggle:SetValue(false)
+                    end
+                end)
+            end)
+        end
+    })
 end
 
 -- ============================== BOOST SELECTION ==============================
 if IsLobbyLobby() then
 
-    local BoostGroup =
-        Tabs.Lobby:AddRightGroupbox("Boost Selection")
+    local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
 
     local selectedCurrency = "Gems"
     local purchaseAmount = 1
@@ -4294,32 +4340,24 @@ if IsLobbyLobby() then
         ["2X Gold [2H]"] = {type = "gold", duration = "2H", gemsId = 9, canesId = 9},
     }
 
-    local GET =
-        game:GetService("ReplicatedStorage")
-        :WaitForChild("Assets")
-        :WaitForChild("Remotes")
-        :WaitForChild("GET")
+    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
     local function checkCurrencies()
         local player = game:GetService("Players").LocalPlayer
         local gemsAmount = 0
         local goldAmount = 0
-        
         pcall(function()
             local gemsLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gems.Amount
             local goldLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gold.Amount
-            
             if gemsLabel and gemsLabel.Text then
                 local gemText = gemsLabel.Text:gsub("[^%d]", "")
                 gemsAmount = tonumber(gemText) or 0
             end
-            
             if goldLabel and goldLabel.Text then
                 local goldText = goldLabel.Text:gsub("[^%d]", "")
                 goldAmount = tonumber(goldText) or 0
             end
         end)
-        
         return gemsAmount, goldAmount
     end
 
@@ -4332,7 +4370,6 @@ if IsLobbyLobby() then
         task.spawn(function()
             while true do
                 local gemsAmount, goldAmount = checkCurrencies()
-                
                 if gemsAmount > 1 or goldAmount > 1 then
                     if not isReady then
                         isReady = true
@@ -4348,32 +4385,20 @@ if IsLobbyLobby() then
                         readyNotified = false
                     end
                 end
-                
                 task.wait(2)
             end
         end)
     end
-
     startReadyCheck()
 
     local function purchaseBoost(boostName)
         local data = BOOST_MAP[boostName]
-        if not data then
-            return false
-        end
-
-        if not isReady then
-            return false
-        end
-
+        if not data then return false end
+        if not isReady then return false end
         local boostTypeStr = selectedCurrency == "Gems" and "1_Boosts" or "2_Boosts"
         local id = selectedCurrency == "Gems" and data.gemsId or data.canesId
-
         local args = {"S_Market", "Buy", boostTypeStr, id, purchaseAmount}
-
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
+        return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
     BoostGroup:AddDropdown("Boost_ListDropdown", {
@@ -4389,40 +4414,34 @@ if IsLobbyLobby() then
         Values = {"Gems", "Canes"},
         Default = "Gems",
         Multi = false,
-        Callback = function(v)
-            selectedCurrency = v
-        end
+        Callback = function(v) selectedCurrency = v end
     })
 
     BoostGroup:AddSlider("Boost_AmountSlider", {
         Text = "Quantity",
-        Default = 1,
-        Min = 1,
-        Max = 50,
-        Rounding = 0,
-        Callback = function(v)
-            purchaseAmount = v
-        end
+        Default = 1, Min = 1, Max = 50, Rounding = 0,
+        Callback = function(v) purchaseAmount = v end
     })
 
     BoostGroup:AddSlider("Boost_DelaySlider", {
         Text = "Purchase Delay (seconds)",
-        Default = 0,
-        Min = 0,
-        Max = 60,
-        Rounding = 0,
-        Callback = function(v)
-            purchaseDelay = v
-        end
+        Default = 0, Min = 0, Max = 60, Rounding = 0,
+        Callback = function(v) purchaseDelay = v end
     })
 
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
         Callback = function(v)
-            if not v then
-                return
+            if not v then return end
+
+            -- รอ UI โหลด 1 วินาที
+            local waited = 0
+            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+                task.wait(0.05)
+                waited = waited + 0.05
             end
+            task.wait(0.1)
 
             if not isReady then
                 pcall(function()
@@ -4435,29 +4454,19 @@ if IsLobbyLobby() then
 
             task.spawn(function()
                 local purchaseSelection = {}
-
                 pcall(function()
                     if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
                         purchaseSelection = Options.Boost_ListDropdown.Value
                     end
                 end)
-
                 for boostName, enabled in pairs(purchaseSelection) do
                     if enabled then
-                        if not isReady then
-                            break
-                        end
+                        if not isReady then break end
                         purchaseBoost(boostName)
-                        if purchaseDelay > 0 then
-                            task.wait(purchaseDelay)
-                        else
-                            task.wait(0.15)
-                        end
+                        if purchaseDelay > 0 then task.wait(purchaseDelay) else task.wait(0.15) end
                     end
                 end
-
                 task.wait(0.3)
-
                 pcall(function()
                     if Options and Options.Boost_PurchaseToggle then
                         Options.Boost_PurchaseToggle:SetValue(false)
@@ -4470,39 +4479,32 @@ if IsLobbyLobby() then
     BoostGroup:AddDivider()
 
     local ALL_USE_BOOSTS = {
-        "2x Gold Boost [2h]",
-        "2x Gold Boost [1h]",
-        "2x Gold Boost [30m]",
-        "2x Gold Boost [15m]",
-        "2x Gold Boost [5m]",
-        "2x XP Boost [2h]",
-        "2x XP Boost [1h]",
-        "2x XP Boost [30m]",
-        "2x XP Boost [15m]",
-        "2x XP Boost [5m]",
-        "2x Luck Boost [2h]",
-        "2x Luck Boost [1h]",
-        "2x Luck Boost [30m]",
-        "2x Luck Boost [15m]",
-        "2x Luck Boost [5m]"
+        "2x Gold Boost [2h]", "2x Gold Boost [1h]", "2x Gold Boost [30m]",
+        "2x Gold Boost [15m]", "2x Gold Boost [5m]",
+        "2x XP Boost [2h]", "2x XP Boost [1h]", "2x XP Boost [30m]",
+        "2x XP Boost [15m]", "2x XP Boost [5m]",
+        "2x Luck Boost [2h]", "2x Luck Boost [1h]", "2x Luck Boost [30m]",
+        "2x Luck Boost [15m]", "2x Luck Boost [5m]"
     }
 
-    -- ฟังก์ชัน useBoost แบบรวดเร็ว (ไม่มี retry, delay น้อยที่สุด)
     local function useBoost(boostName)
         local args = {"S_Inventory", "Item", boostName}
-        -- ส่งคำสั่งทันที ไม่ retry ไม่ delay
-        return pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
+        return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
         Text = "Auto Use All Boosts (5x each)",
         Default = false,
         Callback = function(v)
-            if not v then
-                return
+            if not v then return end
+
+            -- รอ UI โหลด 1 วินาที
+            local waited = 0
+            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+                task.wait(0.05)
+                waited = waited + 0.05
             end
+            task.wait(0.1)
 
             if not isReady then
                 pcall(function()
@@ -4516,32 +4518,19 @@ if IsLobbyLobby() then
             task.spawn(function()
                 local startTime = tick()
                 local gemsAmount, goldAmount = checkCurrencies()
-              
                 local totalUsed = 0
-                -- รันทุก boost อย่างรวดเร็ว (ไม่มี delay เกิน 0.01)
                 for _, boostName in ipairs(ALL_USE_BOOSTS) do
-                    if not isReady then
-                        break
-                    end
+                    if not isReady then break end
                     for i = 1, 5 do
-                        if not isReady then
-                            break
-                        end
+                        if not isReady then break end
                         local success = useBoost(boostName)
-                        if success then
-                            totalUsed = totalUsed + 1
-                        end
-                        -- delay เพียง 0.005 วินาที เพื่อไม่ให้ server โอเวอร์โหลด
+                        if success then totalUsed = totalUsed + 1 end
                         task.wait(0.005)
                     end
-                    -- delay เล็กน้อยระหว่างประเภท boost
                     task.wait(0.01)
                 end
-
                 local elapsed = tick() - startTime
                 gemsAmount, goldAmount = checkCurrencies()
-                
-                -- ปิด toggle อัตโนมัติ
                 task.wait(0.2)
                 pcall(function()
                     if Options and Options.Boost_AutoUseToggle then
@@ -5165,6 +5154,43 @@ MiscGroup:AddToggle("PlayerStatsToggle", {
         end
     end
 })
+
+    -- ============================== 3D RENDERING CONTROL ==============================
+    MiscGroup:AddDropdown("RenderModeDropdown", {
+        Text = "FPS Performance",
+        Values = {"Low Quality Mode"},
+        Default = {},
+        Multi = true,
+        Callback = function(v)
+            -- v เป็น table เช่น {["Low Quality Mode"] = true} เมื่อเลือก, {} เมื่อไม่เลือก
+            if v["Low Quality Mode"] then
+                pcall(function()
+                    -- ปรับ Lighting ให้มืดและลด effect
+                    game:GetService("Lighting").Brightness = 0
+                    game:GetService("Lighting").GlobalShadows = false
+                    game:GetService("Lighting").FogEnd = 0
+                    -- ลดคุณภาพ rendering
+                    settings().Rendering.QualityLevel = 1
+                    game:GetService("Workspace").TintColor = Color3.new(0, 0, 0)
+                    if sethiddenproperty then
+                        sethiddenproperty(game:GetService("Workspace"), "Terrain", nil)
+                    end
+                end)
+                Library:Notify("3D rendering disabled (low quality)", 2)
+            else
+                pcall(function()
+                    -- คืนค่าปกติ
+                    game:GetService("Lighting").Brightness = 1
+                    game:GetService("Lighting").GlobalShadows = true
+                    game:GetService("Lighting").FogEnd = 100000
+                    settings().Rendering.QualityLevel = 21
+                    game:GetService("Workspace").TintColor = Color3.new(1, 1, 1)
+                end)
+                Library:Notify("Rendering restored to normal", 2)
+            end
+        end
+    })
+	
 
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
