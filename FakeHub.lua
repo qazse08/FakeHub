@@ -3253,7 +3253,8 @@ if IsMainmenuLobby() or IsLobbyLobby() then
 end
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 -- แก้ไข: ใช้ Tabs.Lobby เหมือนของเก่า แต่ระบบภายในเป็น Us Suite (AOTR Style)
--- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง และเพิ่ม retry เมื่อล้มเหลว
+-- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง, เพิ่ม retry เมื่อล้มเหลว, และทำ LeaveReset เมื่อสร้าง Mission/Raid ไม่สำเร็จ
+-- แจ้งเตือนเป็นข้อความธรรมดา ไม่มีอิโมจิ
 
 -- หา Remote แบบไดนามิก (Us Suite style)
 local function findMissionRemote()
@@ -3343,7 +3344,7 @@ if Tabs.Lobby then
     local missionSessionId = 0
     local lastNotifiedMissionMods = ""
 
-    -- ดึงค่าจาก Options
+    -- ดึงค่าจาก Options (เหมือนของเก่า)
     pcall(function()
         if Options and Options.MissionDropdown and Options.MissionDropdown.Value then State_Mission.Name = Options.MissionDropdown.Value end
         if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then State_Mission.Objective = Options.ObjectiveDropdown.Value end
@@ -3351,7 +3352,7 @@ if Tabs.Lobby then
         if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0 end
     end)
 
-    -- ฟังก์ชัน GetPlayerLevel
+    -- ฟังก์ชัน GetPlayerLevel (Us Suite style)
     local function GetPlayerLevel()
         local success, level = pcall(function()
             local player = game:GetService("Players").LocalPlayer
@@ -3374,14 +3375,17 @@ if Tabs.Lobby then
         return success and level or 1
     end
 
+    -- ระบบ Hardest cycle แบบ Us Suite (ตาม Level)
     local function GetDifficultyCycle(missionType)
         local level = GetPlayerLevel()
+        
         if missionType == "Raids" then
             if level >= 100 then return {"Aberrant"}
             elseif level >= 60 then return {"Aberrant", "Severe", "Hard"}
             elseif level >= 40 then return {"Severe", "Hard", "Normal"}
             else return {"Hard", "Normal", "Easy"} end
         end
+        
         if level >= 100 then return {"Aberrant"}
         elseif level >= 60 then return {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
         elseif level >= 40 then return {"Severe", "Hard", "Normal", "Easy"}
@@ -3444,17 +3448,17 @@ if Tabs.Lobby then
             end
         end)
         if #selected == 0 then return end
-
+        
         local modsString = table.concat(selected, ", ")
         if lastNotifiedMissionMods ~= modsString then
             lastNotifiedMissionMods = modsString
             local txt = formatMissionModifiers(selected)
             if txt then Library:Notify(txt, 4) end
         end
-
+        
         ClearMissionModifiers()
         if not missionRunning then return end
-
+        
         for _, mod in ipairs(selected) do
             if not missionRunning then break end
             local success = false
@@ -3465,7 +3469,7 @@ if Tabs.Lobby then
                 task.wait(0.2)
             end
             if not success then
-                Library:Notify(string.format("⚠️ Failed to apply modifier: %s", mod), 3)
+                Library:Notify(string.format("Failed to apply modifier: %s", mod), 3)
             end
             task.wait(0.15)
         end
@@ -3513,9 +3517,11 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Missions")
                 local created = false
+                Library:Notify("Trying hardest mission cycle...", 2)
                 for _, diff in ipairs(cycle) do
                     if not missionRunning or missionSessionId ~= mySession then break end
                     if State_Mission.Difficulty ~= "Hardest" then break end
+                    
                     local objList = MissionObjectives[currentMission] or {"Skirmish"}
                     local obj = currentObjective
                     if obj == "Random" then
@@ -3523,27 +3529,41 @@ if Tabs.Lobby then
                         for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
                         obj = filtered[math.random(#filtered)]
                     end
+                    
+                    Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, diff), 2)
                     CreateMission(currentMission, obj, diff)
                     task.wait(0.2)
+                    
                     if GetMyMission() then
                         created = true
-                        if Library then Library:Notify("✓ Mission created: " .. diff, 2) end
+                        Library:Notify(string.format("Mission created: %s", diff), 2)
                         break
+                    else
+                        Library:Notify("Mission creation failed, resetting lobby...", 2)
+                        LeaveMission()
+                        task.wait(0.5)
                     end
+                    
                     if not missionRunning then break end
                 end
+                
                 if not created then
+                    Library:Notify("Could not create any mission, retry later", 3)
                     missionBusy = false
-                    task.wait(1)
+                    task.wait(2)
                     continue
                 end
+                
+                Library:Notify("Applying modifiers...", 2)
                 ApplyMissionModifiers()
                 if not missionRunning then missionBusy = false; continue end
-                task.wait(0.3) -- สำรอง
+                task.wait(0.3)
+                Library:Notify("Starting mission", 2)
                 StartMission()
                 local startTick = tick()
                 repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 3.5
                 if MissionDelay > 0 then task.wait(MissionDelay) end
+                
             else
                 local objList = MissionObjectives[currentMission] or {"Skirmish"}
                 local obj = currentObjective
@@ -3552,12 +3572,24 @@ if Tabs.Lobby then
                     for _, v in ipairs(objList) do if v ~= "Random" then filtered[#filtered+1] = v end end
                     obj = filtered[math.random(#filtered)]
                 end
+                
+                Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, currentDifficulty), 2)
                 CreateMission(currentMission, obj, currentDifficulty)
-                task.wait(0.15 + MissionDelay)
-                if not missionRunning then missionBusy = false; continue end
+                task.wait(0.2)
+                
+                if not GetMyMission() then
+                    Library:Notify("Mission creation failed, resetting lobby...", 2)
+                    LeaveMission()
+                    missionBusy = false
+                    task.wait(0.5)
+                    continue
+                end
+                
+                Library:Notify("Applying modifiers...", 2)
                 ApplyMissionModifiers()
                 if not missionRunning then missionBusy = false; continue end
                 task.wait(0.3)
+                Library:Notify("Starting mission", 2)
                 StartMission()
                 local startTick = tick()
                 repeat task.wait(0.05) until not missionRunning or missionSessionId ~= mySession or tick() - startTick >= 0.45
@@ -3566,7 +3598,7 @@ if Tabs.Lobby then
         end
     end
 
-    -- UI Elements
+    -- UI Elements (เหมือนของเก่า)
     MissionTab:AddDropdown("MissionDropdown", {
         Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
         Default = State_Mission.Name,
@@ -3657,6 +3689,7 @@ if Tabs.Lobby then
         if not raidRunning then return false end
         local data = RaidObjectives[bossName]
         if not data then return false end
+        
         local createArgs = {
             Difficulty = difficulty, 
             Type = "Raids", 
@@ -3664,6 +3697,7 @@ if Tabs.Lobby then
             Objective = data.objective
         }
         if data.hasMinimum then createArgs.Minimum = data.minimum end
+        
         local success, _ = SafeMissionCall("S_Missions", "Create", createArgs)
         task.wait(0.15)
         return success
@@ -3712,7 +3746,7 @@ if Tabs.Lobby then
                 task.wait(0.2)
             end
             if not success then
-                Library:Notify(string.format("⚠️ Failed to apply modifier: %s", mod), 3)
+                Library:Notify(string.format("Failed to apply modifier: %s", mod), 3)
             end
             task.wait(0.15)
         end
@@ -3742,37 +3776,63 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Raids")
                 local created = false
+                Library:Notify("Trying hardest raid cycle...", 2)
                 for _, diff in ipairs(cycle) do
                     if not raidRunning or raidSessionId ~= mySession then break end
                     if State_Raid.Difficulty ~= "Hardest" then break end
+                    
+                    Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, diff), 2)
                     CreateRaid(currentBoss, diff)
                     task.wait(0.2)
+                    
                     if GetMyMission() then
                         created = true
-                        if Library then Library:Notify("✓ Raid created: " .. diff, 2) end
+                        Library:Notify(string.format("Raid created: %s", diff), 2)
                         break
+                    else
+                        Library:Notify("Raid creation failed, resetting lobby...", 2)
+                        LeaveRaid()
+                        task.wait(0.5)
                     end
+                    
                     if not raidRunning then break end
                 end
+                
                 if not created then
+                    Library:Notify("Could not create any raid, retry later", 3)
                     raidBusy = false
-                    task.wait(1)
+                    task.wait(2)
                     continue
                 end
+                
+                Library:Notify("Applying modifiers...", 2)
                 ApplyRaidModifiers()
                 if not raidRunning then raidBusy = false; continue end
                 task.wait(0.3)
+                Library:Notify("Starting raid", 2)
                 StartRaid()
                 local startTick = tick()
                 repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 3.5
                 if RaidDelay > 0 then task.wait(RaidDelay) end
+                
             else
+                Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, currentDifficulty), 2)
                 CreateRaid(currentBoss, currentDifficulty)
-                task.wait(0.15 + RaidDelay)
-                if not raidRunning then raidBusy = false; continue end
+                task.wait(0.2)
+                
+                if not GetMyMission() then
+                    Library:Notify("Raid creation failed, resetting lobby...", 2)
+                    LeaveRaid()
+                    raidBusy = false
+                    task.wait(0.5)
+                    continue
+                end
+                
+                Library:Notify("Applying modifiers...", 2)
                 ApplyRaidModifiers()
                 if not raidRunning then raidBusy = false; continue end
                 task.wait(0.3)
+                Library:Notify("Starting raid", 2)
                 StartRaid()
                 local startTick = tick()
                 repeat task.wait(0.05) until not raidRunning or raidSessionId ~= mySession or tick() - startTick >= 0.45
@@ -3861,14 +3921,25 @@ if Tabs.Lobby then
     local function WavesLoop(mySession)
         task.wait(1)
         while wavesRunning and wavesSessionId == mySession do
-            if wavesBusy then task.wait(0.05); continue end
+            if wavesBusy then
+                task.wait(0.05)
+                continue
+            end
             wavesBusy = true
+
             CreateWave()
             task.wait(0.2)
+
             if not wavesRunning then break end
+
             StartWave()
+
             local startTick = tick()
-            repeat task.wait(0.05) until not wavesRunning or wavesSessionId ~= mySession or tick() - startTick >= 0.45
+            repeat
+                task.wait(0.05)
+                if not wavesRunning or wavesSessionId ~= mySession then break end
+            until tick() - startTick >= 0.45
+
             wavesBusy = false
         end
     end
@@ -3884,7 +3955,9 @@ if Tabs.Lobby then
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
                 local mySession = wavesSessionId
-                task.spawn(function() WavesLoop(mySession) end)
+                task.spawn(function()
+                    WavesLoop(mySession)
+                end)
             else
                 wavesRunning = false
                 wavesBusy = false
