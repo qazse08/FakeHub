@@ -3253,6 +3253,7 @@ if IsMainmenuLobby() or IsLobbyLobby() then
 end
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 -- แก้ไข: ใช้ Tabs.Lobby เหมือนของเก่า แต่ระบบภายในเป็น Us Suite (AOTR Style)
+-- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง
 
 -- หา Remote แบบไดนามิก (Us Suite style)
 local function findMissionRemote()
@@ -3423,7 +3424,7 @@ if Tabs.Lobby then
     local function ClearMissionModifiers()
         if not missionRunning then return end
         SafeMissionCall("S_Missions", "ClearModifiers")
-        task.wait(0.2)
+        task.wait(0.25) -- เพิ่ม delay เพื่อให้ล้าง modifiers ทัน
     end
 
     local function ApplyMissionModifiers()
@@ -3440,20 +3441,24 @@ if Tabs.Lobby then
             end
         end)
         if #selected == 0 then return end
+        
         local modsString = table.concat(selected, ", ")
         if lastNotifiedMissionMods ~= modsString then
             lastNotifiedMissionMods = modsString
             local txt = formatMissionModifiers(selected)
             if txt then Library:Notify(txt, 4) end
         end
+        
         ClearMissionModifiers()
         if not missionRunning then return end
+        
+        -- ส่ง modifiers ทีละตัว พร้อม delay เพิ่มขึ้นเล็กน้อยเพื่อให้เกมรับรู้
         for _, mod in ipairs(selected) do
             if not missionRunning then break end
             SafeMissionCall("S_Missions", "Modify", mod)
-            task.wait(0.12)
+            task.wait(0.15) -- เพิ่มจาก 0.12 เป็น 0.15
         end
-        task.wait(0.2)
+        task.wait(0.3) -- เพิ่ม delay รวมหลัง modifiers ครบ
     end
 
     local function StartMission()
@@ -3484,7 +3489,6 @@ if Tabs.Lobby then
     end
 
     local function MissionLoop(mySession)
-        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
         task.wait(1)
         
         if MissionDelay > 0 then task.wait(MissionDelay) end
@@ -3498,7 +3502,6 @@ if Tabs.Lobby then
             local currentDifficulty = State_Mission.Difficulty
 
             if currentDifficulty == "Hardest" then
-                -- ระบบ Hardest แบบ Us Suite: ลองไล่ difficulty จนกว่าจะสร้างได้
                 local cycle = GetDifficultyCycle("Missions")
                 local created = false
                 
@@ -3534,12 +3537,15 @@ if Tabs.Lobby then
                     continue
                 end
                 
+                -- 🔥 โหลด modifiers ให้ครบก่อน start
                 ApplyMissionModifiers()
-                task.wait(0.2)
                 if not missionRunning then 
                     missionBusy = false
                     continue
                 end
+                
+                -- รอให้ modifiers ทำงานเสร็จสมบูรณ์
+                task.wait(0.3)
                 
                 StartMission()
                 local startTick = tick()
@@ -3567,12 +3573,14 @@ if Tabs.Lobby then
                     continue
                 end
                 
+                -- 🔥 โหลด modifiers ให้ครบก่อน start
                 ApplyMissionModifiers()
-                task.wait(0.2)
                 if not missionRunning then 
                     missionBusy = false
                     continue
                 end
+                
+                task.wait(0.3) -- รอ modifiers ครบ
                 
                 StartMission()
                 local startTick = tick()
@@ -3635,7 +3643,6 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if missionRunning then return end
-                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
                 task.wait(0.5)
                 missionRunning = true
                 missionBusy = false
@@ -3693,7 +3700,7 @@ if Tabs.Lobby then
     local function ClearRaidModifiers()
         if not raidRunning then return end
         SafeMissionCall("S_Missions", "ClearModifiers")
-        task.wait(0.2)
+        task.wait(0.25)
     end
 
     local function ApplyRaidModifiers()
@@ -3721,9 +3728,9 @@ if Tabs.Lobby then
         for _, mod in ipairs(selected) do
             if not raidRunning then break end
             SafeMissionCall("S_Missions", "Modify", mod)
-            task.wait(0.12)
+            task.wait(0.15)
         end
-        task.wait(0.2)
+        task.wait(0.3)
     end
 
     local function StartRaid()
@@ -3737,7 +3744,6 @@ if Tabs.Lobby then
     end
 
     local function RaidLoop(mySession)
-        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
         task.wait(1)
         
         if RaidDelay > 0 then task.wait(RaidDelay) end
@@ -3776,11 +3782,11 @@ if Tabs.Lobby then
                 end
                 
                 ApplyRaidModifiers()
-                task.wait(0.2)
                 if not raidRunning then 
                     raidBusy = false
                     continue
                 end
+                task.wait(0.3) -- รอ modifiers ครบ
                 
                 StartRaid()
                 local startTick = tick()
@@ -3799,11 +3805,11 @@ if Tabs.Lobby then
                 end
                 
                 ApplyRaidModifiers()
-                task.wait(0.2)
                 if not raidRunning then 
                     raidBusy = false
                     continue
                 end
+                task.wait(0.3)
                 
                 StartRaid()
                 local startTick = tick()
@@ -3850,7 +3856,6 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if raidRunning then return end
-                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
                 task.wait(0.5)
                 raidRunning = true
                 raidBusy = false
@@ -3894,7 +3899,6 @@ if Tabs.Lobby then
     end
 
     local function WavesLoop(mySession)
-        -- รอให้ค่าต่างๆ โหลดเสร็จก่อนเริ่มทำงาน (เพิ่ม delay)
         task.wait(1)
         
         while wavesRunning and wavesSessionId == mySession do
@@ -3927,7 +3931,6 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if wavesRunning then return end
-                -- รอสั้นๆ ก่อนเริ่ม loop (เพิ่ม delay)
                 task.wait(0.5)
                 wavesRunning = true
                 wavesBusy = false
