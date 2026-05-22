@@ -6814,13 +6814,7 @@ if Tabs.AutoFarm then
             -- เช็คว่าผ่านไป 2.5 วินาทีแล้ว
             if tick() - rewardDetectedTime >= 2.5 then
                 if retryAttempts >= maxAttempts then
-                    -- ใช้ Remote แทน
-                    pcall(function()
-                        GET:InvokeServer("Functions", "Retry", "Add")
-                    end)
-                    pcall(function()
-                        Library:Notify("🔄 Remote Retry triggered after " .. maxAttempts .. " failed clicks", 3)
-                    end)
+                    -- ลบ Remote Retry ออกแล้ว
                     waitingForRetry = false
                     retryAttempts = 0
                     task.wait(2)  -- พักสักครู่
