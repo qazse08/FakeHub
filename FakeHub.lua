@@ -3252,10 +3252,6 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     AddConfirm("Teleport to Trading", TRADE_LOBBY_ID)
 end
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
--- แก้ไข: ใช้ Tabs.Lobby เหมือนของเก่า แต่ระบบภายในเป็น Us Suite (AOTR Style)
--- ปรับปรุง: โหลด Modifiers ให้ครบก่อน Start ทุกครั้ง, เพิ่ม retry เมื่อล้มเหลว, และทำ LeaveReset เมื่อสร้าง Mission/Raid ไม่สำเร็จ
--- แจ้งเตือนเป็นข้อความธรรมดา ไม่มีอิโมจิ
-
 -- หา Remote แบบไดนามิก (Us Suite style)
 local function findMissionRemote()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -3344,7 +3340,6 @@ if Tabs.Lobby then
     local missionSessionId = 0
     local lastNotifiedMissionMods = ""
 
-    -- ดึงค่าจาก Options (เหมือนของเก่า)
     pcall(function()
         if Options and Options.MissionDropdown and Options.MissionDropdown.Value then State_Mission.Name = Options.MissionDropdown.Value end
         if Options and Options.ObjectiveDropdown and Options.ObjectiveDropdown.Value then State_Mission.Objective = Options.ObjectiveDropdown.Value end
@@ -3352,7 +3347,6 @@ if Tabs.Lobby then
         if Options and Options.MissionDelaySlider and Options.MissionDelaySlider.Value then MissionDelay = tonumber(Options.MissionDelaySlider.Value) or 0 end
     end)
 
-    -- ฟังก์ชัน GetPlayerLevel (Us Suite style)
     local function GetPlayerLevel()
         local success, level = pcall(function()
             local player = game:GetService("Players").LocalPlayer
@@ -3375,17 +3369,14 @@ if Tabs.Lobby then
         return success and level or 1
     end
 
-    -- ระบบ Hardest cycle แบบ Us Suite (ตาม Level)
     local function GetDifficultyCycle(missionType)
         local level = GetPlayerLevel()
-        
         if missionType == "Raids" then
             if level >= 100 then return {"Aberrant"}
             elseif level >= 60 then return {"Aberrant", "Severe", "Hard"}
             elseif level >= 40 then return {"Severe", "Hard", "Normal"}
             else return {"Hard", "Normal", "Easy"} end
         end
-        
         if level >= 100 then return {"Aberrant"}
         elseif level >= 60 then return {"Aberrant", "Severe", "Hard", "Normal", "Easy"}
         elseif level >= 40 then return {"Severe", "Hard", "Normal", "Easy"}
@@ -3422,7 +3413,6 @@ if Tabs.Lobby then
         return success
     end
 
-    -- CLEAR + APPLY แบบมี retry และ delay เพิ่ม
     local function ClearMissionModifiers()
         if not missionRunning then return end
         for retry = 1, 2 do
@@ -3452,8 +3442,6 @@ if Tabs.Lobby then
         local modsString = table.concat(selected, ", ")
         if lastNotifiedMissionMods ~= modsString then
             lastNotifiedMissionMods = modsString
-            local txt = formatMissionModifiers(selected)
-            if txt then Library:Notify(txt, 4) end
         end
         
         ClearMissionModifiers()
@@ -3468,12 +3456,9 @@ if Tabs.Lobby then
                 if success then break end
                 task.wait(0.2)
             end
-            if not success then
-                Library:Notify(string.format("Failed to apply modifier: %s", mod), 3)
-            end
             task.wait(0.15)
         end
-        task.wait(0.4)  -- พอให้ modifier ซิงก์
+        task.wait(0.4)
     end
 
     local function StartMission()
@@ -3517,7 +3502,6 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Missions")
                 local created = false
-                Library:Notify("Trying hardest mission cycle...", 2)
                 for _, diff in ipairs(cycle) do
                     if not missionRunning or missionSessionId ~= mySession then break end
                     if State_Mission.Difficulty ~= "Hardest" then break end
@@ -3530,16 +3514,14 @@ if Tabs.Lobby then
                         obj = filtered[math.random(#filtered)]
                     end
                     
-                    Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, diff), 2)
                     CreateMission(currentMission, obj, diff)
                     task.wait(0.2)
                     
                     if GetMyMission() then
                         created = true
-                        Library:Notify(string.format("Mission created: %s", diff), 2)
+                        Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, diff), 2)
                         break
                     else
-                        Library:Notify("Mission creation failed, resetting lobby...", 2)
                         LeaveMission()
                         task.wait(0.5)
                     end
@@ -3548,13 +3530,12 @@ if Tabs.Lobby then
                 end
                 
                 if not created then
-                    Library:Notify("Could not create any mission, retry later", 3)
+                    Library:Notify("Mission creation failed, retrying later", 3)
                     missionBusy = false
                     task.wait(2)
                     continue
                 end
                 
-                Library:Notify("Applying modifiers...", 2)
                 ApplyMissionModifiers()
                 if not missionRunning then missionBusy = false; continue end
                 task.wait(0.3)
@@ -3573,7 +3554,6 @@ if Tabs.Lobby then
                     obj = filtered[math.random(#filtered)]
                 end
                 
-                Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, currentDifficulty), 2)
                 CreateMission(currentMission, obj, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3585,7 +3565,7 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                Library:Notify("Applying modifiers...", 2)
+                Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, currentDifficulty), 2)
                 ApplyMissionModifiers()
                 if not missionRunning then missionBusy = false; continue end
                 task.wait(0.3)
@@ -3598,7 +3578,6 @@ if Tabs.Lobby then
         end
     end
 
-    -- UI Elements (เหมือนของเก่า)
     MissionTab:AddDropdown("MissionDropdown", {
         Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
         Default = State_Mission.Name,
@@ -3731,8 +3710,6 @@ if Tabs.Lobby then
         local modsString = table.concat(selected, ", ")
         if lastNotifiedRaidMods ~= modsString then
             lastNotifiedRaidMods = modsString
-            local txt = formatMissionModifiers(selected)
-            if txt then Library:Notify(txt, 4) end
         end
         ClearRaidModifiers()
         if not raidRunning then return end
@@ -3744,9 +3721,6 @@ if Tabs.Lobby then
                 success = SafeMissionCall("S_Missions", "Modify", mod)
                 if success then break end
                 task.wait(0.2)
-            end
-            if not success then
-                Library:Notify(string.format("Failed to apply modifier: %s", mod), 3)
             end
             task.wait(0.15)
         end
@@ -3776,21 +3750,18 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Raids")
                 local created = false
-                Library:Notify("Trying hardest raid cycle...", 2)
                 for _, diff in ipairs(cycle) do
                     if not raidRunning or raidSessionId ~= mySession then break end
                     if State_Raid.Difficulty ~= "Hardest" then break end
                     
-                    Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, diff), 2)
                     CreateRaid(currentBoss, diff)
                     task.wait(0.2)
                     
                     if GetMyMission() then
                         created = true
-                        Library:Notify(string.format("Raid created: %s", diff), 2)
+                        Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, diff), 2)
                         break
                     else
-                        Library:Notify("Raid creation failed, resetting lobby...", 2)
                         LeaveRaid()
                         task.wait(0.5)
                     end
@@ -3799,13 +3770,12 @@ if Tabs.Lobby then
                 end
                 
                 if not created then
-                    Library:Notify("Could not create any raid, retry later", 3)
+                    Library:Notify("Raid creation failed, retrying later", 3)
                     raidBusy = false
                     task.wait(2)
                     continue
                 end
                 
-                Library:Notify("Applying modifiers...", 2)
                 ApplyRaidModifiers()
                 if not raidRunning then raidBusy = false; continue end
                 task.wait(0.3)
@@ -3816,7 +3786,6 @@ if Tabs.Lobby then
                 if RaidDelay > 0 then task.wait(RaidDelay) end
                 
             else
-                Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, currentDifficulty), 2)
                 CreateRaid(currentBoss, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3828,7 +3797,7 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                Library:Notify("Applying modifiers...", 2)
+                Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, currentDifficulty), 2)
                 ApplyRaidModifiers()
                 if not raidRunning then raidBusy = false; continue end
                 task.wait(0.3)
@@ -3932,6 +3901,8 @@ if Tabs.Lobby then
 
             if not wavesRunning then break end
 
+            Library:Notify("Creating wave", 2)
+            Library:Notify("Starting wave", 2)
             StartWave()
 
             local startTick = tick()
@@ -3969,16 +3940,61 @@ if Tabs.Lobby then
 
 end
 
-
 -- ============================== AUTO UPGRADE ==============================
 if IsLobbyLobby() then
     local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
 
+    -- ========== ฟังก์ชันอ่านค่า Gold / Gems โดยตรง (ไม่ต้องพึ่งส่วนอื่น) ==========
+    local function getGoldAmount()
+        local player = game:GetService("Players").LocalPlayer
+        local gold = 0
+        pcall(function()
+            local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
+            if topbar then
+                local goldLabel = topbar.Gold and topbar.Gold:FindFirstChild("Amount")
+                if goldLabel and goldLabel.Text then
+                    local goldText = goldLabel.Text:gsub("[^%d]", "")
+                    gold = tonumber(goldText) or 0
+                end
+            end
+        end)
+        return gold
+    end
+
+    -- ========== ฟังก์ชันตรวจสอบว่า UI การอัปเกรดอยู่ในสถานะ "Ready" ==========
+    -- 🔧 แก้ path ตรงนี้ให้ตรงกับเกมของคุณ
+    local function isUpgradeReady()
+        local player = game:GetService("Players").LocalPlayer
+        local ready = false
+        pcall(function()
+            -- ตัวอย่าง path ที่พบบ่อย (แก้ตาม UI จริง)
+            local equipment = player.PlayerGui.Interface:FindFirstChild("Equipment")
+            if equipment then
+                -- ลองหาปุ่มหรือข้อความ "Ready"
+                local statusLabel = equipment:FindFirstChild("Status") 
+                                    or equipment:FindFirstChild("ReadyLabel")
+                if statusLabel and statusLabel:IsA("TextLabel") then
+                    if statusLabel.Text and statusLabel.Text:find("Ready") then
+                        ready = true
+                    end
+                else
+                    -- fallback: ถ้าไม่เจอ ให้ถือว่าพร้อมเสมอ (จะได้ทำงาน)
+                    ready = true
+                end
+            else
+                -- ถ้าไม่มีหน้า Equipment ถือว่าพร้อม (หรือปรับเป็น false ก็ได้)
+                ready = true
+            end
+        end)
+        return ready
+    end
+
+    -- =================== BLADE TAB ===================
     local BladeTab = UpgradeTabbox:AddTab("Blade")
 
     getgenv().AutoUpgradeBlade = false
     getgenv().UpgradeRunning = false
-    getgenv().UpgradeCooldown = 5
+    getgenv().BladeUpgradeDelay = 0      -- ใช้ค่าจาก Slider จริง
 
     local ALL_BLADE_STATS = {
         "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
@@ -3988,9 +4004,13 @@ if IsLobbyLobby() then
     local function batchUpgradeBlade()
         if not GET then return false end
         local args = { "S_Equipment", "Upgrade", ALL_BLADE_STATS }
-        return pcall(function()
+        local success, err = pcall(function()
             GET:InvokeServer(unpack(args))
         end)
+        if not success then
+            warn("[Blade] Upgrade error: ", err)
+        end
+        return success
     end
 
     BladeTab:AddSlider("BladeUpgradeDelaySlider", {
@@ -4014,31 +4034,47 @@ if IsLobbyLobby() then
                 getgenv().UpgradeRunning = true
 
                 task.spawn(function()
-                    local hasNotified = false
-                    
+                    print("[Blade] Auto upgrade started")
                     while getgenv().AutoUpgradeBlade do
-                        pcall(function()
-                            batchUpgradeBlade()
-                            
-                            if not hasNotified then
-                                task.wait(getgenv().UpgradeCooldown)
-                                hasNotified = true
+                        local ready = isUpgradeReady()
+                        local gold = getGoldAmount()
+                        local delay = getgenv().BladeUpgradeDelay
+
+                        if ready and gold >= 1000 then   -- เปลี่ยน 1000 เป็นราคาอัปเกรดจริง
+                            local success = batchUpgradeBlade()
+                            if success then
+                                print("[Blade] Upgraded")
+                            else
+                                warn("[Blade] Upgrade failed")
                             end
-                            
-                            task.wait(getgenv().UpgradeCooldown)
-                        end)
+                            if delay > 0 then
+                                task.wait(delay)
+                            else
+                                task.wait()   -- ป้องกัน loop 100%
+                            end
+                        else
+                            -- รอแล้วลองใหม่
+                            if not ready then
+                                warn("[Blade] Waiting for Ready status...")
+                            elseif gold < 1000 then
+                                warn(string.format("[Blade] Not enough gold (%s)", gold))
+                            end
+                            task.wait(2)
+                        end
                     end
                     getgenv().UpgradeRunning = false
+                    print("[Blade] Auto upgrade stopped")
                 end)
             end
         end
     })
 
+    -- =================== THUNDER SPEAR TAB ===================
     local SpearTab = UpgradeTabbox:AddTab("Thunder Spear")
 
     getgenv().AutoUpgradeSpear = false
     getgenv().SpearUpgradeRunning = false
-    getgenv().SpearUpgradeCooldown = 5
+    getgenv().SpearUpgradeDelay = 0
 
     local ALL_SPEAR_STATS = {
         "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
@@ -4048,9 +4084,13 @@ if IsLobbyLobby() then
     local function batchUpgradeSpear()
         if not GET then return false end
         local args = { "S_Equipment", "Upgrade", ALL_SPEAR_STATS }
-        return pcall(function()
+        local success, err = pcall(function()
             GET:InvokeServer(unpack(args))
         end)
+        if not success then
+            warn("[Spear] Upgrade error: ", err)
+        end
+        return success
     end
 
     SpearTab:AddSlider("SpearUpgradeDelaySlider", {
@@ -4074,19 +4114,26 @@ if IsLobbyLobby() then
                 getgenv().SpearUpgradeRunning = true
 
                 task.spawn(function()
-                    local hasNotified = false
-                    
                     while getgenv().AutoUpgradeSpear do
-                        pcall(function()
+                        local ready = isUpgradeReady()
+                        local gold = getGoldAmount()
+                        local delay = getgenv().SpearUpgradeDelay
+
+                        if ready and gold >= 1000 then
                             batchUpgradeSpear()
-                            
-                            if not hasNotified then
-                                task.wait(getgenv().SpearUpgradeCooldown)
-                                hasNotified = true
+                            if delay > 0 then
+                                task.wait(delay)
+                            else
+                                task.wait()
                             end
-                            
-                            task.wait(getgenv().SpearUpgradeCooldown)
-                        end)
+                        else
+                            if not ready then
+                                warn("[Spear] Waiting for Ready...")
+                            elseif gold < 1000 then
+                                warn(string.format("[Spear] Not enough gold (%s)", gold))
+                            end
+                            task.wait(2)
+                        end
                     end
                     getgenv().SpearUpgradeRunning = false
                 end)
@@ -4095,112 +4142,12 @@ if IsLobbyLobby() then
     })
 end
 
--- ============================== EQUIP SKILL (RANDOM SLOT 1 & 5, NO OVERLAP, SILENT) ==============================
-if IsLobbyLobby() then
-    local SkillGroupRight = Tabs.Session:AddLeftGroupbox("Equip Skill")
 
-    local selectedSkills = {}
-    local isEquipping = false
-
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-
-    -- รีเซ็ตสล็อตเดียว
-    local function resetSlot(slot)
-        pcall(function() GET:InvokeServer("S_Equipment", "Skill_State", slot, "3") end)
-    end
-
-    -- รีเซ็ตทุกสล็อต 1-5 ตามลำดับ ห่าง 0.5 วินาที และรีเซ็ตสล็อต 5 ซ้ำ
-    local function resetAllSlots()
-        for slot = 1, 5 do
-            resetSlot(slot)
-            task.wait(0.5)
-        end
-        resetSlot(5)
-        task.wait(0.5)
-    end
-
-    -- ใส่สกิลลง slot ที่กำหนด
-    local function equipSkillToSlot(slot, skillId)
-        pcall(function() GET:InvokeServer("S_Equipment", "Skill_State", slot, skillId) end)
-    end
-
-    local function executeEquip()
-        if isEquipping then return end
-        isEquipping = true
-
-        task.spawn(function()
-            -- รีเซ็ตทุกสล็อต
-            resetAllSlots()
-
-            -- รวบรวมสกิลที่เลือก
-            local skills = {}
-            if selectedSkills["Drill Thrust"] then
-                table.insert(skills, {name = "Drill Thrust", id = "14"})
-            end
-            if selectedSkills["Torrential Steel"] then
-                table.insert(skills, {name = "Torrential Steel", id = "23"})
-            end
-
-            if #skills == 0 then
-                isEquipping = false
-                pcall(function()
-                    if Options and Options.EquipSkill_Toggle then
-                        Options.EquipSkill_Toggle:SetValue(false)
-                    end
-                end)
-                return
-            end
-
-            -- กำหนด slot ที่ใช้ (1 และ 5)
-            local slots = {1, 5}
-            
-            -- ถ้ามีสกิลเดียว: สุ่มเลือก slot จาก 1 หรือ 5
-            if #skills == 1 then
-                local chosenSlot = slots[math.random(1, 2)]
-                equipSkillToSlot(chosenSlot, skills[1].id)
-            else
-                -- มีสองสกิล: สุ่มว่าอันไหนไป slot 1, อีกอันไป slot 5
-                local r = math.random(1, 2)
-                local skill1 = skills[r]          -- skill สำหรับ slot 1
-                local skill2 = skills[3 - r]      -- อีก skill สำหรับ slot 5
-                
-                equipSkillToSlot(1, skill1.id)
-                task.wait(0.1)
-                equipSkillToSlot(5, skill2.id)
-            end
-
-            task.wait(0.5)
-
-            isEquipping = false
-
-            pcall(function()
-                if Options and Options.EquipSkill_Toggle then
-                    Options.EquipSkill_Toggle:SetValue(false)
-                end
-            end)
-        end)
-    end
-
-    -- UI
-    SkillGroupRight:AddDropdown("EquipSkill_Dropdown", {
-        Text = "Select Skills",
-        Values = {"Drill Thrust", "Torrential Steel"},
-        Default = {},
-        Multi = true,
-        Callback = function(v) selectedSkills = v end
-    })
-
-    SkillGroupRight:AddToggle("EquipSkill_Toggle", {
-        Text = "Equip Skills (Random slot 1 or 5, no overlap)",
-        Default = false,
-        Callback = function(v) if v then executeEquip() end end
-    })
-end
--- ============================== UNLOCK SKILLS (SIMPLE ORDER) ==============================
+-- ============================== UNLOCK SKILLS (SILENT MODE - SINGLE DELAY) ==============================
 if IsLobbyLobby() then
     local UnlockGroupRight = Tabs.Session:AddRightGroupbox("Unlock Skills")
 
-    -- กำหนดข้อมูลของแต่ละสาย (ชื่อ, รายการ ID)
+    -- กำหนดข้อมูลของแต่ละสาย
     local branches = {
         ["Support Left"] = {
             ids = {
@@ -4240,12 +4187,15 @@ if IsLobbyLobby() then
         }
     }
 
-    -- ตัวแปรเก็บค่าที่เลือก (แยกตามหมวด)
+    -- ตัวแปรเก็บค่าที่เลือก
     local selected = { Support = nil, Offense = nil, Defense = nil }
     local orderLabel = nil
     local isUnlocking = false
 
-    -- ฟังก์ชันอัปเดต Order Label แสดงลำดับตามหมวด
+    -- ตัวแปรสำหรับ delay เดียว
+    local unlockDelay = 0.08
+
+    -- ฟังก์ชันอัปเดต Order Label
     local function updateOrderLabel()
         local items = {}
         if selected.Defense then items[#items+1] = "Defense " .. selected.Defense end
@@ -4262,7 +4212,7 @@ if IsLobbyLobby() then
         if orderLabel then orderLabel:SetText(orderText) end
     end
 
-    -- สร้างฟังก์ชันสร้าง dropdown ที่มีตัวเลือก "None" เพิ่ม
+    -- สร้าง dropdown
     local function createDropdown(category, text)
         local dropdown = UnlockGroupRight:AddDropdown(category .. "SideDropdown", {
             Text = text,
@@ -4270,11 +4220,7 @@ if IsLobbyLobby() then
             Default = "None",
             Multi = false,
             Callback = function(v)
-                if v == "None" then
-                    selected[category] = nil
-                else
-                    selected[category] = v
-                end
+                if v == "None" then selected[category] = nil else selected[category] = v end
                 updateOrderLabel()
             end
         })
@@ -4288,6 +4234,16 @@ if IsLobbyLobby() then
     -- Label แสดงลำดับ
     orderLabel = UnlockGroupRight:AddLabel("Order:\n   (none selected)", true)
 
+    -- Slider เดียวสำหรับตั้งค่า Delay
+    UnlockGroupRight:AddSlider("UnlockDelaySlider", {
+        Text = "Unlock Delay (sec)",
+        Default = 0.08,
+        Min = 0.01,
+        Max = 1,
+        Rounding = 2,
+        Callback = function(v) unlockDelay = v end
+    })
+
     -- ปุ่ม Clear All Selections
     UnlockGroupRight:AddButton("Clear All Selections", function()
         supportDropdown:SetValue("None")
@@ -4297,12 +4253,11 @@ if IsLobbyLobby() then
         selected.Offense = nil
         selected.Defense = nil
         updateOrderLabel()
-        Library:Notify("All selections cleared", 2)
     end)
 
     UnlockGroupRight:AddDivider()
 
-    -- ฟังก์ชัน Unlock ทีละ ID (พร้อม retry)
+    -- ฟังก์ชัน Unlock ทีละ ID (เงียบ)
     local function unlockSingleId(id, retryCount)
         retryCount = retryCount or 0
         local success, err = pcall(function()
@@ -4315,32 +4270,45 @@ if IsLobbyLobby() then
         return success, err
     end
 
-    -- ฟังก์ชัน Unlock ทั้งสาย (ทีละ ID)
-    local function unlockBranch(category, side, ids)
-        Library:Notify(string.format("Unlocking %s %s (%d skills)...", category, side, #ids), 3)
-        local successCount = 0
-        for i, id in ipairs(ids) do
-            if unlockSingleId(id) then
-                successCount = successCount + 1
-            else
-                Library:Notify(string.format("Failed to unlock skill ID %s", id), 2)
-            end
-            if i < #ids then
-                task.wait(0.08)
-            end
+    -- ฟังก์ชัน Unlock ทั้งสาย (เงียบ ไม่มี notify)
+    local function unlockBranch(ids)
+        for _, id in ipairs(ids) do
+            unlockSingleId(id)
+            task.wait(unlockDelay)
         end
-        Library:Notify(string.format("%s %s: %d/%d skills unlocked", category, side, successCount, #ids), 4)
-        return successCount
     end
 
-    -- Toggle สำหรับเริ่มปลดล็อค (one-way)
+    -- ฟังก์ชันรอ UI และแสดง Gold (ครั้งเดียว)
+    local function showGoldAndWait()
+        -- รอ Window.Holder แสดง
+        while not (Window and Window.Holder and Window.Holder.Visible) do
+            task.wait(0.1)
+        end
+        -- รอให้ Gold Amount มีค่า
+        local player = game:GetService("Players").LocalPlayer
+        local goldLabel = nil
+        repeat
+            task.wait(0.1)
+            goldLabel = player.PlayerGui:FindFirstChild("Interface") and
+                        player.PlayerGui.Interface:FindFirstChild("Topbar") and
+                        player.PlayerGui.Interface.Topbar:FindFirstChild("Main") and
+                        player.PlayerGui.Interface.Topbar.Main:FindFirstChild("Currencies") and
+                        player.PlayerGui.Interface.Topbar.Main.Currencies:FindFirstChild("Gold") and
+                        player.PlayerGui.Interface.Topbar.Main.Currencies.Gold:FindFirstChild("Amount")
+        until goldLabel and goldLabel.Text and goldLabel.Text:gsub("[^%d]", "") ~= ""
+        local goldText = goldLabel.Text:gsub("[^%d]", "")
+        local goldAmount = tonumber(goldText) or 0
+        Library:Notify(string.format("💰 Gold: %s", goldAmount), 3)
+        task.wait(0.2)
+    end
+
+    -- Toggle สำหรับเริ่มปลดล็อค
     UnlockGroupRight:AddToggle("UnlockSkillsToggle", {
         Text = "Start Unlock (once, in order)",
         Default = false,
         Callback = function(v)
             if not v then return end
             if isUnlocking then
-                Library:Notify("Already unlocking, please wait...", 2)
                 pcall(function()
                     if Options and Options.UnlockSkillsToggle then
                         Options.UnlockSkillsToggle:SetValue(false)
@@ -4349,26 +4317,28 @@ if IsLobbyLobby() then
                 return
             end
 
-            -- รวบรวมสายที่เลือก (เรียงตามลำดับที่กำหนด: Defense, Offense, Support)
+            -- แสดง Gold เพียงครั้งเดียว
+            showGoldAndWait()
+
+            -- รวบรวมสายที่เลือก (เรียงลำดับ: Defense, Offense, Support)
             local queue = {}
             if selected.Defense then
                 local side = selected.Defense
                 local branchName = "Defense " .. side
-                table.insert(queue, {category = "Defense", side = side, ids = branches[branchName].ids})
+                table.insert(queue, branches[branchName].ids)
             end
             if selected.Offense then
                 local side = selected.Offense
                 local branchName = "Offense " .. side
-                table.insert(queue, {category = "Offense", side = side, ids = branches[branchName].ids})
+                table.insert(queue, branches[branchName].ids)
             end
             if selected.Support then
                 local side = selected.Support
                 local branchName = "Support " .. side
-                table.insert(queue, {category = "Support", side = side, ids = branches[branchName].ids})
+                table.insert(queue, branches[branchName].ids)
             end
 
             if #queue == 0 then
-                Library:Notify("No branch selected", 2)
                 pcall(function()
                     if Options and Options.UnlockSkillsToggle then
                         Options.UnlockSkillsToggle:SetValue(false)
@@ -4377,23 +4347,14 @@ if IsLobbyLobby() then
                 return
             end
 
-            -- รอ UI โหลด
-            local waited = 0
-            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
-                task.wait(0.05)
-                waited = waited + 0.05
-            end
-            task.wait(0.1)
-
             isUnlocking = true
             task.spawn(function()
-                for i, branch in ipairs(queue) do
-                    unlockBranch(branch.category, branch.side, branch.ids)
+                for i, ids in ipairs(queue) do
+                    unlockBranch(ids)
                     if i < #queue then
-                        task.wait(0.5)
+                        task.wait(unlockDelay)  -- ใช้ delay เดียวกันระหว่าง branch
                     end
                 end
-                Library:Notify("All selected branches unlocked", 4)
                 isUnlocking = false
                 pcall(function()
                     if Options and Options.UnlockSkillsToggle then
@@ -4404,7 +4365,7 @@ if IsLobbyLobby() then
         end
     })
 end
--- ============================== BOOST SELECTION ==============================
+-- ============================== BOOST SELECTION (CURRENCY NOTIFY AFTER PURCHASE) ==============================
 if IsLobbyLobby() then
 
     local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
@@ -4413,7 +4374,6 @@ if IsLobbyLobby() then
     local purchaseAmount = 1
     local purchaseDelay = 0
     local isReady = false
-    local readyNotified = false
 
     local ALL_BOOSTS = {
         "2X XP Boost [30M]", "2X Luck [30M]", "2X Gold [30M]",
@@ -4435,14 +4395,12 @@ if IsLobbyLobby() then
 
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
-    -- รอให้ UI Menu โหลดเสร็จสมบูรณ์
     local function waitForUIMenu()
         while not (Window and Window.Holder and Window.Holder.Visible) do
             task.wait(0.05)
         end
     end
 
-    -- รอให้ Topbar พร้อม (สำหรับเช็คเงิน)
     local function waitForTopbar()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:WaitForChild("PlayerGui", 10)
@@ -4476,38 +4434,22 @@ if IsLobbyLobby() then
         return gemsAmount, goldAmount
     end
 
-    local function showCurrencyStatus()
-        local gemsAmount, goldAmount = checkCurrencies()
-        Library:Notify(string.format("💰 Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
-    end
-
     local function startReadyCheck()
         task.spawn(function()
-            waitForUIMenu()   -- รอให้เมนูแสดงก่อน
-            waitForTopbar()   -- รอให้ topbar พร้อม
+            waitForUIMenu()
+            waitForTopbar()
             while true do
                 local gemsAmount, goldAmount = checkCurrencies()
                 if gemsAmount > 1 or goldAmount > 1 then
-                    if not isReady then
-                        isReady = true
-                        showCurrencyStatus()
-                    end
-                    if not readyNotified then
-                        readyNotified = true
-                        Library:Notify("✅ System Ready - Currency available", 3)
-                    end
+                    isReady = true
                 else
-                    if isReady then
-                        isReady = false
-                        readyNotified = false
-                    end
+                    isReady = false
                 end
                 task.wait(2)
             end
         end)
     end
 
-    -- เริ่มตรวจสอบหลังจาก UI พร้อมเท่านั้น
     startReadyCheck()
 
     local function purchaseBoost(boostName)
@@ -4578,6 +4520,28 @@ if IsLobbyLobby() then
                         purchaseSelection = Options.Boost_ListDropdown.Value
                     end
                 end)
+
+                local selectedNames = {}
+                for boostName, enabled in pairs(purchaseSelection) do
+                    if enabled then
+                        table.insert(selectedNames, boostName)
+                    end
+                end
+
+                if #selectedNames == 0 then
+                    Library:Notify("No boost selected", 2)
+                    pcall(function()
+                        if Options and Options.Boost_PurchaseToggle then
+                            Options.Boost_PurchaseToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+
+                -- แจ้งรายการที่จะซื้อ
+                Library:Notify("Select: " .. table.concat(selectedNames, ", "), 4)
+
+                -- ดำเนินการซื้อ
                 for boostName, enabled in pairs(purchaseSelection) do
                     if enabled then
                         if not isReady then break end
@@ -4585,6 +4549,11 @@ if IsLobbyLobby() then
                         if purchaseDelay > 0 then task.wait(purchaseDelay) else task.wait(0.15) end
                     end
                 end
+
+                -- หลังซื้อเสร็จ: แจ้งเงินคงเหลือ
+                local newGems, newGold = checkCurrencies()
+                Library:Notify(string.format("💰 Gems: %s | Gold: %s", newGems, newGold), 3)
+
                 task.wait(0.3)
                 pcall(function()
                     if Options and Options.Boost_PurchaseToggle then
@@ -4612,7 +4581,7 @@ if IsLobbyLobby() then
     end
 
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
-        Text = "Auto Use All Boosts (5x each)",
+        Text = "Auto Use All Boosts",
         Default = false,
         Callback = function(v)
             if not v then return end
@@ -4635,6 +4604,7 @@ if IsLobbyLobby() then
             end
 
             task.spawn(function()
+                Library:Notify("Auto Use All Boosts", 3)
                 local startTime = tick()
                 local gemsAmount, goldAmount = checkCurrencies()
                 local totalUsed = 0
@@ -4650,6 +4620,8 @@ if IsLobbyLobby() then
                 end
                 local elapsed = tick() - startTime
                 gemsAmount, goldAmount = checkCurrencies()
+                -- แจ้งเงินคงเหลือหลังใช้บูสต์
+                Library:Notify(string.format("💰 Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
                 task.wait(0.2)
                 pcall(function()
                     if Options and Options.Boost_AutoUseToggle then
@@ -4761,7 +4733,7 @@ if IsLobbyLobby() then
         end
     end)
 end
--- ============================== AUTO CLAIMS ==============================
+-- ============================== AUTO CLAIMS (FIXED READY STATUS) ==============================
 if IsLobbyLobby() then
     local AutoClaimGroup = Tabs.Session:AddLeftGroupbox("Auto Claims")
     
@@ -4771,6 +4743,59 @@ if IsLobbyLobby() then
     getgenv().ClaimAchievementRunning = false
     getgenv().ClaimDelay = 0
     
+    -- สร้าง Label สำหรับแสดงสถานะ
+    local statusLabel = AutoClaimGroup:AddLabel("Status: Checking...", true)
+    
+    -- ฟังก์ชันตรวจสอบ currencies (ใช้ path ตรง ไม่ต้อง WaitForChild ทุกครั้ง)
+    local function getCurrencyValues()
+        local player = game:GetService("Players").LocalPlayer
+        local goldAmount = 0
+        local gemsAmount = 0
+        
+        -- ใช้ path ที่น่าเชื่อถือ
+        local success = pcall(function()
+            local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
+            if topbar then
+                local goldLabel = topbar.Gold and topbar.Gold:FindFirstChild("Amount")
+                local gemsLabel = topbar.Gems and topbar.Gems:FindFirstChild("Amount")
+                if goldLabel and goldLabel.Text then
+                    local goldText = goldLabel.Text:gsub("[^%d]", "")  -- ลบ comma และ non-digit
+                    goldAmount = tonumber(goldText) or 0
+                end
+                if gemsLabel and gemsLabel.Text then
+                    local gemsText = gemsLabel.Text:gsub("[^%d]", "")
+                    gemsAmount = tonumber(gemsText) or 0
+                end
+            end
+        end)
+        if success then
+            return goldAmount, gemsAmount
+        end
+        return 0, 0
+    end
+    
+    local function isCurrenciesReady()
+        local gold, gems = getCurrencyValues()
+        return (gold > 0 or gems > 0), gold, gems
+    end
+    
+    -- อัปเดตสถานะแบบ Real-time (ทุก 1 วินาที)
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            pcall(function()
+                local ready, gold, gems = isCurrenciesReady()
+                if ready then
+                    statusLabel:SetText(string.format("Status: Ready (Gold: %s, Gems: %s)", 
+                        tostring(gold):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", ""), 
+                        tostring(gems):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")))
+                else
+                    statusLabel:SetText("Status: Not Ready (Waiting for Gold/Gems)")
+                end
+            end)
+        end
+    end)
+    
     local QuestList = {
         {name="Novice Adventurer", category="Main"},{name="Seasoned Operative", category="Main"},{name="Master Of Missions", category="Main"},{name="Elite Taskmaster", category="Main"},{name="Legendary Quester", category="Main"},{name="Completionist", category="Main"},{name="Rookie Raider", category="Main"},{name="Raid Veteran", category="Main"},{name="Raid Commander", category="Main"},{name="Raid Warlord", category="Main"},{name="Raid Conqueror", category="Main"},{name="Precise Striker", category="Main"},{name="Critical Sniper", category="Main"},{name="Devastating Precision", category="Main"},{name="Critical Master", category="Main"},{name="Critical Legend", category="Main"},{name="Critical Demigod", category="Main"},{name="Novice Wrecker", category="Main"},{name="Demolition Expert", category="Main"},{name="Destruction Maestro", category="Main"},{name="Damage Dynamo", category="Main"},{name="Cataclysmic Force", category="Main"},{name="Devastation Virtuoso", category="Main"},{name="Titan Hunter", category="Main"},{name="Titan Slayer", category="Main"},{name="Titan Executioner", category="Main"},{name="Titan Butcher", category="Main"},{name="Titan Dominator", category="Main"},{name="Titan Conqueror", category="Main"},{name="Rookie Adventurer", category="Main"},{name="Seasoned Warrior", category="Main"},{name="Master Of Experience", category="Main"},{name="Legendary Ascendant", category="Main"},{name="Divine Prestige", category="Main"},{name="Ultimate Champion", category="Main"},{name="Prestige Aspirant", category="Main"},{name="Prestige Challenger", category="Main"},{name="Prestige Enthusiast", category="Main"},{name="Prestige Expert", category="Main"},
         {name="Casual Explorer", category="Side"},{name="Guardian Angel", category="Side"},{name="Penny Pincher", category="Side"},{name="Eye Of The Storm", category="Side"},{name="Shifting Apprentice", category="Side"},{name="Skill Novice", category="Side"},{name="Team Player", category="Side"},{name="Wealth Accumulator", category="Side"},{name="Rescuer Extraordinaire", category="Side"},{name="Teamwork Enthusiast", category="Side"},{name="Dedicated Adventurer", category="Side"},{name="Skill Practitioner", category="Side"},{name="Shifting Adept", category="Side"},{name="Leg Lacerator", category="Side"},{name="Treasure Hunter", category="Side"},{name="Seasoned Gamer", category="Side"},{name="Cooperative Expert", category="Side"},{name="Skill Expert", category="Side"},{name="Lifesaver Pro", category="Side"},{name="Shifting Expert", category="Side"},{name="Arm Annihilator", category="Side"},{name="Skill Master", category="Side"},{name="Titan Torturer", category="Side"},{name="Teamwork Specialist", category="Side"},{name="Fortune Hoarder", category="Side"},{name="Saving Supreme", category="Side"},{name="Endurance Champion", category="Side"},{name="Shifting Master", category="Side"},{name="Shifting Guru", category="Side"},{name="Titan Annihilator", category="Side"},{name="Teamwork Virtuoso", category="Side"},{name="Timeless Immortal", category="Side"},{name="Money Magician", category="Side"},{name="Skill Virtuoso", category="Side"},{name="Player's Champion", category="Side"},{name="Teamwork Maestro", category="Side"},{name="Skill Prodigy", category="Side"},{name="Legendary Superior", category="Side"},{name="Titan's Nightmare", category="Side"},{name="Ultimate Protector", category="Side"},{name="Ultimate Victor", category="Side"},{name="Shifting Virtuoso", category="Side"},
@@ -4778,6 +4803,20 @@ if IsLobbyLobby() then
         {name="Weekly 1", category="Weekly"},{name="Weekly 2", category="Weekly"},{name="Weekly 3", category="Weekly"},{name="Weekly 4", category="Weekly"},
         {name="Towers", category="Spears"},{name="Escort", category="Spears"},{name="Ice Burst Stones", category="Spears"},{name="Retrieve Missing Supplies", category="Spears"},{name="Defend Missing Supplies", category="Spears"}
     }
+    
+    -- ฟังก์ชันรอ Currency (ใช้ path เดียวกับที่ใช้ตรวจสอบ)
+    local function waitForCurrency()
+        -- รอให้ Window.Holder แสดง
+        while not (Window and Window.Holder and Window.Holder.Visible) do
+            task.wait(0.1)
+        end
+        
+        local gold, gems = 0, 0
+        repeat
+            task.wait(0.1)
+            gold, gems = getCurrencyValues()
+        until gold > 0 or gems > 0
+    end
     
     local function claimAllQuests()
         while getgenv().ClaimQuestEnabled do
@@ -4811,8 +4850,12 @@ if IsLobbyLobby() then
         Callback = function(v)
             getgenv().ClaimQuestEnabled = v
             if v and not getgenv().ClaimQuestRunning then
-                getgenv().ClaimQuestRunning = true
-                task.spawn(claimAllQuests)
+                task.spawn(function()
+                    task.wait(2)
+                    waitForCurrency()   -- รอ currencies ให้พร้อม
+                    getgenv().ClaimQuestRunning = true
+                    claimAllQuests()
+                end)
             end
         end
     })
@@ -4823,8 +4866,12 @@ if IsLobbyLobby() then
         Callback = function(v)
             getgenv().ClaimAchievementEnabled = v
             if v and not getgenv().ClaimAchievementRunning then
-                getgenv().ClaimAchievementRunning = true
-                task.spawn(claimAllAchievements)
+                task.spawn(function()
+                    task.wait(2)
+                    waitForCurrency()
+                    getgenv().ClaimAchievementRunning = true
+                    claimAllAchievements()
+                end)
             end
         end
     })
@@ -4885,456 +4932,291 @@ end
 
 
 
--- ============================== MISC ==============================
-local MiscGroup =
-    Tabs.AutoFarm:AddLeftGroupbox("Misc")
-
--- ============================== PLAYER STATS ==============================
-local StatsGui = nil
-local StatsEnabled = false
-
-local function CreatePlayerStatsHUD()
-
-    if StatsGui then
-        StatsGui:Destroy()
-        StatsGui = nil
-    end
-
-    local Players =
-        game:GetService("Players")
-
-    local ReplicatedStorage =
-        game:GetService("ReplicatedStorage")
-
-    local LocalPlayer =
-        Players.LocalPlayer
-
-    local PlayerGui =
-        LocalPlayer:WaitForChild("PlayerGui")
-
-    -- ==================== GUI ====================
-    local Gui = Instance.new("ScreenGui")
-    Gui.Name = "FakeHubPlayerStats"
-    Gui.IgnoreGuiInset = true
-    Gui.ResetOnSpawn = false
-    Gui.Parent = PlayerGui
-
-    StatsGui = Gui
-
-    -- ==================== MAIN FRAME ====================
-    local Frame = Instance.new("Frame")
-    Frame.Size = UDim2.new(0, 210, 0, 112)
-    Frame.Position = UDim2.new(0.5, -105, 0, 8)
-    Frame.BackgroundColor3 = Color3.fromRGB(12, 12, 16)
-    Frame.BackgroundTransparency = 0.15
-    Frame.BorderSizePixel = 0
-    Frame.Parent = Gui
-
-    local Corner = Instance.new("UICorner")
-    Corner.CornerRadius = UDim.new(0, 10)
-    Corner.Parent = Frame
-
-    local Stroke = Instance.new("UIStroke")
-    Stroke.Color = Color3.fromRGB(80, 80, 120)
-    Stroke.Thickness = 1
-    Stroke.Transparency = 0.5
-    Stroke.Parent = Frame
-
-    -- ==================== ACCENT ====================
-    local AccentBar = Instance.new("Frame")
-    AccentBar.Size = UDim2.new(1, 0, 0, 2)
-    AccentBar.BackgroundColor3 =
-        Color3.fromRGB(100, 120, 255)
-
-    AccentBar.BorderSizePixel = 0
-    AccentBar.Parent = Frame
-
-    -- ==================== TIMER TITLE ====================
-    local Title = Instance.new("TextLabel")
-    Title.Size = UDim2.new(1, 0, 0, 16)
-    Title.Position = UDim2.new(0, 0, 0, 6)
-    Title.BackgroundTransparency = 1
-    Title.Text = "FARM TIMER"
-    Title.Font = Enum.Font.GothamBold
-    Title.TextSize = 9
-    Title.TextColor3 =
-        Color3.fromRGB(100, 110, 180)
-
-    Title.Parent = Frame
-
-    -- ==================== TIMER ====================
-    local TimerLabel =
-        Instance.new("TextLabel")
-
-    TimerLabel.Size =
-        UDim2.new(1, 0, 0, 28)
-
-    TimerLabel.Position =
-        UDim2.new(0, 0, 0, 18)
-
-    TimerLabel.BackgroundTransparency = 1
-
-    TimerLabel.Text = "00:00:00"
-
-    TimerLabel.Font =
-        Enum.Font.GothamBold
-
-    TimerLabel.TextSize = 20
-
-    TimerLabel.TextColor3 =
-        Color3.fromRGB(230, 230, 255)
-
-    TimerLabel.Parent = Frame
-
-    -- ==================== DIVIDER ====================
-    local Divider = Instance.new("Frame")
-    Divider.Size = UDim2.new(0.9, 0, 0, 1)
-    Divider.Position = UDim2.new(0.05, 0, 0, 50)
-    Divider.BackgroundColor3 =
-        Color3.fromRGB(80, 80, 120)
-
-    Divider.BackgroundTransparency = 0.6
-    Divider.BorderSizePixel = 0
-    Divider.Parent = Frame
-
-    -- ==================== PLAYER STATS ====================
-    local StatsTitle =
-        Instance.new("TextLabel")
-
-    StatsTitle.Size =
-        UDim2.new(1, 0, 0, 12)
-
-    StatsTitle.Position =
-        UDim2.new(0, 0, 0, 56)
-
-    StatsTitle.BackgroundTransparency = 1
-    StatsTitle.Text = "PLAYER STATS"
-
-    StatsTitle.Font =
-        Enum.Font.GothamBold
-
-    StatsTitle.TextSize = 8
-
-    StatsTitle.TextColor3 =
-        Color3.fromRGB(100, 200, 255)
-
-    StatsTitle.Parent = Frame
-
-    -- ==================== VALUES ====================
-    local function MakeStat(name, x, y, color)
-
-        local Text =
-            Instance.new("TextLabel")
-
-        Text.Size =
-            UDim2.new(0, 50, 0, 16)
-
-        Text.Position =
-            UDim2.new(0, x, 0, y)
-
-        Text.BackgroundTransparency = 1
-        Text.Text = name
-
-        Text.Font =
-            Enum.Font.GothamBold
-
-        Text.TextSize = 10
-
-        Text.TextColor3 =
-            Color3.fromRGB(180, 180, 220)
-
-        Text.Parent = Frame
-
-        local Value =
-            Instance.new("TextLabel")
-
-        Value.Size =
-            UDim2.new(0, 60, 0, 16)
-
-        Value.Position =
-            UDim2.new(0, x + 40, 0, y)
-
-        Value.BackgroundTransparency = 1
-        Value.Text = "0"
-
-        Value.Font =
-            Enum.Font.GothamBold
-
-        Value.TextSize = 10
-
-        Value.TextColor3 = color
-        Value.Parent = Frame
-
-        return Value
-    end
-
-    local LevelValue =
-        MakeStat(
-            "Level",
-            10,
-            72,
-            Color3.fromRGB(255, 200, 100)
-        )
-
-    local GoldValue =
-        MakeStat(
-            "Gold",
-            110,
-            72,
-            Color3.fromRGB(255, 215, 100)
-        )
-
-    local GemsValue =
-        MakeStat(
-            "Gems",
-            10,
-            92,
-            Color3.fromRGB(100, 200, 255)
-        )
-
-    local CanesValue =
-        MakeStat(
-            "Canes",
-            110,
-            92,
-            Color3.fromRGB(255, 150, 180)
-        )
-
-    -- ==================== TIMER ====================
-    getgenv().FarmStartTime =
-        getgenv().FarmStartTime or tick()
-
-    local function FormatTime(sec)
-
-        return string.format(
-            "%02d:%02d:%02d",
-            math.floor(sec / 3600),
-            math.floor((sec % 3600) / 60),
-            math.floor(sec % 60)
-        )
-    end
-
-    task.spawn(function()
-
-        while StatsEnabled
-            and Gui.Parent
-        do
-
-            task.wait(1)
-
-            TimerLabel.Text =
-                FormatTime(
-                    tick()
-                    - getgenv().FarmStartTime
-                )
-        end
-    end)
-
-    -- ==================== FORMAT ====================
-    local function FormatNumber(num)
-
-        if num >= 1000000 then
-
-            return string.format(
-                "%.1fM",
-                num / 1000000
-            )
-
-        elseif num >= 1000 then
-
-            return string.format(
-                "%.1fK",
-                num / 1000
-            )
+-- ============================== MISC (เฉพาะในเกม) ==============================
+if IsIngameLobby() and Tabs.AutoFarm then
+    local MiscGroup = Tabs.AutoFarm:AddLeftGroupbox("Misc")
+
+    -- ============================== PLAYER STATS (JESTER THEME - UNIFIED BORDER) ==============================
+    local StatsGui = nil
+    local StatsEnabled = false
+
+    local JESTER = {
+        Background = Color3.fromHex("1c1c1c"),
+        Accent = Color3.fromHex("db4467"),
+        Font = Color3.fromHex("ffffff"),
+        Outline = Color3.fromHex("373737")
+    }
+
+    local function CreatePlayerStatsHUD()
+        if StatsGui then
+            StatsGui:Destroy()
+            StatsGui = nil
         end
 
-        return tostring(num)
-    end
+        local Players = game:GetService("Players")
+        local ReplicatedStorage = game:GetService("ReplicatedStorage")
+        local LocalPlayer = Players.LocalPlayer
+        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- ==================== UPDATE ====================
-    local function UpdateStats(data)
+        local Gui = Instance.new("ScreenGui")
+        Gui.Name = "FakeHubPlayerStats"
+        Gui.IgnoreGuiInset = true
+        Gui.ResetOnSpawn = false
+        Gui.Parent = PlayerGui
+        StatsGui = Gui
 
-        pcall(function()
+        -- Main Frame (no separate top bar, use UIStroke for clean border)
+        local Frame = Instance.new("Frame")
+        Frame.Size = UDim2.new(0, 360, 0, 96)
+        Frame.Position = UDim2.new(0.5, -180, 0, 12)
+        Frame.BackgroundColor3 = JESTER.Background
+        Frame.BackgroundTransparency = 0.05
+        Frame.BorderSizePixel = 0
+        Frame.Parent = Gui
 
-            if data and data.Slots then
+        local Corner = Instance.new("UICorner")
+        Corner.CornerRadius = UDim.new(0, 10)
+        Corner.Parent = Frame
 
-                local slot =
-                    data.Current_Slot or "A"
+        -- Gradient (smooth dark)
+        local Gradient = Instance.new("UIGradient")
+        Gradient.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, JESTER.Background),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(22, 22, 22))
+        })
+        Gradient.Rotation = 90
+        Gradient.Parent = Frame
 
-                local slotData =
-                    data.Slots[slot]
+        -- Unified border using UIStroke (no separate accent bar on top)
+        local Stroke = Instance.new("UIStroke")
+        Stroke.Color = JESTER.Accent
+        Stroke.Thickness = 1.2
+        Stroke.Transparency = 0.55
+        Stroke.Parent = Frame
 
-                if slotData then
+        -- Left side: Timer
+        local TimerTitle = Instance.new("TextLabel")
+        TimerTitle.Size = UDim2.new(0, 150, 0, 20)
+        TimerTitle.Position = UDim2.new(0, 14, 0, 10)
+        TimerTitle.BackgroundTransparency = 1
+        TimerTitle.Text = "FARM TIMER"
+        TimerTitle.Font = Enum.Font.GothamSemibold
+        TimerTitle.TextSize = 12
+        TimerTitle.TextColor3 = JESTER.Font
+        TimerTitle.TextXAlignment = Enum.TextXAlignment.Left
+        TimerTitle.Parent = Frame
 
-                    if slotData.Progression
-                        and slotData.Progression.Level
-                    then
+        local TimerValue = Instance.new("TextLabel")
+        TimerValue.Size = UDim2.new(0, 150, 0, 42)
+        TimerValue.Position = UDim2.new(0, 14, 0, 32)
+        TimerValue.BackgroundTransparency = 1
+        TimerValue.Text = "00:00:00"
+        TimerValue.Font = Enum.Font.GothamBold
+        TimerValue.TextSize = 34
+        TimerValue.TextColor3 = JESTER.Font
+        TimerValue.TextXAlignment = Enum.TextXAlignment.Left
+        TimerValue.Parent = Frame
 
-                        LevelValue.Text =
-                            tostring(
-                                slotData.Progression.Level
-                            )
-                    end
+        -- Right side: Stats
+        local StatsTitle = Instance.new("TextLabel")
+        StatsTitle.Size = UDim2.new(0, 160, 0, 20)
+        StatsTitle.Position = UDim2.new(1, -174, 0, 10)
+        StatsTitle.BackgroundTransparency = 1
+        StatsTitle.Text = "PLAYER STATS"
+        StatsTitle.Font = Enum.Font.GothamSemibold
+        StatsTitle.TextSize = 12
+        StatsTitle.TextColor3 = JESTER.Font
+        StatsTitle.TextXAlignment = Enum.TextXAlignment.Right
+        StatsTitle.Parent = Frame
 
-                    if slotData.Currency then
+        -- Helper for stat rows (two columns)
+        local function MakeStatRow(name, xOffset, yPos)
+            local Label = Instance.new("TextLabel")
+            Label.Size = UDim2.new(0, 60, 0, 18)
+            Label.Position = UDim2.new(0, xOffset, 0, yPos)
+            Label.BackgroundTransparency = 1
+            Label.Text = name
+            Label.Font = Enum.Font.GothamMedium
+            Label.TextSize = 11
+            Label.TextColor3 = JESTER.Font
+            Label.TextXAlignment = Enum.TextXAlignment.Right
+            Label.Parent = Frame
 
-                        if slotData.Currency.Gold then
+            local Value = Instance.new("TextLabel")
+            Value.Size = UDim2.new(0, 80, 0, 18)
+            Value.Position = UDim2.new(0, xOffset + 65, 0, yPos)
+            Value.BackgroundTransparency = 1
+            Value.Text = "0"
+            Value.Font = Enum.Font.GothamBold
+            Value.TextSize = 13
+            Value.TextColor3 = JESTER.Accent
+            Value.TextXAlignment = Enum.TextXAlignment.Left
+            Value.Parent = Frame
+            return Value
+        end
 
-                            GoldValue.Text =
-                                FormatNumber(
-                                    slotData.Currency.Gold
-                                )
-                        end
+        local LevelVal = MakeStatRow("Level", 175, 34)
+        local GoldVal  = MakeStatRow("Gold",  175, 58)
+        local GemsVal  = MakeStatRow("Gems",  260, 34)
+        local CanesVal = MakeStatRow("Canes", 260, 58)
 
-                        if slotData.Currency.Gems then
+        -- Vertical divider (subtle)
+        local Divider = Instance.new("Frame")
+        Divider.Size = UDim2.new(0, 1, 0, 70)
+        Divider.Position = UDim2.new(0.5, -2, 0, 13)
+        Divider.BackgroundColor3 = JESTER.Accent
+        Divider.BackgroundTransparency = 0.65
+        Divider.BorderSizePixel = 0
+        Divider.Parent = Frame
 
-                            GemsValue.Text =
-                                FormatNumber(
-                                    slotData.Currency.Gems
-                                )
-                        end
-
-                        if slotData.Currency.Canes then
-
-                            CanesValue.Text =
-                                FormatNumber(
-                                    slotData.Currency.Canes
-                                )
-                        end
-                    end
-                end
-            end
-        end)
-    end
-
-    -- ==================== FETCH ====================
-    local function FetchAndUpdate()
+        -- Timer update
+        getgenv().FarmStartTime = getgenv().FarmStartTime or tick()
+        local function FormatTime(sec)
+            return string.format("%02d:%02d:%02d",
+                math.floor(sec / 3600),
+                math.floor((sec % 3600) / 60),
+                math.floor(sec % 60))
+        end
 
         task.spawn(function()
-
-            pcall(function()
-
-                local remoteGET =
-                    ReplicatedStorage
-                    :WaitForChild("Assets")
-                    :WaitForChild("Remotes")
-                    :WaitForChild("GET")
-
-                local data =
-                    remoteGET:InvokeServer(
-                        "Data",
-                        "Copy",
-                        LocalPlayer.UserId
-                    )
-
-                if data
-                    and type(data) == "table"
-                then
-                    UpdateStats(data)
-                end
-            end)
+            while StatsEnabled and Gui.Parent do
+                task.wait(1)
+                TimerValue.Text = FormatTime(tick() - getgenv().FarmStartTime)
+            end
         end)
-    end
 
-    task.spawn(function()
-
-        while StatsEnabled
-            and Gui.Parent
-        do
-
-            task.wait(5)
-
-            FetchAndUpdate()
-        end
-    end)
-
-    FetchAndUpdate()
-end
-
--- ============================== TOGGLE ==============================
-MiscGroup:AddToggle("PlayerStatsToggle", {
-    Text = "Player Stats",
-    Default = false,
-
-    Callback = function(v)
-
-        StatsEnabled = v
-
-        if v then
-
-            CreatePlayerStatsHUD()
-
-        else
-
-            if StatsGui then
-                StatsGui:Destroy()
-                StatsGui = nil
+        -- Number formatting
+        local function FormatNumber(num)
+            if num >= 1e6 then
+                return string.format("%.2fM", num / 1e6)
+            elseif num >= 1e3 then
+                return string.format("%.1fK", num / 1e3)
+            else
+                return tostring(num)
             end
         end
-    end
-})
 
--- ============================== 3D RENDERING CONTROL ==============================
-MiscGroup:AddDropdown("RenderModeDropdown", {
-    Text = "FPS Performance",
-    Values = {"Low Quality Mode"},
-    Default = {},
-    Multi = true,
-    Callback = function(v)
-        -- v เป็น table เช่น {["Low Quality Mode"] = true} เมื่อเลือก, {} เมื่อไม่เลือก
-        if v["Low Quality Mode"] then
+        -- Update stats
+        local function UpdateStats(data)
             pcall(function()
-                -- ปรับ Lighting ให้มืดและลด effect
-                game:GetService("Lighting").Brightness = 0
-                game:GetService("Lighting").GlobalShadows = false
-                game:GetService("Lighting").FogEnd = 0
-                -- ลดคุณภาพ rendering
-                settings().Rendering.QualityLevel = 1
-                game:GetService("Workspace").TintColor = Color3.new(0, 0, 0)
-                if sethiddenproperty then
-                    sethiddenproperty(game:GetService("Workspace"), "Terrain", nil)
-                end
-            end)
-            Library:Notify("3D rendering disabled (low quality)", 2)
-        else
-            pcall(function()
-                -- คืนค่าปกติ
-                game:GetService("Lighting").Brightness = 1
-                game:GetService("Lighting").GlobalShadows = true
-                game:GetService("Lighting").FogEnd = 100000
-                settings().Rendering.QualityLevel = 21
-                game:GetService("Workspace").TintColor = Color3.new(1, 1, 1)
-            end)
-            Library:Notify("Rendering restored to normal", 2)
-        end
-    end
-})
-
--- ============================== TOGGLE QUALITY (LOW/HIGH) ==============================
-MiscGroup:AddToggle("ToggleQuality", {
-    Text = "Toggle Quality (Low/High)",
-    Default = false,
-    Callback = function(v)
-        if v then
-            local renderSettings = settings().Rendering
-            local currentQuality = renderSettings.QualityLevel
-            -- สลับระหว่าง 1 (ต่ำสุด) กับ 10 (สูงสุดมาตรฐาน) หรือ 21 ถ้าต้องการ แต่ใช้ 10 เพื่อความเข้ากัน
-            local newQuality = (currentQuality == 1 and 10) or 1
-            renderSettings.QualityLevel = newQuality
-            Library:Notify(string.format("Quality set to %d", newQuality), 2)
-            -- ปิด toggle อัตโนมัติ (ทำงานครั้งเดียว)
-            pcall(function()
-                if Options and Options.ToggleQuality then
-                    Options.ToggleQuality:SetValue(false)
+                if data and data.Slots then
+                    local slot = data.Current_Slot or "A"
+                    local slotData = data.Slots[slot]
+                    if slotData then
+                        if slotData.Progression and slotData.Progression.Level then
+                            LevelVal.Text = tostring(slotData.Progression.Level)
+                        end
+                        if slotData.Currency then
+                            if slotData.Currency.Gold then
+                                GoldVal.Text = FormatNumber(slotData.Currency.Gold)
+                            end
+                            if slotData.Currency.Gems then
+                                GemsVal.Text = FormatNumber(slotData.Currency.Gems)
+                            end
+                            if slotData.Currency.Canes then
+                                CanesVal.Text = FormatNumber(slotData.Currency.Canes)
+                            end
+                        end
+                    end
                 end
             end)
         end
+
+        -- Fetch loop
+        local function FetchAndUpdate()
+            task.spawn(function()
+                pcall(function()
+                    local remoteGET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    local data = remoteGET:InvokeServer("Data", "Copy", LocalPlayer.UserId)
+                    if data and type(data) == "table" then
+                        UpdateStats(data)
+                    end
+                end)
+            end)
+        end
+
+        task.spawn(function()
+            while StatsEnabled and Gui.Parent do
+                task.wait(5)
+                FetchAndUpdate()
+            end
+        end)
+
+        FetchAndUpdate()
     end
-})
+
+    MiscGroup:AddToggle("PlayerStatsToggle", {
+        Text = "Player Stats",
+        Default = false,
+        Callback = function(v)
+            StatsEnabled = v
+            if v then
+                CreatePlayerStatsHUD()
+            else
+                if StatsGui then
+                    StatsGui:Destroy()
+                    StatsGui = nil
+                end
+            end
+        end
+    })
+
+    -- ============================== QUALITY CONTROL (SINGLE SWITCH) ==============================
+    MiscGroup:AddDropdown("RenderModeDropdown", {
+        Text = "FPS Performance",
+        Values = {"Low Graphic", "Delete Map"},
+        Default = {},
+        Multi = true,
+        Callback = function(v)
+            -- Low Graphic
+            if v["Low Graphic"] then
+                pcall(function()
+                    game:GetService("Lighting").Brightness = 0
+                    game:GetService("Lighting").GlobalShadows = false
+                    game:GetService("Lighting").FogEnd = 0
+                    settings().Rendering.QualityLevel = 1
+                    game:GetService("Workspace").TintColor = Color3.new(0, 0, 0)
+                    if sethiddenproperty then
+                        sethiddenproperty(game:GetService("Workspace"), "Terrain", nil)
+                    end
+                end)
+            else
+                pcall(function()
+                    game:GetService("Lighting").Brightness = 1
+                    game:GetService("Lighting").GlobalShadows = true
+                    game:GetService("Lighting").FogEnd = 100000
+                    settings().Rendering.QualityLevel = 21
+                    game:GetService("Workspace").TintColor = Color3.new(1, 1, 1)
+                end)
+            end
+
+            -- Delete Map (run once when enabled)
+            if v["Delete Map"] then
+                local climbable = workspace:FindFirstChild("Climbable")
+                local unclimbable = workspace:FindFirstChild("Unclimbable")
+                if climbable or unclimbable then
+                    if climbable then
+                        for _, child in ipairs(climbable:GetChildren()) do
+                            pcall(function() child:Destroy() end)
+                        end
+                    end
+                    if unclimbable then
+                        local preserve = {Reloads = true, Objective = true, Cutscene = true}
+                        for _, child in ipairs(unclimbable:GetChildren()) do
+                            if not preserve[child.Name] then
+                                pcall(function() child:Destroy() end)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    })
+end -- สิ้นสุด IsIngameLobby
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
-    SafetyGroup:AddLabel(" -- 25s is safe! --")
+    SafetyGroup:AddLabel(" -- 60s is safe! --")
     SafetyGroup:AddSlider("SafetyTimeSlider", {
         Text="--- End Missions ---", Default=25, Min=15, Max=60, Rounding=0,
         Callback=function(val)
@@ -5433,6 +5315,14 @@ if Tabs.AutoFarm then
         end
     end
 
+    local function waitForUI()
+        local waited = 0
+        while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+            task.wait(0.05)
+            waited = waited + 0.05
+        end
+    end
+
     local BladeTab = AutoFarmTabbox:AddTab("Blade")
 
     BladeTab:AddDropdown("FarmModeDropdown", {
@@ -5445,7 +5335,6 @@ if Tabs.AutoFarm then
             if PendingFarmStart and G.AutoFarmBlade and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                 G.Farm = true
                 PendingFarmStart = false
-                Library:Notify(string.format("✅ Farm started with mode: %s", G.FarmMode), 2)
             end
         end
     })
@@ -5463,13 +5352,14 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoFarmBlade", {
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
+            waitForUI()
             if v then
                 if G.AutoThunderSpear then
                     if isThunderSpear() then
                         task.wait(0.05)
                         pcall(function()
-                            if Options and Options.AutoFarmBlade then
-                                Options.AutoFarmBlade:SetValue(false)
+                            if Options and Options.AutoThunderSpearToggle then
+                                Options.AutoThunderSpearToggle:SetValue(false)
                             end
                         end)
                         return
@@ -5487,7 +5377,6 @@ if Tabs.AutoFarm then
                     PendingFarmStart = true
                     G.Farm = false
                     G.AutoFarmBlade = true
-                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
                     return
                 end
                 
@@ -5526,6 +5415,7 @@ if Tabs.AutoFarm then
         Text = "Auto Thunder Spear",
         Default = false,
         Callback = function(v)
+            waitForUI()
             if v then
                 if G.AutoFarmBlade then
                     if isBlade() then
@@ -5589,9 +5479,11 @@ if Tabs.AutoFarm then
     local function AddConfirmTP(name, id, time)
         local c = false
         TeleportGroup:AddButton(name, function()
-            if c then pcall(function() TeleportService:Teleport(id, Player) end)
+            if c then
+                pcall(function() TeleportService:Teleport(id, Player) end)
             else
-                c = true; tpLabel:SetText("Are you sure?")
+                c = true
+                tpLabel:SetText("Are you sure?")
                 task.delay(time or 3, function() c = false; tpLabel:SetText("") end)
             end
         end)
@@ -5599,7 +5491,6 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
 end
-
 
 -- ============================== FARM CORE (ENHANCED WITH BOSS DETECTION) ==============================
 local TitansFolder = workspace:WaitForChild("Titans")
@@ -6744,14 +6635,14 @@ task.spawn(function()
         end)
     end
 end)
--- ============================== AUTO RETRY ==============================
+-- ============================== AUTO RETRY (SILENT MODE) ==============================
 if Tabs.AutoFarm then
     task.spawn(function()
         local cooldown = 2.5
         local lastClick = 0
         local hasNotifiedThisRound = false
-        local rewardDetectedTime = 0   -- เวลาที่ตรวจพบ Rewards
-        local waitingForRetry = false   -- กำลังรอเพื่อกด Retry
+        local rewardDetectedTime = 0
+        local waitingForRetry = false
         local retryAttempts = 0
         local maxAttempts = 3
         
@@ -6816,42 +6707,30 @@ if Tabs.AutoFarm then
             
             local currentState = IsActuallyVisible(retry) and "open" or "close"
             
-            -- ตรวจจับการเปิดหน้า Reward (เปลี่ยนจาก close -> open)
             if currentState == "open" and LastState ~= "open" then
                 rewardDetectedTime = tick()
                 waitingForRetry = true
                 retryAttempts = 0
-                pcall(function()
-                    Library:Notify("🎁 Reward window detected, waiting 2.5 seconds before retry...", 3)
-                end)
             end
             
             LastState = currentState
             
-            -- ถ้ายังไม่เจอ Reward หรือไม่ได้รอให้กด ให้ข้าม
             if not waitingForRetry then continue end
             
-            -- เช็คว่าผ่านไป 2.5 วินาทีแล้ว
             if tick() - rewardDetectedTime >= 2.5 then
                 if retryAttempts >= maxAttempts then
-                    -- ลบ Remote Retry ออกแล้ว
                     waitingForRetry = false
                     retryAttempts = 0
-                    task.wait(2)  -- พักสักครู่
+                    task.wait(2)
                     continue
                 end
                 
-                -- ตรวจสอบว่า Retry ยัง Visible อยู่
                 if not IsActuallyVisible(retry) then
-                    pcall(function()
-                        Library:Notify("⚠️ Retry button disappeared, aborting", 2)
-                    end)
                     waitingForRetry = false
                     retryAttempts = 0
                     continue
                 end
                 
-                -- ตรวจสอบ parent chain
                 local allVisible = true
                 local obj = retry
                 while obj and obj ~= player.PlayerGui do
@@ -6864,7 +6743,6 @@ if Tabs.AutoFarm then
                     continue
                 end
                 
-                -- กด Retry
                 GS.SelectedObject = retry
                 task.wait(0.05)
                 VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
@@ -6874,12 +6752,7 @@ if Tabs.AutoFarm then
                 GS.SelectedObject = nil
                 
                 retryAttempts = retryAttempts + 1
-                pcall(function()
-                    Library:Notify(string.format("🔄 Retry clicked (%d/%d)", retryAttempts, maxAttempts), 2)
-                end)
-                
-                -- หากกดครบ 3 ครั้งแล้วยังไม่สำเร็จ? ปล่อยให้ลูปรันต่อไป แล้วจะโดน Remote แทน
-                waitingForRetry = false   -- รอให้ปุ่มปิดแล้วเปิดใหม่จึงเริ่มรอบใหม่
+                waitingForRetry = false
             end
         end
     end)
