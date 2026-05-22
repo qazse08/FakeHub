@@ -5274,43 +5274,63 @@ MiscGroup:AddToggle("PlayerStatsToggle", {
     end
 })
 
-    -- ============================== 3D RENDERING CONTROL ==============================
-    MiscGroup:AddDropdown("RenderModeDropdown", {
-        Text = "FPS Performance",
-        Values = {"Low Quality Mode"},
-        Default = {},
-        Multi = true,
-        Callback = function(v)
-            -- v เป็น table เช่น {["Low Quality Mode"] = true} เมื่อเลือก, {} เมื่อไม่เลือก
-            if v["Low Quality Mode"] then
-                pcall(function()
-                    -- ปรับ Lighting ให้มืดและลด effect
-                    game:GetService("Lighting").Brightness = 0
-                    game:GetService("Lighting").GlobalShadows = false
-                    game:GetService("Lighting").FogEnd = 0
-                    -- ลดคุณภาพ rendering
-                    settings().Rendering.QualityLevel = 1
-                    game:GetService("Workspace").TintColor = Color3.new(0, 0, 0)
-                    if sethiddenproperty then
-                        sethiddenproperty(game:GetService("Workspace"), "Terrain", nil)
-                    end
-                end)
-                Library:Notify("3D rendering disabled (low quality)", 2)
-            else
-                pcall(function()
-                    -- คืนค่าปกติ
-                    game:GetService("Lighting").Brightness = 1
-                    game:GetService("Lighting").GlobalShadows = true
-                    game:GetService("Lighting").FogEnd = 100000
-                    settings().Rendering.QualityLevel = 21
-                    game:GetService("Workspace").TintColor = Color3.new(1, 1, 1)
-                end)
-                Library:Notify("Rendering restored to normal", 2)
-            end
+-- ============================== 3D RENDERING CONTROL ==============================
+MiscGroup:AddDropdown("RenderModeDropdown", {
+    Text = "FPS Performance",
+    Values = {"Low Quality Mode"},
+    Default = {},
+    Multi = true,
+    Callback = function(v)
+        -- v เป็น table เช่น {["Low Quality Mode"] = true} เมื่อเลือก, {} เมื่อไม่เลือก
+        if v["Low Quality Mode"] then
+            pcall(function()
+                -- ปรับ Lighting ให้มืดและลด effect
+                game:GetService("Lighting").Brightness = 0
+                game:GetService("Lighting").GlobalShadows = false
+                game:GetService("Lighting").FogEnd = 0
+                -- ลดคุณภาพ rendering
+                settings().Rendering.QualityLevel = 1
+                game:GetService("Workspace").TintColor = Color3.new(0, 0, 0)
+                if sethiddenproperty then
+                    sethiddenproperty(game:GetService("Workspace"), "Terrain", nil)
+                end
+            end)
+            Library:Notify("3D rendering disabled (low quality)", 2)
+        else
+            pcall(function()
+                -- คืนค่าปกติ
+                game:GetService("Lighting").Brightness = 1
+                game:GetService("Lighting").GlobalShadows = true
+                game:GetService("Lighting").FogEnd = 100000
+                settings().Rendering.QualityLevel = 21
+                game:GetService("Workspace").TintColor = Color3.new(1, 1, 1)
+            end)
+            Library:Notify("Rendering restored to normal", 2)
         end
-    })
-	
+    end
+})
 
+-- ============================== TOGGLE QUALITY (LOW/HIGH) ==============================
+MiscGroup:AddToggle("ToggleQuality", {
+    Text = "Toggle Quality (Low/High)",
+    Default = false,
+    Callback = function(v)
+        if v then
+            local renderSettings = settings().Rendering
+            local currentQuality = renderSettings.QualityLevel
+            -- สลับระหว่าง 1 (ต่ำสุด) กับ 10 (สูงสุดมาตรฐาน) หรือ 21 ถ้าต้องการ แต่ใช้ 10 เพื่อความเข้ากัน
+            local newQuality = (currentQuality == 1 and 10) or 1
+            renderSettings.QualityLevel = newQuality
+            Library:Notify(string.format("Quality set to %d", newQuality), 2)
+            -- ปิด toggle อัตโนมัติ (ทำงานครั้งเดียว)
+            pcall(function()
+                if Options and Options.ToggleQuality then
+                    Options.ToggleQuality:SetValue(false)
+                end
+            end)
+        end
+    end
+})
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
