@@ -4196,111 +4196,205 @@ if IsLobbyLobby() then
         Callback = function(v) if v then executeEquip() end end
     })
 end
--- ============================== UNLOCK SKILLS ==============================
+-- ============================== UNLOCK SKILLS (SIMPLE ORDER) ==============================
 if IsLobbyLobby() then
     local UnlockGroupRight = Tabs.Session:AddRightGroupbox("Unlock Skills")
-    
-    local SupportSkills = {
-        {id = "70", name = "Durability I"},{id = "71", name = "Control I"},{id = "72", name = "Bandages"},{id = "73", name = "Durability II"},
-        {id = "74", name = "Trained Cadet"},{id = "75", name = "Regen I"},{id = "76", name = "Red Flare"},{id = "77", name = "Durability III"},
-        {id = "78", name = "Target Acquisition"},{id = "79", name = "Control II"},{id = "80", name = "Support Perk Slot"},
-        {id = "81", name = "Regen II [ Left ]"},{id = "82", name = "Advanced Medic [ Left ]"},{id = "83", name = "Titan Shifter [ Left ]"},
-        {id = "84", name = "Portable Resupply [ Left ]"},{id = "85", name = "Regen IV [ Left ]"},{id = "86", name = "Master Medic [ Left ]"},
-        {id = "87", name = "Regen V [ Left ]"},{id = "88", name = "Resourceful [ Left ]"},{id = "89", name = "Regen VI [ Left ]"},
-        {id = "90", name = "Cooldown I [ Right ]"},{id = "91", name = "Injury III [ Right ]"},{id = "92", name = "Cooldown I [ Right ]"},
-        {id = "93", name = "Acoustic Shells [ Right ]"},{id = "94", name = "Cooldown II [ Right ]"},{id = "95", name = "Order: Advance [ Right ]"},
-        {id = "96", name = "Injury II [ Right ]"},{id = "97", name = "Black Flare [ Right ]"},{id = "98", name = "Cooldown II [ Right ]"}
-    }
-    local OffensiveSkills = {
-        {id = "1", name = "Damage I"},{id = "2", name = "Duration I"},{id = "3", name = "Hand Grinder"},{id = "4", name = "Durability I"},
-        {id = "5", name = "Duration II"},{id = "6", name = "Durability II"},{id = "7", name = "Blade Dance"},{id = "8", name = "Durability III"},
-        {id = "9", name = "Crit Chance I"},{id = "10", name = "Crit Damage I"},{id = "11", name = "Offense Perk Slot"},{id = "12", name = "Damage II"},
-        {id = "13", name = "Crit Chance II"},{id = "14", name = "Drill Thrust [ Right ]"},{id = "15", name = "Crit Chance III [ Right ]"},
-        {id = "16", name = "Crit Damage II [ Right ]"},{id = "17", name = "Eye Gouge [ Right ]"},{id = "18", name = "Crit Chance IV [ Right ]"},
-        {id = "19", name = "Crit Damage III [ Right ]"},{id = "20", name = "Momentum [ Right ]"},{id = "21", name = "Crit Chance V [ Right ]"},
-        {id = "22", name = "Crit Damage IV [ Right ]"},{id = "23", name = "Torrential Steel [ Right ]"},{id = "24", name = "Crit Chance VI [ Right ]"},
-        {id = "25", name = "Crit Damage V [ Right ]"},{id = "26", name = "Rising Slash [ Left ]"},{id = "27", name = "Duration III [ Left ]"},
-        {id = "28", name = "Durability IV [ Left ]"},{id = "29", name = "Refined Technique [ Left ]"},{id = "30", name = "Damage III [ Left ]"},
-        {id = "31", name = "Duration IV [ Left ]"},{id = "32", name = "Bloodlust [ Left ]"},{id = "33", name = "Durability V [ Left ]"},
-        {id = "34", name = "Damage IV [ Left ]"},{id = "35", name = "Lethal Tempo [ Left ]"},{id = "36", name = "Duration V [ Left ]"},
-        {id = "37", name = "Damage V [ Left ]"}
-    }
-    local DefendSkills = {
-        {id = "38", name = "Health I"},{id = "39", name = "Injury I"},{id = "40", name = "Counter"},{id = "41", name = "Health II"},
-        {id = "42", name = "Injury II"},{id = "43", name = "Defense Perk Slot"},{id = "44", name = "Health III"},{id = "45", name = "Survivalist I"},
-        {id = "46", name = "Health IV [ Right ]"},{id = "47", name = "Emergency Relocation [ Right ]"},{id = "48", name = "Health V [ Right ]"},
-        {id = "49", name = "Health VI [ Right ]"},{id = "50", name = "Super Guts [ Right ]"},{id = "51", name = "Health VII [ Right ]"},
-        {id = "52", name = "Health VIII [ Right ]"},{id = "53", name = "Adrenaline [ Right ]"},{id = "54", name = "Health IX [ Right ]"},
-        {id = "55", name = "Health X [ Right ]"},{id = "56", name = "Autodidact [ Right ]"},{id = "57", name = "Health XI [ Right ]"},
-        {id = "58", name = "Tank I [ Left ]"},{id = "59", name = "Hardy Counter [ Left ]"},{id = "60", name = "Tank II [ Left ]"},
-        {id = "61", name = "Tank III [ Left ]"},{id = "62", name = "Survivalist II [ Left ]"},{id = "63", name = "Tank IV [ Left ]"},
-        {id = "64", name = "Tank V [ Left ]"},{id = "65", name = "Forceful Rebound [ Left ]"},{id = "66", name = "Tank VI [ Left ]"},
-        {id = "67", name = "Tank VII [ Left ]"},{id = "68", name = "Tough As Nails [ Left ]"},{id = "69", name = "Tank VIII [ Left ]"}
-    }
-    
-    getgenv().SelectedSupport = {}
-    getgenv().SelectedOffensive = {}
-    getgenv().SelectedDefend = {}
-    getgenv().UnlockRunning = false
 
-    local function getSupportNames() local t={} for _,s in ipairs(SupportSkills) do t[#t+1]=s.name end return t end
-    local function getOffensiveNames() local t={} for _,s in ipairs(OffensiveSkills) do t[#t+1]=s.name end return t end
-    local function getDefendNames() local t={} for _,s in ipairs(DefendSkills) do t[#t+1]=s.name end return t end
-    local function getSupportID(name) for _,s in ipairs(SupportSkills) do if s.name==name then return s.id end end return nil end
-    local function getOffensiveID(name) for _,s in ipairs(OffensiveSkills) do if s.name==name then return s.id end end return nil end
-    local function getDefendID(name) for _,s in ipairs(DefendSkills) do if s.name==name then return s.id end end return nil end
+    -- กำหนดข้อมูลของแต่ละสาย (ชื่อ, รายการ ID)
+    local branches = {
+        ["Support Left"] = {
+            ids = {
+                "70","71","72","73","74","75","76","77","78","79",
+                "80","81","82","83","84","85","86","87","88","89"
+            }
+        },
+        ["Support Right"] = {
+            ids = {
+                "70","71","72","73","74","75","76","77","78","79",
+                "80","90","91","92","93","94","95","96","97","98"
+            }
+        },
+        ["Offense Left"] = {
+            ids = {
+                "1","2","3","4","5","6","7","8","9","10","11","12","13",
+                "26","27","28","29","30","31","32","33","34","35","36","37"
+            }
+        },
+        ["Offense Right"] = {
+            ids = {
+                "1","2","3","4","5","6","7","8","9","10","11","12","13",
+                "14","15","16","17","18","19","20","21","22","23","24","25"
+            }
+        },
+        ["Defense Left"] = {
+            ids = {
+                "38","39","40","41","42","43","44","45",
+                "58","59","60","61","62","63","64","65","66","67","68","69"
+            }
+        },
+        ["Defense Right"] = {
+            ids = {
+                "38","39","40","41","42","43","44","45",
+                "46","47","48","49","50","51","52","53","54","55","56","57"
+            }
+        }
+    }
 
-    UnlockGroupRight:AddDropdown("SupportSkillsDropdown", {Values=getSupportNames(), Default={}, Multi=true, Text="Support Skills", Callback=function(v) getgenv().SelectedSupport=v end})
-    UnlockGroupRight:AddDropdown("OffensiveSkillsDropdown", {Values=getOffensiveNames(), Default={}, Multi=true, Text="Offensive Skills", Callback=function(v) getgenv().SelectedOffensive=v end})
-    UnlockGroupRight:AddDropdown("DefendSkillsDropdown", {Values=getDefendNames(), Default={}, Multi=true, Text="Defend Skills", Callback=function(v) getgenv().SelectedDefend=v end})
+    -- ตัวแปรเก็บค่าที่เลือก (แยกตามหมวด)
+    local selected = { Support = nil, Offense = nil, Defense = nil }
+    local orderLabel = nil
+    local isUnlocking = false
+
+    -- ฟังก์ชันอัปเดต Order Label แสดงลำดับตามหมวด
+    local function updateOrderLabel()
+        local items = {}
+        if selected.Defense then items[#items+1] = "Defense " .. selected.Defense end
+        if selected.Offense then items[#items+1] = "Offense " .. selected.Offense end
+        if selected.Support then items[#items+1] = "Support " .. selected.Support end
+        local orderText = "Order:\n"
+        if #items == 0 then
+            orderText = orderText .. "   (none selected)"
+        else
+            for i, v in ipairs(items) do
+                orderText = orderText .. string.format("   %d. %s\n", i, v)
+            end
+        end
+        if orderLabel then orderLabel:SetText(orderText) end
+    end
+
+    -- สร้างฟังก์ชันสร้าง dropdown ที่มีตัวเลือก "None" เพิ่ม
+    local function createDropdown(category, text)
+        local dropdown = UnlockGroupRight:AddDropdown(category .. "SideDropdown", {
+            Text = text,
+            Values = {"None", "Left", "Right"},
+            Default = "None",
+            Multi = false,
+            Callback = function(v)
+                if v == "None" then
+                    selected[category] = nil
+                else
+                    selected[category] = v
+                end
+                updateOrderLabel()
+            end
+        })
+        return dropdown
+    end
+
+    local supportDropdown = createDropdown("Support", "Support Side")
+    local offenseDropdown = createDropdown("Offense", "Offense Side")
+    local defenseDropdown = createDropdown("Defense", "Defense Side")
+
+    -- Label แสดงลำดับ
+    orderLabel = UnlockGroupRight:AddLabel("Order:\n   (none selected)", true)
+
+    -- ปุ่ม Clear All Selections
+    UnlockGroupRight:AddButton("Clear All Selections", function()
+        supportDropdown:SetValue("None")
+        offenseDropdown:SetValue("None")
+        defenseDropdown:SetValue("None")
+        selected.Support = nil
+        selected.Offense = nil
+        selected.Defense = nil
+        updateOrderLabel()
+        Library:Notify("All selections cleared", 2)
+    end)
+
     UnlockGroupRight:AddDivider()
-    
+
+    -- ฟังก์ชัน Unlock ทีละ ID (พร้อม retry)
+    local function unlockSingleId(id, retryCount)
+        retryCount = retryCount or 0
+        local success, err = pcall(function()
+            GET:InvokeServer("S_Equipment", "Unlock", { id })
+        end)
+        if not success and retryCount < 3 then
+            task.wait(0.2)
+            return unlockSingleId(id, retryCount + 1)
+        end
+        return success, err
+    end
+
+    -- ฟังก์ชัน Unlock ทั้งสาย (ทีละ ID)
+    local function unlockBranch(category, side, ids)
+        Library:Notify(string.format("Unlocking %s %s (%d skills)...", category, side, #ids), 3)
+        local successCount = 0
+        for i, id in ipairs(ids) do
+            if unlockSingleId(id) then
+                successCount = successCount + 1
+            else
+                Library:Notify(string.format("Failed to unlock skill ID %s", id), 2)
+            end
+            if i < #ids then
+                task.wait(0.08)
+            end
+        end
+        Library:Notify(string.format("%s %s: %d/%d skills unlocked", category, side, successCount, #ids), 4)
+        return successCount
+    end
+
+    -- Toggle สำหรับเริ่มปลดล็อค (one-way)
     UnlockGroupRight:AddToggle("UnlockSkillsToggle", {
-        Text = "Unlock Selected Skills",
+        Text = "Start Unlock (once, in order)",
         Default = false,
         Callback = function(v)
-            if not v or getgenv().UnlockRunning then return end
-            
-            -- รอให้ UI โหลดเสร็จ (1 วินาทีเพื่อเช็คว่าโหลดแล้ว)
+            if not v then return end
+            if isUnlocking then
+                Library:Notify("Already unlocking, please wait...", 2)
+                pcall(function()
+                    if Options and Options.UnlockSkillsToggle then
+                        Options.UnlockSkillsToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
+
+            -- รวบรวมสายที่เลือก (เรียงตามลำดับที่กำหนด: Defense, Offense, Support)
+            local queue = {}
+            if selected.Defense then
+                local side = selected.Defense
+                local branchName = "Defense " .. side
+                table.insert(queue, {category = "Defense", side = side, ids = branches[branchName].ids})
+            end
+            if selected.Offense then
+                local side = selected.Offense
+                local branchName = "Offense " .. side
+                table.insert(queue, {category = "Offense", side = side, ids = branches[branchName].ids})
+            end
+            if selected.Support then
+                local side = selected.Support
+                local branchName = "Support " .. side
+                table.insert(queue, {category = "Support", side = side, ids = branches[branchName].ids})
+            end
+
+            if #queue == 0 then
+                Library:Notify("No branch selected", 2)
+                pcall(function()
+                    if Options and Options.UnlockSkillsToggle then
+                        Options.UnlockSkillsToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
+
+            -- รอ UI โหลด
             local waited = 0
             while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
                 task.wait(0.05)
                 waited = waited + 0.05
             end
             task.wait(0.1)
-            
-            getgenv().UnlockRunning = true
+
+            isUnlocking = true
             task.spawn(function()
-                local queue = {}
-                local function collectOrdered(selectedTable, getIDFunc)
-                    local temp = {}
-                    for name, enabled in pairs(selectedTable) do
-                        if enabled then
-                            local id = getIDFunc(name)
-                            if id then table.insert(temp, tonumber(id)) end
-                        end
+                for i, branch in ipairs(queue) do
+                    unlockBranch(branch.category, branch.side, branch.ids)
+                    if i < #queue then
+                        task.wait(0.5)
                     end
-                    table.sort(temp)
-                    for _, id in ipairs(temp) do table.insert(queue, tostring(id)) end
                 end
-                collectOrdered(getgenv().SelectedSupport, getSupportID)
-                collectOrdered(getgenv().SelectedOffensive, getOffensiveID)
-                collectOrdered(getgenv().SelectedDefend, getDefendID)
-                if #queue == 0 then
-                    getgenv().UnlockRunning = false
-                    pcall(function()
-                        if Options and Options.UnlockSkillsToggle then
-                            Options.UnlockSkillsToggle:SetValue(false)
-                        end
-                    end)
-                    return
-                end
-                for i, id in ipairs(queue) do
-                    if not getgenv().UnlockRunning then break end
-                    pcall(function() SafeInvoke(GET, "S_Equipment", "Unlock", { id }) end)
-                    task.wait(0.03 + (i % 3 == 0 and 0.05 or 0))
-                end
-                getgenv().UnlockRunning = false
+                Library:Notify("All selected branches unlocked", 4)
+                isUnlocking = false
                 pcall(function()
                     if Options and Options.UnlockSkillsToggle then
                         Options.UnlockSkillsToggle:SetValue(false)
@@ -4310,7 +4404,6 @@ if IsLobbyLobby() then
         end
     })
 end
-
 -- ============================== BOOST SELECTION ==============================
 if IsLobbyLobby() then
 
@@ -4342,20 +4435,42 @@ if IsLobbyLobby() then
 
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
-    local function checkCurrencies()
+    -- รอให้ UI Menu โหลดเสร็จสมบูรณ์
+    local function waitForUIMenu()
+        while not (Window and Window.Holder and Window.Holder.Visible) do
+            task.wait(0.05)
+        end
+    end
+
+    -- รอให้ Topbar พร้อม (สำหรับเช็คเงิน)
+    local function waitForTopbar()
         local player = game:GetService("Players").LocalPlayer
+        local playerGui = player:WaitForChild("PlayerGui", 10)
+        local interface = playerGui:WaitForChild("Interface", 10)
+        local topbar = interface:WaitForChild("Topbar", 10)
+        return topbar
+    end
+
+    local function checkCurrencies()
         local gemsAmount = 0
         local goldAmount = 0
         pcall(function()
-            local gemsLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gems.Amount
-            local goldLabel = player.PlayerGui.Interface.Topbar.Main.Currencies.Gold.Amount
-            if gemsLabel and gemsLabel.Text then
-                local gemText = gemsLabel.Text:gsub("[^%d]", "")
-                gemsAmount = tonumber(gemText) or 0
-            end
-            if goldLabel and goldLabel.Text then
-                local goldText = goldLabel.Text:gsub("[^%d]", "")
-                goldAmount = tonumber(goldText) or 0
+            local topbar = waitForTopbar()
+            local main = topbar:FindFirstChild("Main")
+            if main then
+                local currencies = main:FindFirstChild("Currencies")
+                if currencies then
+                    local gemsLabel = currencies:FindFirstChild("Gems") and currencies.Gems:FindFirstChild("Amount")
+                    local goldLabel = currencies:FindFirstChild("Gold") and currencies.Gold:FindFirstChild("Amount")
+                    if gemsLabel and gemsLabel.Text then
+                        local gemText = gemsLabel.Text:gsub("[^%d]", "")
+                        gemsAmount = tonumber(gemText) or 0
+                    end
+                    if goldLabel and goldLabel.Text then
+                        local goldText = goldLabel.Text:gsub("[^%d]", "")
+                        goldAmount = tonumber(goldText) or 0
+                    end
+                end
             end
         end)
         return gemsAmount, goldAmount
@@ -4368,6 +4483,8 @@ if IsLobbyLobby() then
 
     local function startReadyCheck()
         task.spawn(function()
+            waitForUIMenu()   -- รอให้เมนูแสดงก่อน
+            waitForTopbar()   -- รอให้ topbar พร้อม
             while true do
                 local gemsAmount, goldAmount = checkCurrencies()
                 if gemsAmount > 1 or goldAmount > 1 then
@@ -4389,6 +4506,8 @@ if IsLobbyLobby() then
             end
         end)
     end
+
+    -- เริ่มตรวจสอบหลังจาก UI พร้อมเท่านั้น
     startReadyCheck()
 
     local function purchaseBoost(boostName)
@@ -4435,7 +4554,6 @@ if IsLobbyLobby() then
         Callback = function(v)
             if not v then return end
 
-            -- รอ UI โหลด 1 วินาที
             local waited = 0
             while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
                 task.wait(0.05)
@@ -4449,6 +4567,7 @@ if IsLobbyLobby() then
                         Options.Boost_PurchaseToggle:SetValue(false)
                     end
                 end)
+                Library:Notify("⏳ Waiting for currencies to load...", 2)
                 return
             end
 
@@ -4498,7 +4617,6 @@ if IsLobbyLobby() then
         Callback = function(v)
             if not v then return end
 
-            -- รอ UI โหลด 1 วินาที
             local waited = 0
             while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
                 task.wait(0.05)
@@ -4512,6 +4630,7 @@ if IsLobbyLobby() then
                         Options.Boost_AutoUseToggle:SetValue(false)
                     end
                 end)
+                Library:Notify("⏳ Waiting for currencies to load...", 2)
                 return
             end
 
