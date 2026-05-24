@@ -338,19 +338,19 @@ if IsMainmenuLobby() then
                 fields = {
                     {
                         name = "Current Family",
-                        value = "```" .. currentFamily .. "```",
+                        value = "" .. currentFamily .. "",
                         inline = true
                     },
 
                     {
                         name = "Spins Left",
-                        value = "```" .. spins .. "```",
+                        value = "" .. spins .. "",
                         inline = true
                     },
 
                     {
                         name = "Stored Families (" .. familyCount .. ")",
-                        value = "```" .. storedText .. "```",
+                        value = "" .. storedText .. "",
                         inline = false
                     }
                 },
@@ -4929,9 +4929,6 @@ end
 
 
 
-
-
-
 -- ============================== MISC (เฉพาะในเกม) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddLeftGroupbox("Misc")
@@ -4946,6 +4943,69 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Font = Color3.fromHex("ffffff"),
         Outline = Color3.fromHex("373737")
     }
+
+    -- ตัวแปรสำหรับควบคุมการนับเวลา FARM จาก UI Objectives
+    local farmTimerStarted = false
+    local farmStartTimeReal = 0
+    local timerLocked = false  -- เมื่อเริ่มนับแล้วจะไม่หยุด
+
+    -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่ (เช็ค hierarchy ทั้งหมด)
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then
+            return false
+        end
+        if not gui.Visible then
+            return false
+        end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") then
+                if not current.Visible then
+                    return false
+                end
+            end
+            if current:IsA("ScreenGui") then
+                if not current.Enabled then
+                    return false
+                end
+            end
+            current = current.Parent
+        end
+        return true
+    end
+
+    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (หาแบบ dynamic)
+    local function isObjectivesVisible()
+        local player = game:GetService("Players").LocalPlayer
+        local playerGui = player:FindFirstChild("PlayerGui")
+        if not playerGui then return false end
+        
+        for _, v in ipairs(playerGui:GetDescendants()) do
+            if v.Name == "Objectives" then
+                if IsActuallyVisible(v) then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- ฟังก์ชันอัปเดตเวลาฟาร์ม (เมื่อเริ่มนับแล้วจะไม่หยุด)
+    local function updateFarmTimerFromUI()
+        local currentVisible = isObjectivesVisible()
+        
+        -- เริ่มนับเมื่อเจอ Objectives จริงครั้งแรก
+        if currentVisible and not farmTimerStarted and not timerLocked then
+            farmTimerStarted = true
+            farmStartTimeReal = tick()
+            getgenv().FarmStartTime = farmStartTimeReal
+            getgenv().FarmTimerActive = true
+            timerLocked = true  -- ล็อคไม่ให้หยุดนับ
+        end
+        
+        -- เมื่อเริ่มนับแล้ว จะไม่หยุดนับ ไม่ว่า Objectives จะหายไปหรือไม่
+        return farmTimerStarted, (farmTimerStarted and (tick() - farmStartTimeReal) or 0)
+    end
 
     local function CreatePlayerStatsHUD()
         if StatsGui then
@@ -4965,10 +5025,10 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Gui.Parent = PlayerGui
         StatsGui = Gui
 
-        -- Main Frame (no separate top bar, use UIStroke for clean border)
+        -- Main Frame
         local Frame = Instance.new("Frame")
-        Frame.Size = UDim2.new(0, 360, 0, 96)
-        Frame.Position = UDim2.new(0.5, -180, 0, 12)
+        Frame.Size = UDim2.new(0, 520, 0, 116)
+        Frame.Position = UDim2.new(0.5, -260, 0, 12)
         Frame.BackgroundColor3 = JESTER.Background
         Frame.BackgroundTransparency = 0.05
         Frame.BorderSizePixel = 0
@@ -4978,7 +5038,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Corner.CornerRadius = UDim.new(0, 10)
         Corner.Parent = Frame
 
-        -- Gradient (smooth dark)
         local Gradient = Instance.new("UIGradient")
         Gradient.Color = ColorSequence.new({
             ColorSequenceKeypoint.new(0, JESTER.Background),
@@ -4987,7 +5046,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Gradient.Rotation = 90
         Gradient.Parent = Frame
 
-        -- Unified border using UIStroke (no separate accent bar on top)
         local Stroke = Instance.new("UIStroke")
         Stroke.Color = JESTER.Accent
         Stroke.Thickness = 1.2
@@ -4996,7 +5054,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
 
         -- Left side: Timer
         local TimerTitle = Instance.new("TextLabel")
-        TimerTitle.Size = UDim2.new(0, 150, 0, 20)
+        TimerTitle.Size = UDim2.new(0, 170, 0, 20)
         TimerTitle.Position = UDim2.new(0, 14, 0, 10)
         TimerTitle.BackgroundTransparency = 1
         TimerTitle.Text = "FARM TIMER"
@@ -5007,7 +5065,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         TimerTitle.Parent = Frame
 
         local TimerValue = Instance.new("TextLabel")
-        TimerValue.Size = UDim2.new(0, 150, 0, 42)
+        TimerValue.Size = UDim2.new(0, 200, 0, 42)
         TimerValue.Position = UDim2.new(0, 14, 0, 32)
         TimerValue.BackgroundTransparency = 1
         TimerValue.Text = "00:00:00"
@@ -5017,60 +5075,93 @@ if IsIngameLobby() and Tabs.AutoFarm then
         TimerValue.TextXAlignment = Enum.TextXAlignment.Left
         TimerValue.Parent = Frame
 
+        -- Status Label
+        local StatusTitle = Instance.new("TextLabel")
+        StatusTitle.Size = UDim2.new(0, 170, 0, 16)
+        StatusTitle.Position = UDim2.new(0, 14, 0, 80)
+        StatusTitle.BackgroundTransparency = 1
+        StatusTitle.Text = "STATUS:"
+        StatusTitle.Font = Enum.Font.GothamMedium
+        StatusTitle.TextSize = 10
+        StatusTitle.TextColor3 = JESTER.Font
+        StatusTitle.TextXAlignment = Enum.TextXAlignment.Left
+        StatusTitle.Parent = Frame
+
+        local StatusValue = Instance.new("TextLabel")
+        StatusValue.Size = UDim2.new(0, 150, 0, 16)
+        StatusValue.Position = UDim2.new(0, 65, 0, 80)
+        StatusValue.BackgroundTransparency = 1
+        StatusValue.Text = "OFF"
+        StatusValue.Font = Enum.Font.GothamBold
+        StatusValue.TextSize = 11
+        StatusValue.TextColor3 = Color3.fromRGB(255, 100, 100)
+        StatusValue.TextXAlignment = Enum.TextXAlignment.Left
+        StatusValue.Parent = Frame
+
+        -- Divider
+        local Divider = Instance.new("Frame")
+        Divider.Size = UDim2.new(0, 1, 0, 90)
+        Divider.Position = UDim2.new(0.5, -1, 0, 13)
+        Divider.BackgroundColor3 = JESTER.Accent
+        Divider.BackgroundTransparency = 0.65
+        Divider.BorderSizePixel = 0
+        Divider.Parent = Frame
+
         -- Right side: Stats
+        local StatsContainer = Instance.new("Frame")
+        StatsContainer.Size = UDim2.new(0, 230, 0, 72)
+        StatsContainer.Position = UDim2.new(1, -245, 0, 12)
+        StatsContainer.BackgroundTransparency = 1
+        StatsContainer.Parent = Frame
+
         local StatsTitle = Instance.new("TextLabel")
-        StatsTitle.Size = UDim2.new(0, 160, 0, 20)
-        StatsTitle.Position = UDim2.new(1, -174, 0, 10)
+        StatsTitle.Size = UDim2.new(1, 0, 0, 20)
+        StatsTitle.Position = UDim2.new(0, 0, 0, 0)
         StatsTitle.BackgroundTransparency = 1
         StatsTitle.Text = "PLAYER STATS"
         StatsTitle.Font = Enum.Font.GothamSemibold
         StatsTitle.TextSize = 12
         StatsTitle.TextColor3 = JESTER.Font
         StatsTitle.TextXAlignment = Enum.TextXAlignment.Right
-        StatsTitle.Parent = Frame
+        StatsTitle.Parent = StatsContainer
 
-        -- Helper for stat rows (two columns)
-        local function MakeStatRow(name, xOffset, yPos)
+        local function MakeStatRow(name, xPos, yPos)
+            local Holder = Instance.new("Frame")
+            Holder.Size = UDim2.new(0, 105, 0, 18)
+            Holder.Position = UDim2.new(0, xPos, 0, yPos)
+            Holder.BackgroundTransparency = 1
+            Holder.Parent = StatsContainer
+
             local Label = Instance.new("TextLabel")
-            Label.Size = UDim2.new(0, 60, 0, 18)
-            Label.Position = UDim2.new(0, xOffset, 0, yPos)
+            Label.Size = UDim2.new(0, 45, 1, 0)
+            Label.Position = UDim2.new(0, 0, 0, 0)
             Label.BackgroundTransparency = 1
             Label.Text = name
             Label.Font = Enum.Font.GothamMedium
             Label.TextSize = 11
             Label.TextColor3 = JESTER.Font
-            Label.TextXAlignment = Enum.TextXAlignment.Right
-            Label.Parent = Frame
+            Label.TextXAlignment = Enum.TextXAlignment.Left
+            Label.Parent = Holder
 
             local Value = Instance.new("TextLabel")
-            Value.Size = UDim2.new(0, 80, 0, 18)
-            Value.Position = UDim2.new(0, xOffset + 65, 0, yPos)
+            Value.Size = UDim2.new(0, 60, 1, 0)
+            Value.Position = UDim2.new(0, 45, 0, 0)
             Value.BackgroundTransparency = 1
             Value.Text = "0"
             Value.Font = Enum.Font.GothamBold
             Value.TextSize = 13
             Value.TextColor3 = JESTER.Accent
             Value.TextXAlignment = Enum.TextXAlignment.Left
-            Value.Parent = Frame
+            Value.Parent = Holder
+
             return Value
         end
 
-        local LevelVal = MakeStatRow("Level", 175, 34)
-        local GoldVal  = MakeStatRow("Gold",  175, 58)
-        local GemsVal  = MakeStatRow("Gems",  260, 34)
-        local CanesVal = MakeStatRow("Canes", 260, 58)
+        local LevelVal = MakeStatRow("Level", 0, 28)
+        local GemsVal  = MakeStatRow("Gems", 120, 28)
+        local GoldVal  = MakeStatRow("Gold", 0, 52)
+        local CanesVal = MakeStatRow("Canes", 120, 52)
 
-        -- Vertical divider (subtle)
-        local Divider = Instance.new("Frame")
-        Divider.Size = UDim2.new(0, 1, 0, 70)
-        Divider.Position = UDim2.new(0.5, -2, 0, 13)
-        Divider.BackgroundColor3 = JESTER.Accent
-        Divider.BackgroundTransparency = 0.65
-        Divider.BorderSizePixel = 0
-        Divider.Parent = Frame
-
-        -- Timer update
-        getgenv().FarmStartTime = getgenv().FarmStartTime or tick()
         local function FormatTime(sec)
             return string.format("%02d:%02d:%02d",
                 math.floor(sec / 3600),
@@ -5078,14 +5169,33 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 math.floor(sec % 60))
         end
 
+        getgenv().FarmStartTime = getgenv().FarmStartTime or tick()
+        getgenv().FarmTimerActive = getgenv().FarmTimerActive or false
+
+        -- อัปเดต Status และ Timer
         task.spawn(function()
             while StatsEnabled and Gui.Parent do
-                task.wait(1)
-                TimerValue.Text = FormatTime(tick() - getgenv().FarmStartTime)
+                task.wait(0.3)
+                
+                local objectivesVisible = isObjectivesVisible()
+                local isRunning, elapsedTime = updateFarmTimerFromUI()
+                
+                if isRunning then
+                    TimerValue.Text = FormatTime(elapsedTime)
+                else
+                    TimerValue.Text = FormatTime(0)
+                end
+                
+                if objectivesVisible then
+                    StatusValue.Text = "ON"
+                    StatusValue.TextColor3 = Color3.fromRGB(0, 255, 0)
+                else
+                    StatusValue.Text = "OFF"
+                    StatusValue.TextColor3 = Color3.fromRGB(255, 100, 100)
+                end
             end
         end)
 
-        -- Number formatting
         local function FormatNumber(num)
             if num >= 1e6 then
                 return string.format("%.2fM", num / 1e6)
@@ -5096,16 +5206,17 @@ if IsIngameLobby() and Tabs.AutoFarm then
             end
         end
 
-        -- Update stats
         local function UpdateStats(data)
             pcall(function()
                 if data and data.Slots then
                     local slot = data.Current_Slot or "A"
                     local slotData = data.Slots[slot]
+
                     if slotData then
                         if slotData.Progression and slotData.Progression.Level then
                             LevelVal.Text = tostring(slotData.Progression.Level)
                         end
+
                         if slotData.Currency then
                             if slotData.Currency.Gold then
                                 GoldVal.Text = FormatNumber(slotData.Currency.Gold)
@@ -5122,7 +5233,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
             end)
         end
 
-        -- Fetch loop
         local function FetchAndUpdate()
             task.spawn(function()
                 pcall(function()
@@ -5161,14 +5271,13 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     })
 
-    -- ============================== QUALITY CONTROL (SINGLE SWITCH) ==============================
+    -- ============================== QUALITY CONTROL ==============================
     MiscGroup:AddDropdown("RenderModeDropdown", {
         Text = "FPS Performance",
         Values = {"Low Graphic", "Delete Map"},
         Default = {},
         Multi = true,
         Callback = function(v)
-            -- Low Graphic
             if v["Low Graphic"] then
                 pcall(function()
                     game:GetService("Lighting").Brightness = 0
@@ -5190,7 +5299,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end)
             end
 
-            -- Delete Map (run once when enabled)
             if v["Delete Map"] then
                 local climbable = workspace:FindFirstChild("Climbable")
                 local unclimbable = workspace:FindFirstChild("Unclimbable")
@@ -5212,7 +5320,8 @@ if IsIngameLobby() and Tabs.AutoFarm then
             end
         end
     })
-end -- สิ้นสุด IsIngameLobby
+end
+
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
@@ -5243,6 +5352,46 @@ end
 
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
+
+-- ฟังก์ชันตรวจสอบ UI Objectives สำหรับควบคุมการเริ่มฟาร์ม
+local function isObjectivesVisibleForFarm()
+    local player = game:GetService("Players").LocalPlayer
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+    
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+    
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if v.Name == "Objectives" then
+            if IsActuallyVisible(v) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ตัวแปรเก็บสถานะ Objectives สำหรับควบคุม Farm
+local farmObjectivesReady = false
+local lastObjectivesCheck = 0
+
+local function updateFarmObjectivesStatus()
+    if tick() - lastObjectivesCheck >= 0.5 then
+        lastObjectivesCheck = tick()
+        farmObjectivesReady = isObjectivesVisibleForFarm()
+    end
+    return farmObjectivesReady
+end
 
 if Tabs.AutoFarm then
     local AutoFarmTabbox = Tabs.AutoFarm:AddLeftTabbox("Auto Farm")
@@ -5333,8 +5482,10 @@ if Tabs.AutoFarm then
         Callback = function(val)
             G.FarmMode = val
             if PendingFarmStart and G.AutoFarmBlade and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
-                G.Farm = true
-                PendingFarmStart = false
+                if updateFarmObjectivesStatus() then
+                    G.Farm = true
+                    PendingFarmStart = false
+                end
             end
         end
     })
@@ -5381,7 +5532,11 @@ if Tabs.AutoFarm then
                 end
                 
                 G.AutoFarmBlade = true
-                G.Farm = true
+                if updateFarmObjectivesStatus() then
+                    G.Farm = true
+                else
+                    G.Farm = false
+                end
                 PendingFarmStart = false
             else
                 G.AutoFarmBlade = false
@@ -5470,6 +5625,12 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
+                -- อัปเดตสถานะ Farm ถ้า Objectives พร้อมและกำลังรอ
+                if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
+                    if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
+                        G.Farm = true
+                    end
+                end
             end)
         end
     end)
@@ -5510,7 +5671,35 @@ end
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
--- ==================== BOSS DETECTION (เพิ่มเข้ามา) ====================
+-- ==================== ฟังก์ชันตรวจสอบ Objectives สำหรับ FARM CORE ====================
+local function isObjectivesActiveForCore()
+    local player = game:GetService("Players").LocalPlayer
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+    
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+    
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if v.Name == "Objectives" then
+            if IsActuallyVisible(v) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- ==================== BOSS DETECTION ====================
 local BOSS_NAMES = {
     Attack_Titan = true,
     Armored_Titan = true,
@@ -5522,10 +5711,10 @@ local BOSS_NAMES = {
     Cart_Titan = true
 }
 
-local attackTitanSpawnTime = nil  -- ใช้หน่วง Attack Titan ไม่ให้โจมตีทันที
+local attackTitanSpawnTime = nil
 
 -- ==================== STRUCTURE ====================
-local ActiveTitans = {}          -- {titan, nape, isBoss, titanName}
+local ActiveTitans = {}
 local LastScan = 0
 local SCAN_RATE = 0.02
 
@@ -5554,7 +5743,6 @@ local function GetNape(t)
     return nil
 end
 
--- สแกนไททัน พร้อมระบุ isBoss และ titanName
 local function ScanTitans()
     local now = tick()
     if now - LastScan < SCAN_RATE then return end
@@ -5571,7 +5759,6 @@ local function ScanTitans()
 
     for _, t in ipairs(titansFolder:GetChildren()) do
         if t:IsA("Model") and IsTitanAlive(t) then
-            -- ข้ามไททันปลอม
             local fake = t:FindFirstChild("Fake")
             if fake and fake:FindFirstChild("Collision") and not fake.Collision.CanCollide then
                 continue
@@ -5593,7 +5780,6 @@ local function ScanTitans()
         end
     end
 
-    -- อัปเดตเวลาสปอนของ Attack Titan (รอ 5 วินาทีก่อนโจมตี)
     if attackFound then
         if not attackTitanSpawnTime then
             attackTitanSpawnTime = now
@@ -5603,7 +5789,6 @@ local function ScanTitans()
     end
 end
 
--- หาเป้าหมายที่ดีที่สุด: Boss ก่อน, ตัวใกล้ที่สุด, รองรับ Attack Titan cooldown
 local function GetBestTarget(hrpPos)
     local now = tick()
     local attackReady = true
@@ -5615,7 +5800,6 @@ local function GetBestTarget(hrpPos)
     local bestNormal, bestNormalDist = nil, math.huge
 
     for _, entry in ipairs(ActiveTitans) do
-        -- ข้าม Attack Titan ถ้ายังไม่พร้อม
         if entry.titanName == "Attack_Titan" and not attackReady then
             continue
         end
@@ -5623,7 +5807,7 @@ local function GetBestTarget(hrpPos)
         local n = entry.nape
         local dx = hrpPos.X - n.Position.X
         local dz = hrpPos.Z - n.Position.Z
-        local distSq = dx*dx + dz*dz  -- ใช้ระยะแนวราบเพื่อความเร็ว
+        local distSq = dx*dx + dz*dz
 
         if entry.isBoss then
             if distSq < bestBossDist then
@@ -5642,7 +5826,6 @@ local function GetBestTarget(hrpPos)
     return bestNormal
 end
 
--- ส่วน Noclip & การเคลื่อนที่ (ปรับจูนให้เหมาะกับหลายเป้าหมาย)
 local CharParts = {}
 local CharRef = nil
 
@@ -5757,7 +5940,6 @@ local function CleanupTeleport()
     if _teleportBg then _teleportBg:Destroy(); _teleportBg = nil end
 end
 
--- ระบบล็อกเป้าหมายและป้องกันการกระโดดไปมา
 local CurrentEntry = nil
 local LockedUntil = 0
 local isDead = false
@@ -5807,16 +5989,20 @@ local FarmConn = nil
 local LastAtk = 0
 local ATK_DELAY = 0.015
 
--- โจมตีไททันทั้งหมดที่อยู่ใน ActiveTitans พร้อมกัน
+-- โจมตีไททันทั้งหมด (เพิ่มเงื่อนไขเช็ค Objectives)
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
+    
+    -- ถ้า Objectives ไม่แสดง (จบเกม) ให้หยุดโจมตี
+    if not isObjectivesActiveForCore() then
+        return
+    end
 
     local G = getgenv()
     local elapsed = G.FarmStartTime > 0 and (tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 25)
     local dmg = safe and 9999 or 2500
 
-    -- ป้องกันการฆ่าไททันตัวสุดท้ายก่อน Safety Time
     local stopAt = G.StopAtTitansLeft or 1
     if not safe and #ActiveTitans <= stopAt then
         return
@@ -5838,6 +6024,17 @@ local function CreateFarmLoop()
         local ok = pcall(function()
             local G = getgenv()
             if not G.Farm or isDead then return end
+            
+            -- ถ้า Objectives ไม่แสดง ให้หยุด Farm
+            if not isObjectivesActiveForCore() then
+                if G.Farm then
+                    G.Farm = false
+                    if Options and Options.AutoFarmBlade then
+                        Options.AutoFarmBlade:SetValue(false)
+                    end
+                end
+                return
+            end
 
             if IsRewardsUIVisible() then
                 G.Farm = false
@@ -5867,7 +6064,6 @@ local function CreateFarmLoop()
 
             ScanTitans()
 
-            -- ไม่มีไททัน → ลอยนิ่ง
             if #ActiveTitans == 0 then
                 CurrentEntry = nil
                 LockedUntil = 0
@@ -5879,7 +6075,6 @@ local function CreateFarmLoop()
                 return
             end
 
-            -- ล็อกเป้าหมาย (ใช้ GetBestTarget แทน GetClosestEntry)
             local now = tick()
             if CurrentEntry then
                 local entry = CurrentEntry
@@ -5931,7 +6126,6 @@ end
 
 CreateFarmLoop()
 
--- ตัวสำรองกรณี Heartbeat หลุด
 task.spawn(function()
     while task.wait(2) do
         if not FarmConn or not FarmConn.Connected then
@@ -5940,10 +6134,38 @@ task.spawn(function()
     end
 end)
 
--- ============================== THUNDER SPEAR CORE LOGIC (AGGRESSIVE AOE + CONTINUOUS BURST + SAFETY) ==============================
+-- ============================== THUNDER SPEAR CORE LOGIC ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
 local TitansFolder = workspace:WaitForChild("Titans")
+
+-- ฟังก์ชันตรวจสอบ Objectives สำหรับ Thunder Spear
+local function isObjectivesActiveForSpear()
+    local player = game:GetService("Players").LocalPlayer
+    local playerGui = player:FindFirstChild("PlayerGui")
+    if not playerGui then return false end
+    
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+    
+    for _, v in ipairs(playerGui:GetDescendants()) do
+        if v.Name == "Objectives" then
+            if IsActuallyVisible(v) then
+                return true
+            end
+        end
+    end
+    return false
+end
 
 task.spawn(function()
     task.wait(1)
@@ -5960,13 +6182,11 @@ task.spawn(function()
     local BodyPosition = nil
     local BodyGyro = nil
 
-    -- กระสุนจริง
     local CurrentFirePower = 8
     local EXPLODE_RADIUS = 35
     local BURST_SHOTS = 3
     local AOE_EXPLOSIONS_PER_TARGET = 6
 
-    -- ฟังก์ชันตรวจสอบโหมด
     local function getGameMode()
         local success, data = pcall(function()
             return GET:InvokeServer("Data", "Copy")
@@ -5992,7 +6212,6 @@ task.spawn(function()
         return "Mission"
     end
 
-    -- Cache Nape
     local NapeCache = {}
     local function GetNape(titan)
         if not titan or not titan.Parent then return nil end
@@ -6009,7 +6228,6 @@ task.spawn(function()
         return nil
     end
 
-    -- Cache ไททัน
     local CachedTitans = {}
     local LastTitanUpdate = 0
     local TITAN_CACHE_TIME = 0.02
@@ -6027,7 +6245,6 @@ task.spawn(function()
         return CachedTitans
     end
 
-    -- หาไททันใกล้สุด
     local function GetNearestTitan(titans, hrp)
         local nearest, shortest = nil, math.huge
         local hrpPos = hrp.Position
@@ -6041,7 +6258,6 @@ task.spawn(function()
         return nearest
     end
 
-    -- Noclip
     local CachedCharParts = {}
     local CachedCharRef = nil
     local function ForceNoclip()
@@ -6069,7 +6285,6 @@ task.spawn(function()
         end
     end
 
-    -- เคลื่อนที่
     local function MoveToTween(targetPos, speed)
         local char = player.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -6088,7 +6303,6 @@ task.spawn(function()
         hrp.AssemblyAngularVelocity = Vector3.zero
     end
 
-    -- รีโหลด
     local function ReloadSpears()
         pcall(function()
             POST:FireServer("Attacks", "Reload", workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill"))
@@ -6096,7 +6310,6 @@ task.spawn(function()
         CurrentFirePower = 8
     end
 
-    -- ยิง 1 นัด
     local function FireSingleShot()
         if CurrentFirePower <= 0 then
             ReloadSpears()
@@ -6109,7 +6322,6 @@ task.spawn(function()
         end)
     end
 
-    -- ระเบิดซ้ำ
     local function ExplodeAt(position)
         for i = 1, AOE_EXPLOSIONS_PER_TARGET do
             pcall(function()
@@ -6119,7 +6331,6 @@ task.spawn(function()
         end
     end
 
-    -- AOE รอบศูนย์กลาง
     local function AOEBombardment(centerPos, radius)
         local titans = GetAliveTitans()
         for _, titan in ipairs(titans) do
@@ -6134,7 +6345,6 @@ task.spawn(function()
         ExplodeAt(centerPos)
     end
 
-    -- ฟังก์ชันโจมตีหลัก
     local function ThunderBurstAttack(napePos)
         for i = 1, BURST_SHOTS do
             FireSingleShot()
@@ -6149,7 +6359,6 @@ task.spawn(function()
         return hum and hum.Health > 10
     end
 
-    -- Main loop
     RunService.Heartbeat:Connect(function()
         pcall(function()
             local now = tick()
@@ -6163,6 +6372,17 @@ task.spawn(function()
                 HasTeleported = false
                 if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
                 if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
+                return
+            end
+            
+            -- ถ้า Objectives ไม่แสดง ให้หยุดทำงาน
+            if not isObjectivesActiveForSpear() then
+                if G.AutoThunderSpear then
+                    G.AutoThunderSpear = false
+                    if Options and Options.AutoThunderSpearToggle then
+                        Options.AutoThunderSpearToggle:SetValue(false)
+                    end
+                end
                 return
             end
 
@@ -6247,7 +6467,6 @@ task.spawn(function()
                 MoveToTween(targetPos, hoverSpeed)
             end
 
-            -- เพิ่ม Safety (เหมือน Blade)
             local gameMode = getGameMode()
             if gameMode == "Mission" then
                 local elapsed = (G.FarmStartTime and (tick() - G.FarmStartTime)) or 0
@@ -7067,11 +7286,11 @@ if Tabs.Webhook then
                 title = "FakeHUB Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
                 fields = {
-                    { name = "Information", value = string.format("```\nUser: %s\nGames Played: %d\nExecutor: %s\n```", player.Name, gamesPlayed, executor), inline = true },
-                    { name = "Total Stats", value = string.format("```\nLevel : %s\nGold  : %s\nGems  : %s\n```", total.Level, total.Gold, total.Gems), inline = true },
-                    { name = "Combat", value = "```\n" .. formatTable(stats) .. "\n```", inline = true },
-                    { name = "Rewards", value = "```\n" .. formatRewardsList(rewards) .. "\n```", inline = false },
-                    { name = "Special", value = "```\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n```", inline = false }
+                    { name = "Information", value = string.format("\nUser: %s\nGames Played: %d\nExecutor: %s\n", player.Name, gamesPlayed, executor), inline = true },
+                    { name = "Total Stats", value = string.format("\nLevel : %s\nGold  : %s\nGems  : %s\n", total.Level, total.Gold, total.Gems), inline = true },
+                    { name = "Combat", value = "\n" .. formatTable(stats) .. "\n", inline = true },
+                    { name = "Rewards", value = "\n" .. formatRewardsList(rewards) .. "\n", inline = false },
+                    { name = "Special", value = "\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n", inline = false }
                 },
                 footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
                 timestamp = DateTime.now():ToIsoDate()
@@ -7172,7 +7391,7 @@ if Tabs.Webhook then
         local fields = {}
         if serverData.Map then
             local modsText = formatModifiersText(serverData.Map.Modifiers)
-            local mapValue = string.format("```Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s```",
+            local mapValue = string.format("Map: %s\nDifficulty: %s\nObjective: %s\n\nModifiers:\n%s",
                 serverData.Map.Map or "Unknown",
                 serverData.Map.Difficulty or "Unknown",
                 serverData.Map.Objective or "Unknown",
@@ -7180,32 +7399,32 @@ if Tabs.Webhook then
             table.insert(fields, {name = "Mission Info", value = mapValue, inline = false})
         end
         if filters.Currency then
-            table.insert(fields, {name = "Currency", value = string.format("```Gold: %s\nGems: %s\nCanes: %s\nShards: %s```",
+            table.insert(fields, {name = "Currency", value = string.format("Gold: %s\nGems: %s\nCanes: %s\nShards: %s",
                 fmt(slot.Currency and slot.Currency.Gold or 0),
                 fmt(slot.Currency and slot.Currency.Gems or 0),
                 fmt(slot.Currency and slot.Currency.Canes or 0),
                 fmt(slot.Currency and slot.Currency.Shards or 0)), inline = true})
         end
         if filters.Progression then
-            table.insert(fields, {name = "Progression", value = string.format("```Level: %s\nPrestige: %s\nXP: %s/%s```",
+            table.insert(fields, {name = "Progression", value = string.format("Level: %s\nPrestige: %s\nXP: %s/%s",
                 slot.Progression and slot.Progression.Level or 0,
                 slot.Progression and slot.Progression.Prestige or 0,
                 fmt(slot.Progression and slot.Progression.XP or 0),
                 fmt(slot.Progression and slot.Progression.Max_XP or 0)), inline = true})
         end
         if filters.Loadout then
-            table.insert(fields, {name = "Loadout", value = string.format("```Weapon: %s\nSlot: %s\nSpins: %s```",
+            table.insert(fields, {name = "Loadout", value = string.format("Weapon: %s\nSlot: %s\nSpins: %s",
                 slot.Weapon or "?",
                 serverData.Current_Slot or "A",
                 fmt(slot.Total_Spins or 0)), inline = true})
         end
         if filters.Inventory and slot.Inventory and slot.Inventory.Items then
             local text, count = getItems(slot.Inventory.Items, "• ")
-            if text then table.insert(fields, {name = "Inventory ("..count.." items)", value = "```"..text.."```", inline = false}) end
+            if text then table.insert(fields, {name = "Inventory ("..count.." items)", value = ""..text.."", inline = false}) end
         end
         if filters.Cosmetics and slot.Inventory and slot.Inventory.Cosmetics then
             local text, count = getItems(slot.Inventory.Cosmetics, "• ")
-            if text then table.insert(fields, {name = "Cosmetics ("..count.." items)", value = "```"..text.."```", inline = false}) end
+            if text then table.insert(fields, {name = "Cosmetics ("..count.." items)", value = ""..text.."", inline = false}) end
         end
         local isCompleted = missionState and (missionState:find("COMPLETED") or missionState:find("FINISHED"))
         local color = isCompleted and 65280 or 16711680
