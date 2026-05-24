@@ -5593,10 +5593,15 @@ if Tabs.AutoFarm then
                     end
                 end
                 
+                -- จำเป็นต้องเลือก Farm Mode ก่อนเท่านั้น
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
-                    PendingFarmStart = true
-                    G.Farm = false
-                    G.AutoFarmBlade = true
+                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
+                    -- ปิด toggle กลับทันที
+                    pcall(function()
+                        if Options and Options.AutoFarmBlade then
+                            Options.AutoFarmBlade:SetValue(false)
+                        end
+                    end)
                     return
                 end
                 
@@ -5783,7 +5788,7 @@ if Tabs.AutoFarm then
     end)
 end
 
--- ============================== FARM CORE (INSTANT RESPONSE - FIXED) ==============================
+-- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -5841,7 +5846,7 @@ end
 -- ==================== ตรวจสอบ Slay UI (เร็วขึ้น - cache ทุกเฟรม) ====================
 local slayCache = false
 local slayCacheTime = 0
-local SLAY_CACHE_DURATION = 0.05  -- อัปเดตทุก 0.05 วินาที (20 ครั้ง/วินาที)
+local SLAY_CACHE_DURATION = 0.05
 
 local function isSlayObjectiveVisible()
     local now = tick()
@@ -5993,41 +5998,62 @@ local function NoclipOn()
     end
 end
 
-local _vel = Vector3.zero
-local function MoveFastTween(targetPos, maxSpeed)
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local dx = targetPos.X - hrp.Position.X
-    local dy = targetPos.Y - hrp.Position.Y
-    local dz = targetPos.Z - hrp.Position.Z
-    local distTotal = math.sqrt(dx*dx + dy*dy + dz*dz)
-    if distTotal < 1.5 then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        _vel = Vector3.zero
-        return
+-- ========== SMOOTH TWEEN MOVEMENT (ใช้ BodyPosition + BodyGyro) ==========
+local bodyPos = nil
+local bodyGyro = nil
+local targetUpdateCooldown = 0
+local TARGET_UPDATE_INTERVAL = 0.25
+
+local function InitSmoothMovement(hrp)
+    if not bodyPos or not bodyPos.Parent then
+        if bodyPos then bodyPos:Destroy() end
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        bodyPos.P = 3500
+        bodyPos.D = 700
+        bodyPos.Parent = hrp
     end
-    local speed = maxSpeed * 2.5
-    local direction = Vector3.new(dx, dy, dz).Unit
-    local desired = direction * speed
-    _vel = _vel:Lerp(desired, 0.5)
-    if _vel.Magnitude > speed then _vel = _vel.Unit * speed end
-    hrp.AssemblyLinearVelocity = _vel
-    hrp.AssemblyAngularVelocity = Vector3.zero
+    if not bodyGyro or not bodyGyro.Parent then
+        if bodyGyro then bodyGyro:Destroy() end
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+        bodyGyro.P = 6000
+        bodyGyro.D = 1200
+        bodyGyro.Parent = hrp
+    end
 end
 
-local function MoveStableTeleport(targetPos)
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+local function CleanupSmoothMovement()
+    if bodyPos then bodyPos:Destroy(); bodyPos = nil end
+    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
+end
+
+local function MoveSmooth(hrp, targetPos, targetLookDir)
+    if not hrp then return end
+    InitSmoothMovement(hrp)
+    bodyPos.Position = targetPos
+    if targetLookDir then
+        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetLookDir)
+    else
+        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
+    end
+end
+
+local function MoveStableTeleport(hrp, targetPos)
     if not hrp then return end
     hrp.CFrame = CFrame.new(targetPos)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
 end
+
+-- ตัวแปร velocity เก่าไม่ใช้แล้ว แต่คงไว้เพื่อไม่ให้ error
+local _vel = Vector3.zero
 
 local CurrentEntry = nil
 local isDead = false
 local IdleHoverY = 80
+local lastTargetUpdate = 0
 
 local function IsRewardsUIVisible()
     local interface = Player.PlayerGui:FindFirstChild("Interface")
@@ -6045,13 +6071,13 @@ local function OnDeath()
     ActiveTitans = {}
     CharRef = nil
     CharParts = {}
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
 end
 
 local function OnSpawn(char)
     isDead = false
     CharRef = nil
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then hum.Died:Connect(OnDeath) end
 end
@@ -6063,10 +6089,15 @@ local FarmConn = nil
 local LastAtk = 0
 local ATK_DELAY = 0
 
--- ========== โจมตีไททันทั้งหมด ==========
+-- ========== โจมตีไททันทั้งหมด (เพิ่มเงื่อนไขเช็ค IsReloading) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
+    
+    -- 🔥 ถ้ากำลัง reload/refill อยู่ ให้ข้ามการโจมตีเด็ดขาด
+    if getgenv().IsReloading then
+        return
+    end
 
     local G = getgenv()
     local slayVisible = isSlayObjectiveVisible()
@@ -6135,7 +6166,7 @@ local function FarmUpdate()
         if hrp.Position.Y < -50 then
             hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
             hrp.AssemblyLinearVelocity = Vector3.zero
-            _vel = Vector3.zero
+            CleanupSmoothMovement()
             return
         end
 
@@ -6144,15 +6175,17 @@ local function FarmUpdate()
         if #ActiveTitans == 0 then
             CurrentEntry = nil
             NoclipOn()
+            CleanupSmoothMovement()
             local dy = IdleHoverY - hrp.Position.Y
             hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
-            _vel = Vector3.zero
             return
         end
 
         if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
             CurrentEntry = GetBestTarget(hrp.Position)
+            lastTargetUpdate = tick()
         end
+        
         if not CurrentEntry then return end
 
         local nape = CurrentEntry.nape
@@ -6163,13 +6196,14 @@ local function FarmUpdate()
 
         local ty = nape.Position.Y + (G.HoverHeight or 120)
         local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
+        local lookDir = Vector3.new(nape.Position.X, ty, nape.Position.Z - 5)
 
         NoclipOn()
 
         if G.FarmMode == "Teleport" then
-            MoveStableTeleport(tp)
+            MoveStableTeleport(hrp, tp)
         else
-            MoveFastTween(tp, G.HoverSpeed or 120)
+            MoveSmooth(hrp, tp, lookDir)
         end
 
         local now = tick()
@@ -6197,12 +6231,13 @@ task.spawn(function()
             if not G.Farm then
                 G.Farm = true
                 G.FarmStartTime = tick()
-                CurrentEntry = nil  -- บังคับให้หาเป้าหมายใหม่ทันที
+                CurrentEntry = nil
             end
         else
             if G.Farm then
                 G.Farm = false
                 CurrentEntry = nil
+                CleanupSmoothMovement()
             end
         end
     end
@@ -6216,7 +6251,6 @@ task.spawn(function()
         end
     end
 end)
-
 -- ============================== THUNDER SPEAR CORE LOGIC ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
@@ -7081,6 +7115,7 @@ if Tabs.Webhook then
     local hasSentWebhook = false
     local lastMissionState = ""
     local webhookMode = "All Data"
+    local webhookPingMode = "None"
     
     -- Reward Webhook variables
     local gamesPlayed = 0
@@ -7358,6 +7393,16 @@ if Tabs.Webhook then
         local hasSpecial = #specials > 0
         local executor = identifyexecutor and identifyexecutor() or "Unknown"
         
+        -- กำหนด content สำหรับ ping ตามที่ผู้ใช้เลือก
+        local pingContent = nil
+        if webhookPingMode == "Everyone" then
+            pingContent = "@everyone"
+        elseif webhookPingMode == "Here" then
+            pingContent = "@here"
+        else
+            pingContent = nil
+        end
+        
         local function formatTable(tbl)
             local str = ""
             for k, v in pairs(tbl) do
@@ -7376,7 +7421,7 @@ if Tabs.Webhook then
         end
         
         local payload = {
-            content = hasSpecial and "MYTHICAL DROP! @everyone" or nil,
+            content = (hasSpecial and pingContent) or nil,
             embeds = {{
                 title = "FakeHUB Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
@@ -7581,6 +7626,17 @@ if Tabs.Webhook then
         Callback = function(v) webhookMode = v end
     })
     
+    -- ========== เพิ่ม Dropdown สำหรับ Ping Mode ==========
+    WebhookGroup:AddDropdown("WebhookPingMode", {
+        Text = "Ping Mode (For Special Drops)",
+        Values = {"None", "@here", "@everyone"},
+        Default = "None",
+        Multi = false,
+        Callback = function(v)
+            webhookPingMode = v
+        end
+    })
+    
     WebhookGroup:AddDivider()
     
     local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
@@ -7620,6 +7676,7 @@ if Tabs.Webhook then
                 color = 65280,
                 fields = {
                     {name = "Mode", value = webhookMode, inline = true},
+                    {name = "Ping Mode", value = webhookPingMode, inline = true},
                     {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
                 },
                 footer = {text = "FakeHUB Webhook Test"}
