@@ -4990,10 +4990,6 @@ do
     end
 end
 
-
-
-
-
 -- ============================== MISC (เฉพาะในเกม) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddLeftGroupbox("Misc")
@@ -5001,6 +4997,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
     -- ============================== PLAYER STATS (JESTER THEME - UNIFIED BORDER) ==============================
     local StatsGui = nil
     local StatsEnabled = false
+    local scaleFactor = 1
 
     local JESTER = {
         Background = Color3.fromHex("1c1c1c"),
@@ -5009,68 +5006,83 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปรสำหรับควบคุมการนับเวลา FARM จาก UI Objectives
-    local farmTimerStarted = false
-    local farmStartTimeReal = 0
-    local timerLocked = false  -- เมื่อเริ่มนับแล้วจะไม่หยุด
+    -- ตัวแปร global สำหรับ Farm Timer (ทำงานพื้นหลังตลอด)
+    getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
+    getgenv().FarmStartTime = getgenv().FarmStartTime or nil
 
-    -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่ (เช็ค hierarchy ทั้งหมด)
+    -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
     local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then
-            return false
-        end
-        if not gui.Visible then
-            return false
-        end
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
         local current = gui.Parent
         while current do
-            if current:IsA("GuiObject") then
-                if not current.Visible then
-                    return false
-                end
-            end
-            if current:IsA("ScreenGui") then
-                if not current.Enabled then
-                    return false
-                end
-            end
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
             current = current.Parent
         end
         return true
     end
 
-    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (หาแบบ dynamic)
+    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่
     local function isObjectivesVisible()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:FindFirstChild("PlayerGui")
         if not playerGui then return false end
-        
         for _, v in ipairs(playerGui:GetDescendants()) do
-            if v.Name == "Objectives" then
-                if IsActuallyVisible(v) then
-                    return true
-                end
+            if v.Name == "Objectives" and IsActuallyVisible(v) then
+                return true
             end
         end
         return false
     end
 
-    -- ฟังก์ชันอัปเดตเวลาฟาร์ม (เมื่อเริ่มนับแล้วจะไม่หยุด)
-    local function updateFarmTimerFromUI()
-        local currentVisible = isObjectivesVisible()
-        
-        -- เริ่มนับเมื่อเจอ Objectives จริงครั้งแรก
-        if currentVisible and not farmTimerStarted and not timerLocked then
-            farmTimerStarted = true
-            farmStartTimeReal = tick()
-            getgenv().FarmStartTime = farmStartTimeReal
-            getgenv().FarmTimerActive = true
-            timerLocked = true  -- ล็อคไม่ให้หยุดนับ
+    -- ฟังก์ชันอัปเดตสถานะ Timer (ทำงานพื้นหลังตลอด)
+    local function updateFarmTimerBackground()
+        local visible = isObjectivesVisible()
+        if visible and not getgenv().FarmTimerStarted then
+            getgenv().FarmTimerStarted = true
+            getgenv().FarmStartTime = tick()
+        elseif not visible and getgenv().FarmTimerStarted then
+            getgenv().FarmTimerStarted = false
+            getgenv().FarmStartTime = nil
         end
-        
-        -- เมื่อเริ่มนับแล้ว จะไม่หยุดนับ ไม่ว่า Objectives จะหายไปหรือไม่
-        return farmTimerStarted, (farmTimerStarted and (tick() - farmStartTimeReal) or 0)
     end
+
+    -- ลูปพื้นหลังเพื่ออัปเดตสถานะ Timer (ทำงานตลอดเวลาแม้ปิด PlayerStats)
+    task.spawn(function()
+        while true do
+            task.wait(0.3)
+            updateFarmTimerBackground()
+        end
+    end)
+
+    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
+    local function getFarmElapsedTime()
+        if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
+            return tick() - getgenv().FarmStartTime
+        else
+            return 0
+        end
+    end
+
+    -- เพิ่ม Slider สำหรับปรับขนาด UI (Scale)
+    MiscGroup:AddSlider("UIScaleSlider", {
+        Text = "UI Scale (%)",
+        Default = 100,
+        Min = 50,
+        Max = 200,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(v)
+            scaleFactor = v / 100
+            if StatsEnabled and StatsGui then
+                local scaleObj = StatsGui:FindFirstChild("UIScale")
+                if scaleObj then
+                    scaleObj.Scale = scaleFactor
+                end
+            end
+        end
+    })
 
     local function CreatePlayerStatsHUD()
         if StatsGui then
@@ -5090,7 +5102,10 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Gui.Parent = PlayerGui
         StatsGui = Gui
 
-        -- Main Frame
+        local uiScale = Instance.new("UIScale")
+        uiScale.Scale = scaleFactor
+        uiScale.Parent = Gui
+
         local Frame = Instance.new("Frame")
         Frame.Size = UDim2.new(0, 520, 0, 116)
         Frame.Position = UDim2.new(0.5, -260, 0, 12)
@@ -5117,7 +5132,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Stroke.Transparency = 0.55
         Stroke.Parent = Frame
 
-        -- Left side: Timer
+        -- Timer UI
         local TimerTitle = Instance.new("TextLabel")
         TimerTitle.Size = UDim2.new(0, 170, 0, 20)
         TimerTitle.Position = UDim2.new(0, 14, 0, 10)
@@ -5140,7 +5155,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         TimerValue.TextXAlignment = Enum.TextXAlignment.Left
         TimerValue.Parent = Frame
 
-        -- Status Label
         local StatusTitle = Instance.new("TextLabel")
         StatusTitle.Size = UDim2.new(0, 170, 0, 16)
         StatusTitle.Position = UDim2.new(0, 14, 0, 80)
@@ -5163,7 +5177,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         StatusValue.TextXAlignment = Enum.TextXAlignment.Left
         StatusValue.Parent = Frame
 
-        -- Divider
         local Divider = Instance.new("Frame")
         Divider.Size = UDim2.new(0, 1, 0, 90)
         Divider.Position = UDim2.new(0.5, -1, 0, 13)
@@ -5172,7 +5185,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Divider.BorderSizePixel = 0
         Divider.Parent = Frame
 
-        -- Right side: Stats
         local StatsContainer = Instance.new("Frame")
         StatsContainer.Size = UDim2.new(0, 230, 0, 72)
         StatsContainer.Position = UDim2.new(1, -245, 0, 12)
@@ -5234,22 +5246,14 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 math.floor(sec % 60))
         end
 
-        getgenv().FarmStartTime = getgenv().FarmStartTime or tick()
-        getgenv().FarmTimerActive = getgenv().FarmTimerActive or false
-
-        -- อัปเดต Status และ Timer
+        -- Loop อัปเดต UI Stats และ Timer (ทำงานเฉพาะเมื่อ StatsEnabled=true)
         task.spawn(function()
             while StatsEnabled and Gui.Parent do
                 task.wait(0.3)
                 
                 local objectivesVisible = isObjectivesVisible()
-                local isRunning, elapsedTime = updateFarmTimerFromUI()
-                
-                if isRunning then
-                    TimerValue.Text = FormatTime(elapsedTime)
-                else
-                    TimerValue.Text = FormatTime(0)
-                end
+                local elapsed = getFarmElapsedTime()
+                TimerValue.Text = FormatTime(elapsed)
                 
                 if objectivesVisible then
                     StatusValue.Text = "ON"
@@ -5779,7 +5783,7 @@ if Tabs.AutoFarm then
     end)
 end
 
--- ============================== FARM CORE (ENHANCED WITH BOSS DETECTION) ==============================
+-- ============================== FARM CORE (INSTANT RESPONSE - FIXED) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -5797,7 +5801,6 @@ end
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
--- ตรวจสอบว่า Titans Folder มีอยู่จริง ถ้าไม่มีให้สร้างตัวแปรว่างๆ
 if not TitansFolder then
     TitansFolder = workspace:FindFirstChild("Titans")
     if not TitansFolder then
@@ -5807,7 +5810,7 @@ if not TitansFolder then
     end
 end
 
--- ==================== ฟังก์ชันตรวจสอบ Objectives สำหรับ FARM CORE ====================
+-- ==================== ฟังก์ชันตรวจสอบ Objectives ====================
 local function isObjectivesActiveForCore()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
@@ -5835,25 +5838,61 @@ local function isObjectivesActiveForCore()
     return false
 end
 
+-- ==================== ตรวจสอบ Slay UI (เร็วขึ้น - cache ทุกเฟรม) ====================
+local slayCache = false
+local slayCacheTime = 0
+local SLAY_CACHE_DURATION = 0.05  -- อัปเดตทุก 0.05 วินาที (20 ครั้ง/วินาที)
+
+local function isSlayObjectiveVisible()
+    local now = tick()
+    if now - slayCacheTime < SLAY_CACHE_DURATION then
+        return slayCache
+    end
+    slayCacheTime = now
+    
+    local player = game:GetService("Players").LocalPlayer
+    local targetGui = player.PlayerGui:FindFirstChild("Interface")
+    if targetGui then
+        targetGui = targetGui:FindFirstChild("HUD")
+        if targetGui then
+            targetGui = targetGui:FindFirstChild("Objectives")
+            if targetGui then
+                targetGui = targetGui:FindFirstChild("Main")
+                if targetGui then
+                    targetGui = targetGui:FindFirstChild("Slay")
+                    if targetGui and targetGui:IsA("TextLabel") then
+                        local visible = true
+                        local current = targetGui
+                        while current do
+                            if current:IsA("GuiObject") and not current.Visible then visible = false break end
+                            if current:IsA("ScreenGui") and not current.Enabled then visible = false break end
+                            current = current.Parent
+                        end
+                        if visible and targetGui.AbsoluteSize.X > 0 and targetGui.AbsoluteSize.Y > 0 then
+                            slayCache = true
+                            return true
+                        end
+                    end
+                end
+            end
+        end
+    end
+    slayCache = false
+    return false
+end
+
 -- ==================== BOSS DETECTION ====================
 local BOSS_NAMES = {
-    Attack_Titan = true,
-    Armored_Titan = true,
-    Female_Titan = true,
-    Beast_Titan = true,
-    Colossal_Titan = true,
-    Warhammer_Titan = true,
-    Jaw_Titan = true,
-    Cart_Titan = true
+    Attack_Titan = true, Armored_Titan = true, Female_Titan = true,
+    Beast_Titan = true, Colossal_Titan = true, Warhammer_Titan = true,
+    Jaw_Titan = true, Cart_Titan = true
 }
-
 local attackTitanSpawnTime = nil
 
 -- ==================== STRUCTURE ====================
 local ActiveTitans = {}
 local LastScan = 0
-local SCAN_RATE = 0.02
-
+local SCAN_RATE = 0
 local NapeCache = setmetatable({}, {__mode = "k"})
 
 local function IsTitanAlive(t)
@@ -5864,7 +5903,6 @@ end
 local function GetNape(t)
     local c = NapeCache[t]
     if c then return c end
-
     local hitboxes = t:FindFirstChild("Hitboxes")
     if hitboxes then
         local hit = hitboxes:FindFirstChild("Hit")
@@ -5883,43 +5921,29 @@ local function ScanTitans()
     local now = tick()
     if now - LastScan < SCAN_RATE then return end
     LastScan = now
-
     local titansFolder = workspace:FindFirstChild("Titans")
     if not titansFolder then
         table.clear(ActiveTitans)
         return
     end
-
     table.clear(ActiveTitans)
     local attackFound = false
-
     for _, t in ipairs(titansFolder:GetChildren()) do
         if t:IsA("Model") and IsTitanAlive(t) then
             local fake = t:FindFirstChild("Fake")
             if fake and fake:FindFirstChild("Collision") and not fake.Collision.CanCollide then
                 continue
             end
-
             local nape = GetNape(t)
             if nape then
                 local isBoss = BOSS_NAMES[t.Name] or false
-                if t.Name == "Attack_Titan" then
-                    attackFound = true
-                end
-                table.insert(ActiveTitans, {
-                    titan = t,
-                    nape = nape,
-                    isBoss = isBoss,
-                    titanName = t.Name
-                })
+                if t.Name == "Attack_Titan" then attackFound = true end
+                table.insert(ActiveTitans, {titan = t, nape = nape, isBoss = isBoss, titanName = t.Name})
             end
         end
     end
-
     if attackFound then
-        if not attackTitanSpawnTime then
-            attackTitanSpawnTime = now
-        end
+        if not attackTitanSpawnTime then attackTitanSpawnTime = now end
     else
         attackTitanSpawnTime = nil
     end
@@ -5931,40 +5955,25 @@ local function GetBestTarget(hrpPos)
     if attackTitanSpawnTime then
         attackReady = (now - attackTitanSpawnTime) >= 5
     end
-
     local bestBoss, bestBossDist = nil, math.huge
     local bestNormal, bestNormalDist = nil, math.huge
-
     for _, entry in ipairs(ActiveTitans) do
-        if entry.titanName == "Attack_Titan" and not attackReady then
-            continue
-        end
-
+        if entry.titanName == "Attack_Titan" and not attackReady then continue end
         local n = entry.nape
         local dx = hrpPos.X - n.Position.X
         local dz = hrpPos.Z - n.Position.Z
         local distSq = dx*dx + dz*dz
-
         if entry.isBoss then
-            if distSq < bestBossDist then
-                bestBossDist = distSq
-                bestBoss = entry
-            end
+            if distSq < bestBossDist then bestBossDist = distSq; bestBoss = entry end
         else
-            if distSq < bestNormalDist then
-                bestNormalDist = distSq
-                bestNormal = entry
-            end
+            if distSq < bestNormalDist then bestNormalDist = distSq; bestNormal = entry end
         end
     end
-
-    if bestBoss then return bestBoss end
-    return bestNormal
+    return bestBoss or bestNormal
 end
 
 local CharParts = {}
 local CharRef = nil
-
 local function NoclipOn()
     local char = Player.Character
     if not char then return end
@@ -5984,138 +5993,67 @@ local function NoclipOn()
     end
 end
 
-local function NoclipOff()
-    for i = 1, #CharParts do
-        local p = CharParts[i]
-        if p and p.Parent then
-            p.CanCollide = true
-        end
-    end
-end
-
 local _vel = Vector3.zero
 local function MoveFastTween(targetPos, maxSpeed)
     local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
     local dx = targetPos.X - hrp.Position.X
     local dy = targetPos.Y - hrp.Position.Y
     local dz = targetPos.Z - hrp.Position.Z
-    local distH = math.sqrt(dx*dx + dz*dz)
     local distTotal = math.sqrt(dx*dx + dy*dy + dz*dz)
-
-    if distTotal < 2 then
+    if distTotal < 1.5 then
         hrp.AssemblyLinearVelocity = Vector3.zero
         hrp.AssemblyAngularVelocity = Vector3.zero
         _vel = Vector3.zero
         return
     end
-
-    local speed = math.min(maxSpeed * 1.5, 1000)
-    local desired = Vector3.zero
-
-    if distH > 1 then
-        local m = speed / distH
-        desired = Vector3.new(dx * m, 0, dz * m)
-    end
-
-    if math.abs(dy) > 1 then
-        local vy = math.clamp(dy * 20, -speed, speed)
-        desired = Vector3.new(desired.X, vy, desired.Z)
-    end
-
-    _vel = _vel:Lerp(desired, 0.35)
-
-    if distTotal < 25 then
-        _vel = _vel * math.max(0.3, distTotal / 25)
-    end
-
-    if _vel.Magnitude > speed then
-        _vel = _vel.Unit * speed
-    end
-
+    local speed = maxSpeed * 2.5
+    local direction = Vector3.new(dx, dy, dz).Unit
+    local desired = direction * speed
+    _vel = _vel:Lerp(desired, 0.5)
+    if _vel.Magnitude > speed then _vel = _vel.Unit * speed end
     hrp.AssemblyLinearVelocity = _vel
     hrp.AssemblyAngularVelocity = Vector3.zero
 end
 
-local _teleportBp, _teleportBg = nil, nil
 local function MoveStableTeleport(targetPos)
     local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
     if not hrp then return end
-
-    local dist = (hrp.Position - targetPos).Magnitude
-    if dist > 30 then
-        hrp.CFrame = CFrame.new(targetPos)
-    end
-
-    if not _teleportBp or not _teleportBp.Parent then
-        _teleportBp = Instance.new("BodyPosition")
-        _teleportBp.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-        _teleportBp.P = 50000
-        _teleportBp.D = 1000
-        _teleportBp.Parent = hrp
-    end
-    _teleportBp.Position = targetPos
-
-    if not _teleportBg or not _teleportBg.Parent then
-        _teleportBg = Instance.new("BodyGyro")
-        _teleportBg.MaxTorque = Vector3.new(1e5, 1e5, 1e5)
-        _teleportBg.P = 50000
-        _teleportBg.D = 500
-        _teleportBg.Parent = hrp
-    end
-    _teleportBg.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
-
+    hrp.CFrame = CFrame.new(targetPos)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     _vel = Vector3.zero
 end
 
-local function CleanupTeleport()
-    if _teleportBp then _teleportBp:Destroy(); _teleportBp = nil end
-    if _teleportBg then _teleportBg:Destroy(); _teleportBg = nil end
-end
-
 local CurrentEntry = nil
-local LockedUntil = 0
 local isDead = false
 local IdleHoverY = 80
 
 local function IsRewardsUIVisible()
-    local success = false
-    pcall(function()
-        local interface = Player.PlayerGui:FindFirstChild("Interface")
-        if interface then
-            local rewards = interface:FindFirstChild("Rewards")
-            if rewards and rewards.Visible == true then
-                success = true
-            end
-        end
-    end)
-    return success
+    local interface = Player.PlayerGui:FindFirstChild("Interface")
+    if interface then
+        local rewards = interface:FindFirstChild("Rewards")
+        if rewards and rewards.Visible then return true end
+    end
+    return false
 end
 
 local function OnDeath()
     isDead = true
     CurrentEntry = nil
-    LockedUntil = 0
     NapeCache = setmetatable({}, {__mode = "k"})
     ActiveTitans = {}
     CharRef = nil
     CharParts = {}
     _vel = Vector3.zero
-    CleanupTeleport()
 end
 
 local function OnSpawn(char)
     isDead = false
     CharRef = nil
     _vel = Vector3.zero
-    CleanupTeleport()
     local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.Died:Connect(OnDeath)
-    end
+    if hum then hum.Died:Connect(OnDeath) end
 end
 
 if Player.Character then OnSpawn(Player.Character) end
@@ -6123,19 +6061,29 @@ Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
 local LastAtk = 0
-local ATK_DELAY = 0.015
+local ATK_DELAY = 0
 
--- โจมตีไททันทั้งหมด (เพิ่มเงื่อนไขเช็ค Objectives)
+-- ========== โจมตีไททันทั้งหมด ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
-    
-    -- ถ้า Objectives ไม่แสดง (จบเกม) ให้หยุดโจมตี
-    if not isObjectivesActiveForCore() then
-        return
-    end
+    if not isObjectivesActiveForCore() then return end
 
     local G = getgenv()
-    local elapsed = G.FarmStartTime > 0 and (tick() - G.FarmStartTime) or 0
+    local slayVisible = isSlayObjectiveVisible()
+    
+    if not slayVisible then
+        local dmg = 2500
+        SafeFire(POST, "Attacks", "Slash", true)
+        for _, entry in ipairs(ActiveTitans) do
+            local nape = entry.nape
+            if nape and nape.Parent then
+                SafeFire(POST, "Hitboxes", "Register", nape, dmg, 0)
+            end
+        end
+        return
+    end
+    
+    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 25)
     local dmg = safe and 9999 or 2500
 
@@ -6145,7 +6093,6 @@ local function AttackAllTitans()
     end
 
     SafeFire(POST, "Attacks", "Slash", true)
-
     for _, entry in ipairs(ActiveTitans) do
         local nape = entry.nape
         if nape and nape.Parent then
@@ -6154,116 +6101,116 @@ local function AttackAllTitans()
     end
 end
 
+-- ========== ฟังก์ชันหลักฟาร์ม ==========
+local function FarmUpdate()
+    pcall(function()
+        local G = getgenv()
+        if not G.Farm or isDead then return end
+        
+        -- บังคับให้เปิดถ้าสวิตซ์เปิดอยู่แต่ G.Farm ยัง false
+        if G.AutoFarmBlade and not G.Farm then
+            G.Farm = true
+            G.FarmStartTime = tick()
+        end
+        
+        if IsRewardsUIVisible() then
+            G.Farm = false
+            if Options and Options.AutoFarmBlade then
+                Options.AutoFarmBlade:SetValue(false)
+            end
+            return
+        end
+
+        local char = Player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then
+            OnDeath()
+            return
+        end
+
+        hrp.AssemblyAngularVelocity = Vector3.zero
+
+        if hrp.Position.Y < -50 then
+            hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            _vel = Vector3.zero
+            return
+        end
+
+        ScanTitans()
+
+        if #ActiveTitans == 0 then
+            CurrentEntry = nil
+            NoclipOn()
+            local dy = IdleHoverY - hrp.Position.Y
+            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
+            _vel = Vector3.zero
+            return
+        end
+
+        if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
+            CurrentEntry = GetBestTarget(hrp.Position)
+        end
+        if not CurrentEntry then return end
+
+        local nape = CurrentEntry.nape
+        if not nape then
+            CurrentEntry = nil
+            return
+        end
+
+        local ty = nape.Position.Y + (G.HoverHeight or 120)
+        local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
+
+        NoclipOn()
+
+        if G.FarmMode == "Teleport" then
+            MoveStableTeleport(tp)
+        else
+            MoveFastTween(tp, G.HoverSpeed or 120)
+        end
+
+        local now = tick()
+        if now - LastAtk < ATK_DELAY then return end
+        LastAtk = now
+
+        AttackAllTitans()
+    end)
+end
+
+-- ========== สร้างลูปหลัก ==========
 local function CreateFarmLoop()
     if FarmConn then FarmConn:Disconnect() end
-    FarmConn = RunService.Heartbeat:Connect(function()
-        local ok = pcall(function()
-            local G = getgenv()
-            if not G.Farm or isDead then return end
-            
-            -- ถ้า Objectives ไม่แสดง ให้หยุด Farm
-            if not isObjectivesActiveForCore() then
-                if G.Farm then
-                    G.Farm = false
-                    if Options and Options.AutoFarmBlade then
-                        Options.AutoFarmBlade:SetValue(false)
-                    end
-                end
-                return
-            end
-
-            if IsRewardsUIVisible() then
-                G.Farm = false
-                if Options and Options.AutoFarmBlade then
-                    Options.AutoFarmBlade:SetValue(false)
-                end
-                return
-            end
-
-            local char = Player.Character
-            if not char then return end
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if not hrp or not hum or hum.Health <= 0 then
-                OnDeath()
-                return
-            end
-
-            hrp.AssemblyAngularVelocity = Vector3.zero
-
-            if hrp.Position.Y < -50 then
-                hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                _vel = Vector3.zero
-                return
-            end
-
-            ScanTitans()
-
-            if #ActiveTitans == 0 then
-                CurrentEntry = nil
-                LockedUntil = 0
-                NoclipOn()
-                CleanupTeleport()
-                local dy = IdleHoverY - hrp.Position.Y
-                hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
-                _vel = Vector3.zero
-                return
-            end
-
-            local now = tick()
-            if CurrentEntry then
-                local entry = CurrentEntry
-                if not entry.titan or not IsTitanAlive(entry.titan) or not entry.nape or not entry.nape.Parent then
-                    CurrentEntry = nil
-                else
-                    local d = (hrp.Position - entry.nape.Position).Magnitude
-                    if d > 150 and now > LockedUntil then
-                        CurrentEntry = nil
-                    end
-                end
-            end
-
-            if not CurrentEntry then
-                CurrentEntry = GetBestTarget(hrp.Position)
-                if CurrentEntry then
-                    LockedUntil = now + 0.35
-                else
-                    return
-                end
-            end
-
-            local entry = CurrentEntry
-            local nape = entry.nape
-            local ty = nape.Position.Y + G.HoverHeight
-            local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
-
-            NoclipOn()
-
-            if G.FarmMode == "Teleport" then
-                MoveStableTeleport(tp)
-            else
-                CleanupTeleport()
-                MoveFastTween(tp, G.HoverSpeed)
-            end
-
-            if now - LastAtk < ATK_DELAY then return end
-            LastAtk = now
-
-            AttackAllTitans()
-        end)
-
-        if not ok then
-            task.wait(1)
-            CreateFarmLoop()
-        end
-    end)
+    FarmConn = RunService.Heartbeat:Connect(FarmUpdate)
 end
 
 CreateFarmLoop()
 
+-- ========== ตรวจสอบ Toggle AutoFarmBlade แบบ realtime ==========
 task.spawn(function()
-    while task.wait(2) do
+    while true do
+        task.wait(0.05)
+        local G = getgenv()
+        if G.AutoFarmBlade then
+            if not G.Farm then
+                G.Farm = true
+                G.FarmStartTime = tick()
+                CurrentEntry = nil  -- บังคับให้หาเป้าหมายใหม่ทันที
+            end
+        else
+            if G.Farm then
+                G.Farm = false
+                CurrentEntry = nil
+            end
+        end
+    end
+end)
+
+-- ========== รักษาลูป ==========
+task.spawn(function()
+    while task.wait(1) do
         if not FarmConn or not FarmConn.Connected then
             CreateFarmLoop()
         end
@@ -6625,14 +6572,14 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
 
--- Cooldown settings (ปรับให้สั้นลงเพื่อความรวดเร็ว)
-local RELOAD_COOLDOWN = 1.5      -- cooldown สำหรับ Blades Reload (GET)
-local REFILL_COOLDOWN = 2        -- cooldown สำหรับ Full Refill (POST)
-local DOUBLE_CHECK_DELAY = 0.1   -- delay ก่อนตรวจสอบซ้ำ (ลดลง)
-
+-- Cooldown สำหรับ reload blades (รอ 1.5 วินาทีก่อนยิงซ้ำ)
+local RELOAD_COOLDOWN = 1.5
 local lastReload = 0
-local lastRefill = 0
-local isProcessing = false
+
+-- ตัวแปรสำหรับจัดการ refill แบบมีหน่วงและ retry
+local refillInProgress = false
+local lastRefillAttempt = 0
+local refillStage = 0 -- 0 = idle, 1 = รอ 5 วินาทีก่อนยิงครั้งแรก, 2 = รอ 3.5 วินาทีก่อนยิงซ้ำ
 
 -- ฟังก์ชันตรวจสอบว่าใบมีดทั้งหมดหัก (Transparency == 1) ทุกเล่ม (14 เล่ม)
 local function areAllBladesBroken()
@@ -6644,14 +6591,12 @@ local function areAllBladesBroken()
     local rightHand = rig:FindFirstChild("RightHand")
     if not leftHand or not rightHand then return false end
 
-    -- ตรวจ LeftHand 7 เล่ม
     for i = 1, 7 do
         local blade = leftHand:FindFirstChild("Blade_" .. i)
         if not blade or blade.Transparency ~= 1 then
             return false
         end
     end
-    -- ตรวจ RightHand 7 เล่ม
     for i = 1, 7 do
         local blade = rightHand:FindFirstChild("Blade_" .. i)
         if not blade or blade.Transparency ~= 1 then
@@ -6661,7 +6606,7 @@ local function areAllBladesBroken()
     return true
 end
 
--- ฟังก์ชันตรวจสอบว่า HUD Sets เป็น "0/x" (เช่น 0/3, 0/7)
+-- ฟังก์ชันตรวจสอบว่า HUD Sets เป็น "0/x"
 local function isSetsEmpty()
     local success, sets = pcall(function()
         return player.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
@@ -6670,83 +6615,97 @@ local function isSetsEmpty()
     return sets.Text:match("^0%s*/") ~= nil
 end
 
--- ฟังก์ชันรีโหลดดาบ (Blades Reload)
+-- รีโหลดดาบ (Blades Reload) - จะถูกเรียกเมื่อผ่าน cooldown แล้ว
 local function doReloadBlades()
     local args = {"Blades", "Reload"}
-    return pcall(function()
-        GET:InvokeServer(unpack(args))
-    end)
+    return pcall(function() GET:InvokeServer(unpack(args)) end)
 end
 
--- ฟังก์ชันรีฟิลแบบเต็ม (Full Refill)
-local function doFullRefill()
+-- Refill ผ่าน path Climbable...Gate...GasTanks...Refill (ตามที่กำหนด)
+local function refillViaGate()
     local success, refillPart = pcall(function()
-        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+        return workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
     end)
     if not success or not refillPart then return false end
     local args = {"Attacks", "Reload", refillPart}
-    return pcall(function()
-        POST:FireServer(unpack(args))
-    end)
+    return pcall(function() POST:FireServer(unpack(args)) end)
 end
 
--- Main loop (ตรวจจับเร็วขึ้น)
+-- กระบวนการ refill แบบมี delay และ retry (ทำงานใน main loop)
+local function startRefillProcess()
+    if refillInProgress then return end
+    refillInProgress = true
+    refillStage = 1
+    lastRefillAttempt = tick()
+end
+
+-- ตรวจสอบและอัปเดตสถานะ refill ใน main loop
+local function updateRefillProcess()
+    if not refillInProgress then return false end
+    local now = tick()
+    if refillStage == 1 then
+        -- รอ 5 วินาทีแรก
+        if now - lastRefillAttempt >= 5 then
+            -- ยิง refill ครั้งแรก
+            refillViaGate()
+            refillStage = 2
+            lastRefillAttempt = now
+        end
+    elseif refillStage == 2 then
+        -- รอ 3.5 วินาที แล้วเช็คว่ายัง 0/3 อยู่ไหม
+        if now - lastRefillAttempt >= 3.5 then
+            if isSetsEmpty() then
+                -- ยิง refill ซ้ำอีกครั้ง
+                refillViaGate()
+            end
+            -- จบกระบวนการ refill
+            refillInProgress = false
+            refillStage = 0
+        end
+    end
+    return refillInProgress
+end
+
+-- Main loop (ตรวจจับเร็วที่สุด)
 task.spawn(function()
     while true do
-        task.wait(0.1)   -- ตรวจจับทุก 0.1 วินาที (เร็วขึ้น)
+        task.wait()  -- ให้ลูปทำงานทุกเฟรม (เร็วที่สุด)
         
-        pcall(function()
-            if not getgenv().AutoReloadBlade then
-                isProcessing = false
-                return
+        if not getgenv().AutoReloadBlade then
+            refillInProgress = false
+            refillStage = 0
+            continue
+        end
+        
+        -- อัปเดตกระบวนการ refill (ถ้ากำลังทำงานอยู่)
+        updateRefillProcess()
+        
+        -- ถ้ากำลัง refill อยู่ ให้ข้ามการตรวจสอบปกติ เพื่อไม่ให้รบกวน
+        if refillInProgress then
+            continue
+        end
+        
+        local now = tick()
+        local bladesBroken = areAllBladesBroken()
+        if not bladesBroken then
+            continue
+        end
+        
+        local setsEmpty = isSetsEmpty()
+        
+        -- กรณีใบมีดหัก แต่แก๊สยังไม่หมด → รีโหลดดาบ (รอ 1.5 วินาทีระหว่างการยิงแต่ละครั้ง)
+        if not setsEmpty then
+            if (now - lastReload) >= RELOAD_COOLDOWN then
+                lastReload = now
+                doReloadBlades()
             end
-            if isProcessing then return end
-            
-            local now = tick()
-            local bladesBroken = areAllBladesBroken()
-            local setsEmpty = isSetsEmpty()
-            
-            if not bladesBroken then
-                return
-            end
-            
-            -- กรณีที่ blades broken แต่ sets ไม่ empty (ยังมีแก๊สเหลือ) -> รอสั้นๆ แล้วทำ Blades Reload
-            if not setsEmpty then
-                if (now - lastReload) >= RELOAD_COOLDOWN then
-                    task.wait(0.2)   -- ลดการรอลง (จาก 0.75)
-                    if not getgenv().AutoReloadBlade then return end
-                    if not areAllBladesBroken() then return end
-                    -- ถ้าตอนนี้ sets กลายเป็น empty ให้ข้ามไปให้ Full Refill จัดการ
-                    if isSetsEmpty() then
-                        return
-                    end
-                    
-                    isProcessing = true
-                    local success = doReloadBlades()
-                    if success then
-                        lastReload = tick()
-                    end
-                    task.wait(0.1)
-                    isProcessing = false
-                end
-                return
-            end
-            
-            -- กรณีที่ blades broken และ sets empty -> ทำ Full Refill (ตรวจสอบซ้ำสั้นๆ)
-            if (now - lastRefill) >= REFILL_COOLDOWN then
-                task.wait(DOUBLE_CHECK_DELAY)
-                if not getgenv().AutoReloadBlade then return end
-                if not areAllBladesBroken() or not isSetsEmpty() then return end
-                
-                isProcessing = true
-                local success = doFullRefill()
-                if success then
-                    lastRefill = tick()
-                end
-                task.wait(0.1)
-                isProcessing = false
-            end
-        end)
+            continue
+        end
+        
+        -- กรณีใบมีดหักและแก๊สหมด → เริ่มกระบวนการ refill แบบมีหน่วง
+        if setsEmpty and not refillInProgress then
+            startRefillProcess()
+        end
     end
 end)
 -- ============================== RIPPER AUTO ==============================
