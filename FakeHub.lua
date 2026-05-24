@@ -3174,7 +3174,6 @@ if IsMainmenuLobby() then
     local E = false
     local R = false
     local Lf = 0
-    local lastNotify = 0
 
     local Players = game:GetService("Players")
     local PlayerGui = Players.LocalPlayer:WaitForChild("PlayerGui")
@@ -3214,10 +3213,6 @@ if IsMainmenuLobby() then
                     task.wait(0.3)
                     
                     if not IsFollowFrameOpen() then
-                        if tick() - lastNotify > 3 then
-                            Library:Notify("⚠️ Follow Frame closed! Waiting...", 3)
-                            lastNotify = tick()
-                        end
                         continue
                     end
                     
@@ -3250,6 +3245,76 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     AddConfirm("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirm("Teleport to Lobby", LOBBY_ID)
     AddConfirm("Teleport to Trading", TRADE_LOBBY_ID)
+    
+    -- ============================== AUTO TELEPORT AFTER TIME ==============================
+    g:AddDivider()
+    
+    local autoTeleportEnabled = false
+    local autoTeleportTime = 0
+    local teleportAttempts = 0
+    local maxAttempts = 5
+    local isTeleporting = false
+    local startTime = 0
+    
+    -- Slider สำหรับตั้งเวลา (0-600 วินาที)
+    g:AddSlider("AutoTeleportTimeSlider", {
+        Text = "Teleport Main Menu After x Minute",
+        Default = 0,
+        Min = 0,
+        Max = 600,
+        Rounding = 0,
+        Suffix = "sec",
+        Callback = function(v)
+            autoTeleportTime = v
+        end
+    })
+    
+    -- Toggle สำหรับเปิด/ปิดระบบ
+    g:AddToggle("AutoTeleportToggle", {
+        Text = "Enable Auto Teleport",
+        Default = false,
+        Callback = function(v)
+            autoTeleportEnabled = v
+            if not v then
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = 0
+            else
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = tick()
+            end
+        end
+    })
+    
+    -- Loop สำหรับตรวจสอบเวลาและ Teleport (ทำงานทุก place id)
+    task.spawn(function()
+        while true do
+            task.wait(1) -- ตรวจสอบทุก 1 วินาที
+            
+            if autoTeleportEnabled and not isTeleporting then
+                local elapsed = tick() - startTime
+                if elapsed >= autoTeleportTime then
+                    isTeleporting = true
+                    teleportAttempts = 0
+                end
+            end
+            
+            if autoTeleportEnabled and isTeleporting then
+                teleportAttempts = teleportAttempts + 1
+                
+                -- พยายาม Teleport
+                pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+                
+                -- ถ้าพยายามครบ 5 ครั้งแล้ว ให้ปิดเกม
+                if teleportAttempts >= maxAttempts then
+                    game:Shutdown()
+                end
+                
+                task.wait(5) -- รอ 5 วินาทีก่อนพยายามครั้งต่อไป
+            end
+        end
+    end)
 end
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 -- หา Remote แบบไดนามิก (Us Suite style)
@@ -5625,7 +5690,6 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
-                -- อัปเดตสถานะ Farm ถ้า Objectives พร้อมและกำลังรอ
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -5651,10 +5715,72 @@ if Tabs.AutoFarm then
     end
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
+    
+    -- ============================== AUTO TELEPORT MAIN MENU AFTER TIME ==============================
+    TeleportGroup:AddDivider()
+    
+    local autoTeleportEnabled = false
+    local autoTeleportTime = 0
+    local teleportAttempts = 0
+    local maxAttempts = 5
+    local isTeleporting = false
+    local startTime = 0
+    
+    TeleportGroup:AddSlider("AutoTeleportTimeSlider", {
+        Text = "Teleport Main Menu After x Minute",
+        Default = 0,
+        Min = 0,
+        Max = 600,
+        Rounding = 0,
+        Suffix = "sec",
+        Callback = function(v)
+            autoTeleportTime = v
+        end
+    })
+    
+    TeleportGroup:AddToggle("AutoTeleportToggle", {
+        Text = "Enable Auto Teleport",
+        Default = false,
+        Callback = function(v)
+            autoTeleportEnabled = v
+            if not v then
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = 0
+            else
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = tick()
+            end
+        end
+    })
+    
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            
+            if autoTeleportEnabled and not isTeleporting then
+                local elapsed = tick() - startTime
+                if elapsed >= autoTeleportTime then
+                    isTeleporting = true
+                    teleportAttempts = 0
+                end
+            end
+            
+            if autoTeleportEnabled and isTeleporting then
+                teleportAttempts = teleportAttempts + 1
+                pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+                if teleportAttempts >= maxAttempts then
+                    game:Shutdown()
+                end
+                task.wait(5)
+            end
+        end
+    end)
 end
 
 -- ============================== FARM CORE (ENHANCED WITH BOSS DETECTION) ==============================
-local TitansFolder = workspace:WaitForChild("Titans")
+local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
     local ok, result = pcall(function()
@@ -5670,6 +5796,16 @@ local function IsInCutscene()
 end
 
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
+
+-- ตรวจสอบว่า Titans Folder มีอยู่จริง ถ้าไม่มีให้สร้างตัวแปรว่างๆ
+if not TitansFolder then
+    TitansFolder = workspace:FindFirstChild("Titans")
+    if not TitansFolder then
+        TitansFolder = Instance.new("Folder")
+        TitansFolder.Name = "Titans"
+        TitansFolder.Parent = workspace
+    end
+end
 
 -- ==================== ฟังก์ชันตรวจสอบ Objectives สำหรับ FARM CORE ====================
 local function isObjectivesActiveForCore()
