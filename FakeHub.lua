@@ -5599,10 +5599,20 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปร global สำหรับ Farm Timer (ทำงานพื้นหลังตลอด)
-    -- สำคัญ: ถ้าเคยเริ่มนับแล้ว จะนับต่อไปเรื่อยๆ ไม่สนว่า Status จะ ON หรือ OFF
+    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับตั้งแต่รันสคริปต์ ไม่ต้องรอ toggle)
     getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
+
+    -- ฟังก์ชันเริ่มนับเวลาทันที (ถ้ายังไม่เคยเริ่ม)
+    local function startFarmTimer()
+        if not getgenv().FarmTimerStarted then
+            getgenv().FarmTimerStarted = true
+            getgenv().FarmStartTime = tick()
+        end
+    end
+
+    -- เริ่มนับทันทีเมื่อโหลดสคริปต์ส่วนนี้ (background)
+    startFarmTimer()
 
     -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
     local function IsActuallyVisible(gui)
@@ -5617,7 +5627,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return true
     end
 
-    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่
+    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (ใช้แสดงสถานะ ON/OFF เท่านั้น)
     local function isObjectivesVisible()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:FindFirstChild("PlayerGui")
@@ -5630,32 +5640,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันอัปเดตสถานะ Timer (เริ่มนับครั้งแรกเมื่อเจอ Objectives)
-    -- สำคัญ: เมื่อเริ่มนับแล้ว จะไม่หยุดนับอีกเลย แม้ว่า Objectives จะหายไป
-    local function updateFarmTimerBackground()
-        local visible = isObjectivesVisible()
-        
-        -- เริ่มนับเมื่อเจอ Objectives ครั้งแรก และยังไม่เคยเริ่มนับ
-        if visible and not getgenv().FarmTimerStarted then
-            getgenv().FarmTimerStarted = true
-            getgenv().FarmStartTime = tick()
-        end
-        
-        -- ❌ ไม่มีการหยุดนับ! เมื่อเริ่มแล้วจะนับต่อไปเรื่อยๆ
-        -- ถึงแม้ว่า Objectives จะหายไป (Status OFF) เวลาก็จะเดินต่อ
-    end
-
-    -- ลูปพื้นหลังเพื่ออัปเดตสถานะ Timer (ทำงานตลอดเวลา)
-    task.spawn(function()
-        while true do
-            task.wait(0.3)
-            updateFarmTimerBackground()
-        end
-    end)
-
-    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
-    -- ถ้ายังไม่เคยเริ่มนับ (FarmTimerStarted = false) จะคืนค่า 0
-    -- ถ้าเริ่มนับแล้ว จะคืนค่าเวลาที่ผ่านไปตั้งแต่วินาทีแรกที่เริ่ม
+    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time (จะแสดงเวลาที่นับไว้ตั้งแต่เริ่ม)
     local function getFarmElapsedTime()
         if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
             return tick() - getgenv().FarmStartTime
@@ -5942,10 +5927,11 @@ if IsIngameLobby() and Tabs.AutoFarm then
     -- ============================== QUALITY CONTROL ==============================
     MiscGroup:AddDropdown("RenderModeDropdown", {
         Text = "FPS Performance",
-        Values = {"Low Graphic", "Delete Map"},
+        Values = {"Low Graphic", "Delete Map", "Disable 3D", "Disable Text DMG"},
         Default = {},
         Multi = true,
         Callback = function(v)
+            -- จัดการ Low Graphic
             if v["Low Graphic"] then
                 pcall(function()
                     game:GetService("Lighting").Brightness = 0
@@ -5967,6 +5953,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end)
             end
 
+            -- จัดการ Delete Map
             if v["Delete Map"] then
                 local climbable = workspace:FindFirstChild("Climbable")
                 local unclimbable = workspace:FindFirstChild("Unclimbable")
@@ -5986,10 +5973,74 @@ if IsIngameLobby() and Tabs.AutoFarm then
                     end
                 end
             end
+
+            -- จัดการ Disable 3D Rendering
+            if v["Disable 3D Render"] then
+                pcall(function()
+                    game:GetService("RunService"):Set3dRenderingEnabled(false)
+                end)
+            else
+                pcall(function()
+                    game:GetService("RunService"):Set3dRenderingEnabled(true)
+                end)
+            end
+
+            -- จัดการ Disable Text DMG
+            if v["Disable Text DMG"] then
+                -- ส่งคำสั่งปิด Damage Text Indicator 5 ครั้ง
+                for i = 1, 5 do
+                    pcall(function()
+                        local args = {
+                            "Functions",
+                            "Settings",
+                            "Damage_Indicator",
+                            "Off"
+                        }
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
+                    end)
+                    task.wait(0.1)
+                end
+            else
+                -- ส่งคำสั่งเปิด Damage Text Indicator 5 ครั้ง
+                for i = 1, 5 do
+                    pcall(function()
+                        local args = {
+                            "Functions",
+                            "Settings",
+                            "Damage_Indicator",
+                            "On"
+                        }
+                        game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET"):InvokeServer(unpack(args))
+                    end)
+                    task.wait(0.1)
+                end
+            end
+        end
+    })
+
+    -- ============================== FPS LIMITER (SLIDER) ==============================
+    MiscGroup:AddSlider("FPSLimitSlider", {
+        Text = "Set FPS",
+        Default = 60,
+        Min = 5,
+        Max = 120,
+        Rounding = 0,
+        Suffix = " FPS",
+        Callback = function(v)
+            pcall(function()
+                if setfpscap then
+                    setfpscap(v)
+                else
+                    -- fallback สำหรับ executor ที่ใช้ setfpscap ต่างชื่อ
+                    local fpsCap = syn and syn.set_fps_cap or (setfpscap and setfpscap)
+                    if fpsCap then
+                        fpsCap(v)
+                    end
+                end
+            end)
         end
     })
 end
-
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
@@ -6395,8 +6446,91 @@ if Tabs.AutoFarm then
             end
         end
     end)
-end
 
+ -- ============================== FAILED SAFE (KILL CHARACTER AFTER TIMER) ==============================
+    TeleportGroup:AddDivider()
+    
+    local failedSafeEnabled = false
+    local failedSafeDelay = 0  -- ระยะเวลาหน่วงก่อนฆ่าตัวตาย (วินาที)
+    local failedSafeTimerRunning = false
+    local failedSafeStartTime = 0
+    local killPending = false  -- สถานะรอการฆ่าตัวตาย
+    
+    local function killCharacter()
+        local player = game.Players.LocalPlayer
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.Health = 0
+        end
+    end
+    
+    local function executeKill()
+        if killPending then
+            killCharacter()
+            killPending = false
+            failedSafeTimerRunning = false
+        end
+    end
+    
+    local function startFailedSafeTimer()
+        if failedSafeTimerRunning then return end
+        if failedSafeDelay <= 0 then
+            -- ถ้า delay = 0 ให้ฆ่าทันที
+            killCharacter()
+            return
+        end
+        
+        failedSafeTimerRunning = true
+        killPending = true
+        failedSafeStartTime = tick()
+        
+        task.spawn(function()
+            while failedSafeEnabled and killPending do
+                local elapsed = tick() - failedSafeStartTime
+                if elapsed >= failedSafeDelay then
+                    executeKill()
+                    break
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+    
+    local function stopFailedSafeTimer()
+        killPending = false
+        failedSafeTimerRunning = false
+    end
+    
+    TeleportGroup:AddSlider("FailedSafeDelaySlider", {
+        Text = "Failed Safe Delay (seconds)",
+        Default = 0,
+        Min = 0,
+        Max = 500,
+        Rounding = 0,
+        Suffix = " sec",
+        Callback = function(v)
+            failedSafeDelay = v
+        end
+    })
+    
+    TeleportGroup:AddToggle("FailedSafeToggle", {
+        Text = "Enable Failed Safe (Auto Kill after delay)",
+        Default = false,
+        Callback = function(v)
+            failedSafeEnabled = v
+            if v then
+                startFailedSafeTimer()
+                if failedSafeDelay > 0 then
+                    Library:Notify("⚠️ Failed Safe Enabled - Will kill character after " .. failedSafeDelay .. " seconds", 3)
+                else
+                    Library:Notify("⚠️ Failed Safe Enabled - Will kill character immediately", 3)
+                end
+            else
+                stopFailedSafeTimer()
+                Library:Notify("✅ Failed Safe Disabled", 2)
+            end
+        end
+    })
+end
 -- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
@@ -6657,7 +6791,6 @@ end
 local CurrentEntry = nil
 local isDead = false
 local IdleHoverY = 80
-local reloadInProgress = false
 
 local function IsRewardsUIVisible()
     local interface = Player.PlayerGui:FindFirstChild("Interface")
@@ -6690,15 +6823,17 @@ if Player.Character then OnSpawn(Player.Character) end
 Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
-local LastAtk = 0
-local ATK_DELAY = 0.2
+-- เปลี่ยนช่วงเวลาโจมตีเป็น 2 วินาที
+local FARM_ATTACK_INTERVAL = 2
+local LastAttackTime = 0
 
--- ========== โจมตีไททันทั้งหมด ==========
+-- ========== โจมตีไททันทั้งหมด (เพิ่มเช็ค flags reload/refill และ interval) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
     
-    if reloadInProgress or getgenv().IsReloading or getgenv().IsRefilling or refillInProgress then
+    -- หยุดโจมตีหากกำลัง reload หรือ refill
+    if getgenv().IsReloading or getgenv().IsRefilling then
         return
     end
 
@@ -6735,12 +6870,11 @@ local function AttackAllTitans()
     end
 end
 
--- ========== ฟังก์ชันหลักฟาร์ม ==========
+-- ========== ฟังก์ชันหลักฟาร์ม (เพิ่มเช็ค interval 2 วินาที) ==========
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
         
-        -- สำคัญที่สุด: ถ้า AutoFarmBlade ปิดอยู่ ให้หยุดทำงานทันที
         if not G.AutoFarmBlade then
             if G.Farm then
                 G.Farm = false
@@ -6750,7 +6884,8 @@ local function FarmUpdate()
         
         if not G.Farm or isDead then return end
         
-        if reloadInProgress or getgenv().IsReloading or getgenv().IsRefilling or refillInProgress then
+        -- หยุดฟาร์มหากกำลัง reload หรือ refill
+        if getgenv().IsReloading or getgenv().IsRefilling then
             return
         end
         
@@ -6820,11 +6955,12 @@ local function FarmUpdate()
             MoveSmooth(hrp, tp, lookDir)
         end
 
+        -- ตรวจสอบ interval การโจมตี (ทุก 2 วินาที)
         local now = tick()
-        if now - LastAtk < ATK_DELAY then return end
-        LastAtk = now
-
-        AttackAllTitans()
+        if now - LastAttackTime >= FARM_ATTACK_INTERVAL then
+            LastAttackTime = now
+            AttackAllTitans()
+        end
     end)
 end
 
@@ -6846,6 +6982,7 @@ task.spawn(function()
                 G.Farm = true
                 G.FarmStartTime = tick()
                 CurrentEntry = nil
+                LastAttackTime = tick() -- รีเซ็ตเวลาโจมตีเมื่อเริ่มฟาร์มใหม่
             end
         else
             if G.Farm then
@@ -6865,14 +7002,13 @@ task.spawn(function()
         end
     end
 end)
-
-
-
 --// =====================================================
 --// GLOBAL TOGGLE
 --// =====================================================
 
 getgenv().AutoReloadBlade = false
+getgenv().IsReloading = false
+getgenv().IsRefilling = false
 
 --// =====================================================
 --// AUTO BLADE RELOAD + REFILL SYSTEM (POST + KEYPRESS ONLY)
@@ -6889,10 +7025,11 @@ local LocalPlayer = Players.LocalPlayer
 local Settings = {
     CheckDelay = 0.03,
     BladeReload = {
-        Cooldown = 0.5,          -- cooldown ระหว่างการกด R แต่ละครั้ง (วินาที)
-        ConfirmCountRequired = 5, -- ลดเหลือ 5 เพื่อให้ตอบสนองเร็วขึ้น
+        Cooldown = 0.5,
+        ConfirmCountRequired = 5,
     },
     Refill = {
+        DelayBeforeFire = 5,   -- รอ 5 วินาทีก่อนยิง
         Cooldown = 2,
     }
 }
@@ -6908,10 +7045,8 @@ local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):Wa
 --// =====================================================
 
 local VIM = game:GetService("VirtualInputManager")
-local GuiService = game:GetService("GuiService")
-local VirtualUser = game:GetService("VirtualUser") -- บาง executor ใช้ VirtualUser แทน
+local VirtualUser = game:GetService("VirtualUser")
 
--- ฟังก์ชันกด R แบบที่ 1 (VirtualInputManager)
 local function PressR_VIM()
     pcall(function()
         VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
@@ -6920,7 +7055,6 @@ local function PressR_VIM()
     end)
 end
 
--- ฟังก์ชันกด R แบบที่ 2 (VirtualUser) สำหรับ executor ที่ไม่รองรับ VIM
 local function PressR_VirtualUser()
     pcall(function()
         VirtualUser:KeyDown(Enum.KeyCode.R)
@@ -6929,7 +7063,6 @@ local function PressR_VirtualUser()
     end)
 end
 
--- ฟังก์ชันกด R แบบที่ 3 (ContextActionService) ทางเลือกสุดท้าย
 local function PressR_Context()
     pcall(function()
         local ContextActionService = game:GetService("ContextActionService")
@@ -6939,7 +7072,6 @@ local function PressR_Context()
     end)
 end
 
--- เลือกวิธีที่ใช้ได้อัตโนมัติ
 local PressR = nil
 if pcall(function() return VIM.SendKeyEvent end) and VIM then
     PressR = PressR_VIM
@@ -6948,41 +7080,6 @@ elseif pcall(function() return VirtualUser.KeyDown end) and VirtualUser then
 else
     PressR = PressR_Context
 end
-
---// =====================================================
---// REFILL OBJECT
---// =====================================================
-
-local REFILL = nil
-
-local function GetRefillObject()
-    local success, obj = pcall(function()
-        return workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
-    end)
-    if success and obj then
-        return obj
-    end
-    
-    local success2, obj2 = pcall(function()
-        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
-    end)
-    if success2 and obj2 then
-        return obj2
-    end
-    
-    return nil
-end
-
-REFILL = GetRefillObject()
-
-task.spawn(function()
-    while true do
-        if not REFILL or not REFILL.Parent then
-            REFILL = GetRefillObject()
-        end
-        task.wait(3)
-    end
-end)
 
 --// =====================================================
 --// UI
@@ -7003,9 +7100,10 @@ local Sets = LocalPlayer
 --// =====================================================
 
 local LastBladeReload = 0
-local LastRefill = 0
+local LastRefillFire = 0
 local BladeEmptyConfirmCounter = 0
-local IsReloadingRapid = false  -- ป้องกันการสปามลูปซ้อน
+local IsReloadingRapid = false
+local RefillPendingTime = 0
 
 --// =====================================================
 --// CHECK REAL BLADES
@@ -7045,7 +7143,7 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// RAPID RELOAD (กด R ซ้ำๆ จนกว่า blades จะมี)
+--// RAPID RELOAD (กด R ซ้ำๆ) - ตั้ง flag reloading
 --// =====================================================
 
 local function RapidReloadBlades()
@@ -7053,38 +7151,47 @@ local function RapidReloadBlades()
     if IsReloadingRapid then return end
     
     IsReloadingRapid = true
+    getgenv().IsReloading = true  -- หยุดการโจมตี
+    
     task.spawn(function()
         while getgenv().AutoReloadBlade and AreBladesEmpty() do
-            -- ตรวจสอบ cooldown การกด R
             local now = tick()
             if now - LastBladeReload >= Settings.BladeReload.Cooldown then
                 LastBladeReload = now
                 PressR()
             end
-            task.wait(0.08) -- กดเร็วมาก (ประมาณ 12 ครั้ง/วินาที)
+            task.wait(0.08)
         end
+        -- เสร็จสิ้นการ reload
+        getgenv().IsReloading = false
         IsReloadingRapid = false
     end)
 end
 
 --// =====================================================
---// REFILL BLADE SETS (ใช้ POST Remote)
+--// REFILL BLADE SETS (ใช้ POST Remote) - ตั้ง flag refilling
 --// =====================================================
 
-local function RefillSets()
+local function FireRefill()
     if not getgenv().AutoReloadBlade then return end
-    if tick() - LastRefill < Settings.Refill.Cooldown then return end
-
-    LastRefill = tick()
-
-    if not REFILL or not REFILL.Parent then
-        REFILL = GetRefillObject()
-        if not REFILL then return end
-    end
-
+    local now = tick()
+    if now - LastRefillFire < Settings.Refill.Cooldown then return end
+    
+    LastRefillFire = now
+    getgenv().IsRefilling = true  -- หยุดการโจมตี
+    
     pcall(function()
-        POST:FireServer("Attacks", "Reload", REFILL)
+        local args = {
+            "Attacks",
+            "Reload",
+            workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
+        }
+        POST:FireServer(unpack(args))
     end)
+    
+    -- รอให้การ refill เสร็จสมบูรณ์ (ให้เวลาเล็กน้อย)
+    task.wait(0.5)
+    getgenv().IsRefilling = false
 end
 
 --// =====================================================
@@ -7102,7 +7209,7 @@ task.spawn(function()
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
 
-                -- Blade หมด: สะสม counter แล้วเริ่ม rapid reload
+                -- Blade หมด: rapid reload
                 if bladesEmpty then
                     BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                     if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
@@ -7111,17 +7218,27 @@ task.spawn(function()
                     end
                 else
                     BladeEmptyConfirmCounter = 0
-                    -- ถ้า blades ไม่หมดแล้ว และกำลัง rapid reload อยู่ ให้หยุด (จะหยุดเองเมื่อ loop ตรวจพบว่าไม่ empty)
                 end
 
-                -- Blade Sets = 0/3: refill
+                -- Blade Sets = 0/3: รอ 5 วินาที แล้วยิง refill
                 if text == "0/3" then
-                    RefillSets()
+                    if RefillPendingTime == 0 then
+                        RefillPendingTime = tick()
+                    elseif tick() - RefillPendingTime >= Settings.Refill.DelayBeforeFire then
+                        FireRefill()
+                        RefillPendingTime = 0
+                    end
+                else
+                    RefillPendingTime = 0
                 end
             end
         else
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
+            RefillPendingTime = 0
+            -- รีเซ็ต flags เมื่อปิด toggle
+            getgenv().IsReloading = false
+            getgenv().IsRefilling = false
         end
         task.wait(Settings.CheckDelay)
     end
