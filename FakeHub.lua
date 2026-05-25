@@ -225,7 +225,8 @@ end
 
 
 
--- ============================== WEBHOOK TAB + AUTO NOTIFY ON TARGET FAMILY ==============================
+
+-- ============================== WEBHOOK NOTIFICATION SECTION ==============================
 if IsMainmenuLobby() then
     Tabs.Webhook = Window:AddTab("Webhook")
 
@@ -233,13 +234,11 @@ if IsMainmenuLobby() then
 
     local webhookURL = ""
     local autoNotifyEnabled = false
-
-    -- ส่งได้ครั้งเดียวต่อการเปิด Toggle 1 ครั้ง
     local hasSentThisToggle = false
-
     local lastNotifyFamily = ""
     local lastNotifyTime = 0
     local pingMode = "None"
+    local lastSpinTime = 0
 
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
@@ -273,263 +272,697 @@ if IsMainmenuLobby() then
         
         for _, v in ipairs(familiesFolder:GetChildren()) do
             pcall(function()
-
                 local inner = v:FindFirstChild("Inner")
-
                 if inner then
                     local title = inner:FindFirstChild("Title")
-
-                    if title
-                        and title:IsA("TextLabel")
-                        and title.Text
-                        and title.Text ~= ""
-                    then
+                    if title and title:IsA("TextLabel") and title.Text and title.Text ~= "" then
                         local fullText = title.Text
-
                         table.insert(data, fullText)
-
                         count = count + 1
                     end
                 end
-
             end)
         end
         
         return data, count
     end
 
-    local function SendWebhook(triggerReason)
-
-        if webhookURL == "" then
-            return false
+    local function GetFamilyRarity(familyName)
+        if not familyName then return "Common" end
+        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
+        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
+        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
+        local legendaryList = {"Yeager","Ackerman","Reiss"}
+        local mythicList = {"Fritz","Helos"}
+        
+        for _, name in ipairs(commonList) do
+            if familyName:find(name) then return "Common" end
         end
+        for _, name in ipairs(rareList) do
+            if familyName:find(name) then return "Rare" end
+        end
+        for _, name in ipairs(epicList) do
+            if familyName:find(name) then return "Epic" end
+        end
+        for _, name in ipairs(legendaryList) do
+            if familyName:find(name) then return "Legendary" end
+        end
+        for _, name in ipairs(mythicList) do
+            if familyName:find(name) then return "Mythic" end
+        end
+        return "Common"
+    end
+
+    local function GetColorByRarity(rarity)
+        if rarity == "Epic" then
+            return 0x9b59b6
+        elseif rarity == "Legendary" then
+            return 0xf1c40f
+        elseif rarity == "Mythic" then
+            return 0xe74c3c
+        else
+            return 0x2ecc71
+        end
+    end
+
+    local function UpdateLastSpinTime()
+        lastSpinTime = tick()
+        hasSentThisToggle = false
+        if _G._resetSpinDepleted then _G._resetSpinDepleted() end
+    end
+
+    local function IsFakeValue(family, spins)
+        if family and spins then
+            local isHume = string.find(family, "Hume") ~= nil
+            local isSpins299 = string.find(spins, "299") ~= nil or spins == "299"
+            if isHume and isSpins299 then
+                return true
+            end
+        end
+        return false
+    end
+
+    local function ShouldSendWebhook(currentFamily, currentSpins)
+        if not autoNotifyEnabled then return false end
+        if lastSpinTime == 0 then return false end
+        if hasSentThisToggle then return false end
+        if currentFamily == lastNotifyFamily and (tick() - lastNotifyTime) < 30 then return false end
+        if IsFakeValue(currentFamily, currentSpins) then return false end
+        return true
+    end
+
+    local function ExtractSpinNumber(spinText)
+        if type(spinText) ~= "string" then return "0" end
+        local num = spinText:match("%d+")
+        return num or "0"
+    end
+
+    local function SendWebhook(triggerReason)
+        if webhookURL == "" then return false end
 
         local currentFamily = GetCurrentFamily()
         local spins = GetSpinCount()
-
+        local spinNumber = ExtractSpinNumber(spins)
         local familyList, familyCount = GetStoredFamilies()
-
-        local storedText =
-            #familyList > 0
-            and table.concat(familyList, "\n")
-            or "None"
+        
+        local storedDisplay = ""
+        if familyCount > 0 then
+            local maxDisplay = 15
+            local displayList = {}
+            for i = 1, math.min(#familyList, maxDisplay) do
+                table.insert(displayList, string.format("• %s", familyList[i]))
+            end
+            if #familyList > maxDisplay then
+                table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
+            end
+            storedDisplay = table.concat(displayList, "\n")
+        else
+            storedDisplay = "• No stored families"
+        end
 
         local title = triggerReason or "Notify"
-
-        local color = triggerReason and 65280 or 16766720
+        local rarity = GetFamilyRarity(currentFamily)
+        local color = GetColorByRarity(rarity)
         
         local content = nil
-
         if pingMode == "Everyone" then
             content = "@everyone"
-
         elseif pingMode == "Here" then
             content = "@here"
         end
 
+        local player = game:GetService("Players").LocalPlayer
+        local userId = player.UserId
+        local displayName = player.DisplayName
+        local userName = player.Name
+
+        local playerField = string.format("**Display Name:** %s\n**Username:** @%s\n**User ID:** `%d`", displayName, userName, userId)
+        local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
+        local spinsField = string.format("**Remaining:** %s", spinNumber)
+
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
-
             embeds = {{
                 title = title,
-
                 color = color,
-
-                fields = {
-                    {
-                        name = "Current Family",
-                        value = "" .. currentFamily .. "",
-                        inline = true
-                    },
-
-                    {
-                        name = "Spins Left",
-                        value = "" .. spins .. "",
-                        inline = true
-                    },
-
-                    {
-                        name = "Stored Families (" .. familyCount .. ")",
-                        value = "" .. storedText .. "",
-                        inline = false
-                    }
+                thumbnail = {
+                    url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
                 },
-
-                footer = {
-                    text = "FakeHUB | "
-                        .. os.date("%Y-%m-%d %H:%M:%S")
-                }
+                fields = {
+                    { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
+                    { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
+                    { name = "━━━━━━━━━ 🎲 SPINS ━━━━━━━━━", value = spinsField, inline = true },
+                    { name = "━━━━━━━━━ 📦 STORED (" .. familyCount .. ") ━━━━━━━━━", value = storedDisplay, inline = false }
+                },
+                footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                timestamp = DateTime.now():ToIsoDate()
             }}
         })
 
-        local requestFunction =
-            (syn and syn.request)
-            or (http and http.request)
-            or http_request
-            or request
-
-        if not requestFunction then
-            return false
-        end
+        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+        if not requestFunction then return false end
 
         return pcall(function()
-
-            requestFunction({
-                Url = webhookURL,
-
-                Method = "POST",
-
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-
-                Body = body
-            })
-
+            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
         end)
     end
 
-    -- ============================== MAIN LOOP ==============================
-    task.spawn(function()
+    -- ================= ส่วนตรวจจับสปินหมด =================
+    do
+        local lastSpinCountNum = -1
+        local hasSentZeroNotify = false
+        local previousNonZeroSpin = -1
 
-        while true do
-            task.wait(3)
+        local function GetSpinCountNumber()
+            local spinStr = GetSpinCount()
+            if spinStr == "Unknown" then return -1 end
+            local num = tonumber(spinStr:match("%d+"))
+            return num or -1
+        end
 
-            if not autoNotifyEnabled or webhookURL == "" then
-                continue
-            end
-
-            -- ส่งได้ครั้งเดียวต่อการเปิด Toggle
-            if hasSentThisToggle then
-                continue
-            end
+        local function SendSpinDepletedWebhook(beforeSpins)
+            if webhookURL == "" then return false end
             
             local currentFamily = GetCurrentFamily()
-
-            if currentFamily == "Unknown" then
-                continue
+            local familyList, familyCount = GetStoredFamilies()
+            local rarity = GetFamilyRarity(currentFamily)
+            
+            local storedDisplay = ""
+            if familyCount > 0 then
+                local maxDisplay = 15
+                local displayList = {}
+                for i = 1, math.min(#familyList, maxDisplay) do
+                    table.insert(displayList, string.format("• %s", familyList[i]))
+                end
+                if #familyList > maxDisplay then
+                    table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
+                end
+                storedDisplay = table.concat(displayList, "\n")
+            else
+                storedDisplay = "• No stored families"
             end
             
+            local content = nil
+            if pingMode == "Everyone" then
+                content = "@everyone"
+            elseif pingMode == "Here" then
+                content = "@here"
+            end
+
+            local player = game:GetService("Players").LocalPlayer
+            local userId = player.UserId
+            local displayName = player.DisplayName
+            local userName = player.Name
+
+            local playerField = string.format("**Display Name:** %s\n**Username:** @%s\n**User ID:** `%d`", displayName, userName, userId)
+            local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
+            local spinsField = string.format("**Before:** ~~%s~~ → **0**\n**Status:** `DEPLETED`", beforeSpins)
+
+            local body = game:GetService("HttpService"):JSONEncode({
+                content = content,
+                embeds = {{
+                    title = "⚠️ SPINS HAVE RUN OUT",
+                    color = 0xe74c3c,
+                    thumbnail = {
+                        url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
+                    },
+                    fields = {
+                        { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
+                        { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
+                        { name = "━━━━━━━━━ 🎲 SPINS ━━━━━━━━━", value = spinsField, inline = true },
+                        { name = "━━━━━━━━━ 📦 STORED (" .. familyCount .. ") ━━━━━━━━━", value = storedDisplay, inline = false }
+                    },
+                    footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                    timestamp = DateTime.now():ToIsoDate()
+                }}
+            })
+
+            local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+            if not requestFunction then return false end
+
+            return pcall(function()
+                requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
+            end)
+        end
+
+        local function resetSpinDepleted()
+            hasSentZeroNotify = false
+            local current = GetSpinCountNumber()
+            if current > 0 then
+                lastSpinCountNum = current
+                previousNonZeroSpin = current
+            else
+                lastSpinCountNum = -1
+                previousNonZeroSpin = -1
+            end
+        end
+        _G._resetSpinDepleted = resetSpinDepleted
+
+        task.spawn(function()
+            while true do
+                task.wait(2)
+                if not autoNotifyEnabled or webhookURL == "" then
+                    task.wait(1)
+                    continue
+                end
+                if lastSpinTime == 0 then continue end
+                
+                local current = GetSpinCountNumber()
+                
+                if lastSpinCountNum == -1 and current > 0 then
+                    lastSpinCountNum = current
+                    previousNonZeroSpin = current
+                end
+                
+                if lastSpinCountNum > 0 and current == 0 and not hasSentZeroNotify then
+                    local success = SendSpinDepletedWebhook(previousNonZeroSpin)
+                    if success then
+                        hasSentZeroNotify = true
+                    end
+                end
+                
+                if current > 0 then
+                    lastSpinCountNum = current
+                    previousNonZeroSpin = current
+                elseif current == 0 then
+                    lastSpinCountNum = current
+                end
+            end
+        end)
+    end
+    -- ================= จบส่วนตรวจจับสปินหมด =================
+
+    -- MAIN LOOP สำหรับแจ้งเตือน Target Family
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            if not autoNotifyEnabled or webhookURL == "" then continue end
+            if lastSpinTime == 0 then continue end
+            
+            local currentFamily = GetCurrentFamily()
+            local currentSpins = GetSpinCount()
+            
+            if currentFamily == "Unknown" then continue end
+            
             local targetFamilies = {}
-
             if Options and Options.AutoSpinFamilies then
-
-                for name, enabled in pairs(
-                    Options.AutoSpinFamilies.Value or {}
-                ) do
-
-                    if enabled
-                        and not string.match(name, "^%-%-%-")
-                    then
+                for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
+                    if enabled and not string.match(name, "^%-%-%-") then
                         table.insert(targetFamilies, name)
                     end
                 end
             end
-            
-            if #targetFamilies == 0 then
-                continue
-            end
+            if #targetFamilies == 0 then continue end
             
             local isTarget = false
-
             local lowerFamily = string.lower(currentFamily)
-
             for _, target in ipairs(targetFamilies) do
-
-                if string.find(
-                    lowerFamily,
-                    string.lower(target)
-                ) then
+                if string.find(lowerFamily, string.lower(target)) then
                     isTarget = true
                     break
                 end
             end
             
-            -- ของเดิมยังอยู่ครบ
-            if isTarget and (
-                currentFamily ~= lastNotifyFamily
-                or (tick() - lastNotifyTime > 30)
-            ) then
-
-                local success = SendWebhook(
-                    "TARGET FAMILY FOUND: " .. currentFamily
-                )
-
+            if isTarget and ShouldSendWebhook(currentFamily, currentSpins) then
+                local success = SendWebhook("🎯 TARGET FAMILY FOUND: " .. currentFamily)
                 if success then
-
-                    -- เพิ่มแค่ตัวนี้
                     hasSentThisToggle = true
-
                     lastNotifyFamily = currentFamily
                     lastNotifyTime = tick()
                 end
             end
-
         end
-
     end)
 
-    -- ============================== INPUT ==============================
+    -- UI
     WebhookGroup:AddInput("Webhook_URL", {
-        Default = "",
-        Numeric = false,
-        Finished = true,
-
+        Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
-
         Placeholder = "https://discord.com/api/webhooks/...",
-
-        Callback = function(v)
-            webhookURL = v
-        end
+        Callback = function(v) webhookURL = v end
     })
 
-    -- ============================== PING MODE ==============================
     WebhookGroup:AddDropdown("Webhook_PingMode", {
-
         Text = "Ping Mode",
-
-        Values = {
-            "None",
-            "Everyone",
-            "Here"
-        },
-
+        Values = {"None", "Everyone", "Here"},
         Default = "None",
-
         Multi = false,
-
-        Callback = function(v)
-            pingMode = v
-        end
+        Callback = function(v) pingMode = v end
     })
 
-    -- ============================== TEST ==============================
     WebhookGroup:AddButton("Test Send", function()
-        if SendWebhook() then end
+        SendWebhook("Test Notification")
+        Library:Notify("Test webhook sent!", 2)
     end)
 
-    -- ============================== TOGGLE ==============================
     WebhookGroup:AddToggle("AutoNotifyToggle", {
-
-        Text = "Auto Send Families",
-
+        Text = "Auto Send Families to Discord",
         Default = false,
-
         Callback = function(v)
-
             autoNotifyEnabled = v
-
-            -- reset ใหม่ทุกครั้งที่เปิด toggle
             if v then
                 hasSentThisToggle = false
                 lastNotifyFamily = ""
                 lastNotifyTime = 0
+                if _G._resetSpinDepleted then _G._resetSpinDepleted() end
+                Library:Notify("Discord webhook notification enabled!", 2)
+            else
+                Library:Notify("Discord webhook notification disabled.", 2)
             end
+        end
+    })
+    
+    _G.UpdateLastSpinTime = UpdateLastSpinTime
+end
+-- ============================== END WEBHOOK SECTION ==============================
 
+-- ============================== POPUP REAL-TIME FAMILY DISPLAY (SMOOTH XENON NEON) ==============================
+if IsMainmenuLobby() then
+    while not Tabs.Webhook do task.wait(0.1) end
+
+    local PopupGroup = Tabs.Webhook:AddLeftGroupbox("Show Familiy")
+    local popupEnabled = false
+    local popupGui = nil
+    local updateConnection = nil
+    local glowConnection = nil
+    local isInCustomisationPage = false
+    local currentScale = 1.0  -- ขนาดเริ่มต้น 100%
+
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+    local RunService = game:GetService("RunService")
+
+    -- ฟังก์ชันตรวจสอบว่า GUI Visible จริง
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    -- ฟังก์ชันตรวจสอบว่าอยู่ในหน้า Customisation (Family Tab) หรือไม่
+    local function IsInCustomisationPage()
+        local interface = PlayerGui:FindFirstChild("Interface")
+        if not interface then return false end
+        
+        local custom = interface:FindFirstChild("Customisation")
+        if not custom or not IsActuallyVisible(custom) then return false end
+        
+        local family = custom:FindFirstChild("Family")
+        if not family or not IsActuallyVisible(family) then return false end
+        
+        local fam = family:FindFirstChild("Family")
+        if not fam then return false end
+        local title = fam:FindFirstChild("Title")
+        if not title or not IsActuallyVisible(title) then return false end
+        
+        return true
+    end
+
+    -- ดึงชื่อ Family ปัจจุบัน
+    local function GetCurrentFamilyPopup()
+        local ok, result = pcall(function()
+            return PlayerGui.Interface.Customisation.Family.Family.Title.Text
+        end)
+        return ok and result or "Unknown"
+    end
+
+    -- ฟังก์ชันหา Rarity
+    local function GetFamilyRarityPopup(familyName)
+        if not familyName or familyName == "Unknown" then return "Common" end
+        local clean = familyName:match("^([^%(]+)") or familyName
+        clean = clean:gsub("%s+$", "")
+        local lower = string.lower(clean)
+        
+        local rarityMap = {
+            Common = {"reeves","blouse","inocenio","munsell","boyega","ral","bozado","pikale","hume","iglehaut"},
+            Rare = {"braus","kruger","azumabito","smith","grice","springer","kirstein"},
+            Epic = {"galliard","zoe","leonhart","tybur","ksaver","braun","finger","arlert"},
+            Legendary = {"yeager","ackerman","reiss"},
+            Mythic = {"fritz","helos"}
+        }
+        for rarity, list in pairs(rarityMap) do
+            for _, name in ipairs(list) do
+                if lower == name then return rarity end
+            end
+        end
+        return "Common"
+    end
+
+    -- สีหลักตาม Rarity
+    local function GetBaseColor(rarity)
+        if rarity == "Common" then
+            return Color3.fromHex("#C0C0C0")
+        elseif rarity == "Rare" then
+            return Color3.fromHex("#00E5FF")
+        elseif rarity == "Epic" then
+            return Color3.fromHex("#CC33FF")
+        elseif rarity == "Legendary" then
+            return Color3.fromHex("#FFD700")
+        elseif rarity == "Mythic" then
+            return Color3.fromHex("#FF3366")
+        else
+            return Color3.fromHex("#FFFFFF")
+        end
+    end
+
+    -- สีสว่าง (สำหรับเรืองแสง)
+    local function getBrightColor(baseColor)
+        return Color3.new(
+            math.min(baseColor.R + 0.35, 1),
+            math.min(baseColor.G + 0.35, 1),
+            math.min(baseColor.B + 0.35, 1)
+        )
+    end
+
+    -- อัปเดตขนาด UI
+    local function UpdateUIScale()
+        if popupGui then
+            local scaleObj = popupGui:FindFirstChild("UIScale")
+            if scaleObj then
+                scaleObj.Scale = currentScale
+            end
+        end
+    end
+
+    -- เอฟเฟกต์ Smooth Pulse
+    local function StartSmoothPulse(innerBorder, outerGlow, baseColor)
+        if glowConnection then glowConnection:Disconnect() end
+        
+        local brightColor = getBrightColor(baseColor)
+        local time = 0
+        local pulseSpeed = 1.2
+        
+        glowConnection = RunService.RenderStepped:Connect(function(deltaTime)
+            if not popupEnabled or not popupGui then return end
+            
+            time = time + deltaTime * pulseSpeed
+            local intensity = (math.sin(time) + 1) / 2
+            
+            local currentColor = Color3.new(
+                baseColor.R + (brightColor.R - baseColor.R) * intensity,
+                baseColor.G + (brightColor.G - baseColor.G) * intensity,
+                baseColor.B + (brightColor.B - baseColor.B) * intensity
+            )
+            
+            local thickness = 2 + intensity * 1.5
+            local glowThickness = 5 + intensity * 3
+            local glowTransparency = 0.55 - intensity * 0.25
+            
+            innerBorder.Color = currentColor
+            outerGlow.Color = currentColor
+            outerGlow.Thickness = glowThickness
+            outerGlow.Transparency = glowTransparency
+            innerBorder.Thickness = thickness
+        end)
+    end
+
+    local function CreatePopupUI()
+        if popupGui then popupGui:Destroy() end
+        if glowConnection then glowConnection:Disconnect() end
+
+        local screenGui = Instance.new("ScreenGui")
+        screenGui.Name = "FakeHUBRealTimePopup"
+        screenGui.ResetOnSpawn = false
+        screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+        screenGui.DisplayOrder = 999
+        screenGui.IgnoreGuiInset = true
+        screenGui.Parent = LocalPlayer.PlayerGui
+        popupGui = screenGui
+
+        -- UIScale สำหรับปรับขนาด
+        local uiScale = Instance.new("UIScale")
+        uiScale.Scale = currentScale
+        uiScale.Parent = screenGui
+
+        local mainFrame = Instance.new("Frame")
+        mainFrame.Size = UDim2.new(0, 300, 0, 100)
+        mainFrame.Position = UDim2.new(0.5, -150, 0.5, -50)
+        mainFrame.BackgroundColor3 = Color3.fromHex("#050505")
+        mainFrame.BackgroundTransparency = 0.08
+        mainFrame.BorderSizePixel = 0
+        mainFrame.ClipsDescendants = true
+        mainFrame.Parent = screenGui
+
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 14)
+        corner.Parent = mainFrame
+
+        local innerBorder = Instance.new("UIStroke")
+        innerBorder.Thickness = 2.5
+        innerBorder.Transparency = 0.1
+        innerBorder.LineJoinMode = Enum.LineJoinMode.Round
+        innerBorder.Parent = mainFrame
+
+        local outerGlow = Instance.new("UIStroke")
+        outerGlow.Thickness = 5
+        outerGlow.Transparency = 0.55
+        outerGlow.LineJoinMode = Enum.LineJoinMode.Round
+        outerGlow.Parent = mainFrame
+
+        local closeBtn = Instance.new("TextButton")
+        closeBtn.Size = UDim2.new(0, 26, 0, 26)
+        closeBtn.Position = UDim2.new(1, -34, 0, 6)
+        closeBtn.BackgroundTransparency = 0.3
+        closeBtn.Text = "X"
+        closeBtn.TextColor3 = Color3.new(1,1,1)
+        closeBtn.Font = Enum.Font.GothamBold
+        closeBtn.TextSize = 14
+        closeBtn.Parent = mainFrame
+        local btnCorner = Instance.new("UICorner")
+        btnCorner.CornerRadius = UDim.new(0, 13)
+        btnCorner.Parent = closeBtn
+        
+        closeBtn.MouseEnter:Connect(function()
+            closeBtn.BackgroundTransparency = 0.1
+        end)
+        closeBtn.MouseLeave:Connect(function()
+            closeBtn.BackgroundTransparency = 0.3
+        end)
+        closeBtn.MouseButton1Click:Connect(function()
+            if popupGui then popupGui:Destroy() end
+            if glowConnection then glowConnection:Disconnect() end
+            if Options and Options.PopupRealTimeToggle then
+                Options.PopupRealTimeToggle:SetValue(false)
+            end
+        end)
+
+        local titleLabel = Instance.new("TextLabel")
+        titleLabel.Size = UDim2.new(1, -40, 0, 24)
+        titleLabel.Position = UDim2.new(0, 12, 0, 6)
+        titleLabel.BackgroundTransparency = 1
+        titleLabel.Text = "CURRENT FAMILY"
+        titleLabel.Font = Enum.Font.GothamBold
+        titleLabel.TextSize = 12
+        titleLabel.TextColor3 = Color3.new(1,1,1)
+        titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+        titleLabel.Parent = mainFrame
+
+        local familyLabel = Instance.new("TextLabel")
+        familyLabel.Size = UDim2.new(1, -50, 0, 42)
+        familyLabel.Position = UDim2.new(0, 12, 0, 32)
+        familyLabel.BackgroundTransparency = 1
+        familyLabel.Text = "Loading..."
+        familyLabel.Font = Enum.Font.GothamBlack
+        familyLabel.TextSize = 24
+        familyLabel.TextColor3 = Color3.new(1,1,1)
+        familyLabel.TextXAlignment = Enum.TextXAlignment.Left
+        familyLabel.TextScaled = true
+        familyLabel.TextWrapped = true
+        familyLabel.Parent = mainFrame
+
+        local footerLabel = Instance.new("TextLabel")
+        footerLabel.Size = UDim2.new(1, -40, 0, 16)
+        footerLabel.Position = UDim2.new(0, 12, 1, -20)
+        footerLabel.BackgroundTransparency = 1
+        footerLabel.Text = "FAKEHUB"
+        footerLabel.Font = Enum.Font.GothamMedium
+        footerLabel.TextSize = 9
+        footerLabel.TextColor3 = Color3.fromHex("#888888")
+        footerLabel.TextXAlignment = Enum.TextXAlignment.Left
+        footerLabel.Parent = mainFrame
+
+        local currentRarity = nil
+        local currentBaseColor = nil
+        
+        local function UpdateDisplay()
+            if not popupGui or not popupEnabled then return end
+            
+            if not IsInCustomisationPage() then
+                if familyLabel.Text ~= "Not in Family page" then
+                    familyLabel.Text = "Not in Family page"
+                    familyLabel.TextColor3 = Color3.fromHex("#888888")
+                    titleLabel.TextColor3 = Color3.fromHex("#888888")
+                    closeBtn.BackgroundColor3 = Color3.fromHex("#888888")
+                end
+                return
+            end
+            
+            local family = GetCurrentFamilyPopup()
+            local rarity = GetFamilyRarityPopup(family)
+            local baseColor = GetBaseColor(rarity)
+
+            familyLabel.Text = family
+            familyLabel.TextColor3 = baseColor
+            titleLabel.TextColor3 = baseColor
+            closeBtn.BackgroundColor3 = baseColor
+            closeBtn.TextColor3 = (rarity == "Legendary" or rarity == "Mythic") and Color3.fromHex("#111111") or Color3.new(1,1,1)
+            
+            if currentRarity ~= rarity then
+                currentRarity = rarity
+                currentBaseColor = baseColor
+                StartSmoothPulse(innerBorder, outerGlow, baseColor)
+            end
+        end
+
+        if updateConnection then updateConnection:Disconnect() end
+        updateConnection = RunService.Heartbeat:Connect(function()
+            if popupEnabled and popupGui then
+                UpdateDisplay()
+            end
+        end)
+
+        UpdateDisplay()
+    end
+
+    -- Slider สำหรับปรับขนาด UI
+    PopupGroup:AddSlider("PopupUIScale", {
+        Text = "UI Scale",
+        Default = 100,
+        Min = 10,
+        Max = 100,
+        Rounding = 0,
+        Suffix = "%",
+        Callback = function(v)
+            currentScale = v / 100
+            UpdateUIScale()
+        end
+    })
+
+    PopupGroup:AddToggle("PopupRealTimeToggle", {
+        Text = "Show Family Popup",
+        Default = false,
+        Callback = function(v)
+            popupEnabled = v
+            if v then
+                CreatePopupUI()
+                Library:Notify("✅ Family popup opened! (Shows only in Family page)", 3)
+            else
+                if updateConnection then updateConnection:Disconnect() end
+                if glowConnection then glowConnection:Disconnect() end
+                if popupGui then popupGui:Destroy() end
+                Library:Notify("❌ Family popup closed", 2)
+            end
         end
     })
 end
+
 -- ============================== AUTO SPIN (MAIN MENU) - FAMILY TAB CHECK BEFORE ROLL ==============================
 if IsMainmenuLobby() then
     local SpinGroup = Tabs.MainMenu:AddLeftGroupbox("Auto Spin")
@@ -544,6 +977,81 @@ if IsMainmenuLobby() then
     local VIM = game:GetService("VirtualInputManager")
     local GS = game:GetService("GuiService")
     local playerGui = player:WaitForChild("PlayerGui")
+
+    -- ========== ตัวแปรสำหรับ Follow Frame Check ==========
+    local followFrameVisible = false
+    local checkInterval = 0.5
+    local waitingForFollowToClose = false  -- รอให้ Follow Frame ปิดก่อนเริ่มทำงาน
+
+    -- ========== ฟังก์ชันตรวจสอบ Follow Frame ==========
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function isFollowFrameVisible()
+        local targetGui = playerGui:FindFirstChild("Interface")
+        if targetGui then
+            targetGui = targetGui:FindFirstChild("Title_Screen")
+            if targetGui then
+                targetGui = targetGui:FindFirstChild("Follow")
+                if targetGui and IsActuallyVisible(targetGui) and targetGui.AbsoluteSize.X > 0 and targetGui.AbsoluteSize.Y > 0 then
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
+    -- ========== ฟังก์ชันกดปุ่ม Customisation ==========
+    local function clickCustomisation()
+        local customBtn = getCustomBtn()
+        if customBtn and isGuiVisible(customBtn) then
+            press(customBtn)
+            return true
+        end
+        return false
+    end
+
+    -- ========== ฟังก์ชันรอให้ Follow Frame หายไป ==========
+    local function waitForFollowToClose()
+        local startTime = tick()
+        local timeout = 10  -- รอสูงสุด 10 วินาที
+        
+        while tick() - startTime < timeout do
+            if not isFollowFrameVisible() then
+                return true
+            end
+            task.wait(0.2)
+        end
+        return false
+    end
+
+    -- ========== ลูปตรวจสอบ Follow Frame และกด Customisation อัตโนมัติ (แบบไม่ต้องกดเอง) ==========
+    task.spawn(function()
+        while true do
+            task.wait(checkInterval)
+            local currentVisible = isFollowFrameVisible()
+            followFrameVisible = currentVisible
+            
+            if followFrameVisible then
+                -- ถ้า Follow Frame ยังแสดงอยู่ ให้กด Customisation ทุกครั้งที่เจอ
+                clickCustomisation()
+                waitingForFollowToClose = true
+            else
+                if waitingForFollowToClose then
+                    waitingForFollowToClose = false
+                end
+            end
+        end
+    end)
 
     local FAMILY_LIST = {
         "--- Common ---",
@@ -700,6 +1208,70 @@ if IsMainmenuLobby() then
         return true
     end
 
+    -- ========== ฟังก์ชันจัดการ Warning Popup ==========
+    local function handleWarningPopup()
+        local warningMain = playerGui:FindFirstChild("Interface")
+        if warningMain then
+            warningMain = warningMain:FindFirstChild("Warning")
+            if warningMain then
+                warningMain = warningMain:FindFirstChild("Prompt")
+                if warningMain then
+                    warningMain = warningMain:FindFirstChild("Main")
+                    if warningMain and warningMain.Visible then
+                        local familyTitle = getFamilyTitle()
+                        local currentFamily = familyTitle and familyTitle.Text or ""
+                        local isTarget = false
+                        if currentFamily ~= "" and #selectedFamilies > 0 then
+                            local lower = string.lower(currentFamily)
+                            for _, t in ipairs(selectedFamilies) do
+                                if string.find(lower, string.lower(t)) then
+                                    isTarget = true
+                                    break
+                                end
+                            end
+                        end
+                        
+                        if not isTarget then
+                            local yesBtn = warningMain:FindFirstChild("Yes")
+                            if yesBtn and isGuiVisible(yesBtn) then
+                                local confirmed = true
+                                for i = 1, 10 do
+                                    if not isGuiVisible(yesBtn) then 
+                                        confirmed = false
+                                        break 
+                                    end
+                                    local recheckTitle = getFamilyTitle()
+                                    local recheckFamily = recheckTitle and recheckTitle.Text or ""
+                                    if recheckFamily ~= "" and #selectedFamilies > 0 then
+                                        local lower2 = string.lower(recheckFamily)
+                                        local found = false
+                                        for _, t in ipairs(selectedFamilies) do
+                                            if string.find(lower2, string.lower(t)) then
+                                                found = true
+                                                break
+                                            end
+                                        end
+                                        if found then
+                                            confirmed = false
+                                            break
+                                        end
+                                    end
+                                    task.wait(1)
+                                end
+                                if confirmed then
+                                    press(yesBtn)
+                                    task.wait(0.5)
+                                    return true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+
     local function ensureFamilyTabAndCheckTitle()
         local familyBtn = getFamilyBtn()
         
@@ -830,6 +1402,12 @@ if IsMainmenuLobby() then
         return false
     end
 
+    local function updateSpinTime()
+        if _G.UpdateLastSpinTime then
+            _G.UpdateLastSpinTime()
+        end
+    end
+
     local function autoSpinLoop()
         if isSpinning then return end
         isSpinning = true; stopSpin = false
@@ -841,6 +1419,10 @@ if IsMainmenuLobby() then
         end
 
         while not stopSpin do
+            -- ตรวจสอบ Follow Frame และกด Customisation ถ้ายังมี (ทำใน loop อื่นอยู่แล้ว)
+            
+            handleWarningPopup()
+            
             if isAnySlotOpen() then
                 task.wait(0.5)
                 continue
@@ -873,6 +1455,8 @@ if IsMainmenuLobby() then
             if not isGuiVisible(rb) then continue end
             
             if not press(rb) then task.wait(0.01); continue end
+            
+            updateSpinTime()
 
             task.wait(rollDelay)
 
@@ -925,10 +1509,19 @@ if IsMainmenuLobby() then
         Text = "Auto Spin",
         Default = false,
         Callback = function(v)
-            if v then task.spawn(autoSpinLoop) else stopSpin = true end
+            if v then 
+                stopSpin = false
+                task.spawn(autoSpinLoop)
+            else 
+                stopSpin = true 
+            end
         end
     })
 end
+
+
+
+
 -- ============================== TRADE SYSTEM ==============================
 if IsLobbyLobby() then
     task.defer(function()
@@ -5007,6 +5600,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
     }
 
     -- ตัวแปร global สำหรับ Farm Timer (ทำงานพื้นหลังตลอด)
+    -- สำคัญ: ถ้าเคยเริ่มนับแล้ว จะนับต่อไปเรื่อยๆ ไม่สนว่า Status จะ ON หรือ OFF
     getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
 
@@ -5036,19 +5630,22 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันอัปเดตสถานะ Timer (ทำงานพื้นหลังตลอด)
+    -- ฟังก์ชันอัปเดตสถานะ Timer (เริ่มนับครั้งแรกเมื่อเจอ Objectives)
+    -- สำคัญ: เมื่อเริ่มนับแล้ว จะไม่หยุดนับอีกเลย แม้ว่า Objectives จะหายไป
     local function updateFarmTimerBackground()
         local visible = isObjectivesVisible()
+        
+        -- เริ่มนับเมื่อเจอ Objectives ครั้งแรก และยังไม่เคยเริ่มนับ
         if visible and not getgenv().FarmTimerStarted then
             getgenv().FarmTimerStarted = true
             getgenv().FarmStartTime = tick()
-        elseif not visible and getgenv().FarmTimerStarted then
-            getgenv().FarmTimerStarted = false
-            getgenv().FarmStartTime = nil
         end
+        
+        -- ❌ ไม่มีการหยุดนับ! เมื่อเริ่มแล้วจะนับต่อไปเรื่อยๆ
+        -- ถึงแม้ว่า Objectives จะหายไป (Status OFF) เวลาก็จะเดินต่อ
     end
 
-    -- ลูปพื้นหลังเพื่ออัปเดตสถานะ Timer (ทำงานตลอดเวลาแม้ปิด PlayerStats)
+    -- ลูปพื้นหลังเพื่ออัปเดตสถานะ Timer (ทำงานตลอดเวลา)
     task.spawn(function()
         while true do
             task.wait(0.3)
@@ -5057,6 +5654,8 @@ if IsIngameLobby() and Tabs.AutoFarm then
     end)
 
     -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
+    -- ถ้ายังไม่เคยเริ่มนับ (FarmTimerStarted = false) จะคืนค่า 0
+    -- ถ้าเริ่มนับแล้ว จะคืนค่าเวลาที่ผ่านไปตั้งแต่วินาทีแรกที่เริ่ม
     local function getFarmElapsedTime()
         if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
             return tick() - getgenv().FarmStartTime
@@ -5418,7 +6017,6 @@ if Tabs.AutoFarm then
     })
 end
 
-
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
 
@@ -5594,9 +6192,12 @@ if Tabs.AutoFarm then
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
-                    PendingFarmStart = true
-                    G.Farm = false
-                    G.AutoFarmBlade = true
+                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
+                    pcall(function()
+                        if Options and Options.AutoFarmBlade then
+                            Options.AutoFarmBlade:SetValue(false)
+                        end
+                    end)
                     return
                 end
                 
@@ -5611,13 +6212,25 @@ if Tabs.AutoFarm then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
+                -- หยุดการเคลื่อนที่ทั้งหมด
+                CleanupSmoothMovement()
+                CurrentEntry = nil
             end
         end
     })
 
     BladeTab:AddToggle("AutoReloadBlade", {
         Text="Auto Reload Blade", Default=false,
-        Callback=function(v) G.AutoReloadBlade = v end
+        Callback=function(v) 
+            G.AutoReloadBlade = v
+            if not v then
+                getgenv().IsReloading = false
+                getgenv().IsRefilling = false
+                reloadInProgress = false
+                refillInProgress = false
+                refillStage = 0
+            end
+        end
     })
     
     BladeTab:AddToggle("StartRejoin", {
@@ -5694,6 +6307,7 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
+                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -5783,7 +6397,7 @@ if Tabs.AutoFarm then
     end)
 end
 
--- ============================== FARM CORE (INSTANT RESPONSE - FIXED) ==============================
+-- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -5838,10 +6452,10 @@ local function isObjectivesActiveForCore()
     return false
 end
 
--- ==================== ตรวจสอบ Slay UI (เร็วขึ้น - cache ทุกเฟรม) ====================
+-- ==================== ตรวจสอบ Slay UI ====================
 local slayCache = false
 local slayCacheTime = 0
-local SLAY_CACHE_DURATION = 0.05  -- อัปเดตทุก 0.05 วินาที (20 ครั้ง/วินาที)
+local SLAY_CACHE_DURATION = 0.1
 
 local function isSlayObjectiveVisible()
     local now = tick()
@@ -5892,7 +6506,7 @@ local attackTitanSpawnTime = nil
 -- ==================== STRUCTURE ====================
 local ActiveTitans = {}
 local LastScan = 0
-local SCAN_RATE = 0
+local SCAN_RATE = 0.1
 local NapeCache = setmetatable({}, {__mode = "k"})
 
 local function IsTitanAlive(t)
@@ -5993,41 +6607,57 @@ local function NoclipOn()
     end
 end
 
-local _vel = Vector3.zero
-local function MoveFastTween(targetPos, maxSpeed)
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return end
-    local dx = targetPos.X - hrp.Position.X
-    local dy = targetPos.Y - hrp.Position.Y
-    local dz = targetPos.Z - hrp.Position.Z
-    local distTotal = math.sqrt(dx*dx + dy*dy + dz*dz)
-    if distTotal < 1.5 then
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.AssemblyAngularVelocity = Vector3.zero
-        _vel = Vector3.zero
-        return
+-- ========== SMOOTH TWEEN MOVEMENT ==========
+local bodyPos = nil
+local bodyGyro = nil
+
+local function InitSmoothMovement(hrp)
+    if not bodyPos or not bodyPos.Parent then
+        if bodyPos then bodyPos:Destroy() end
+        bodyPos = Instance.new("BodyPosition")
+        bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+        bodyPos.P = 3500
+        bodyPos.D = 700
+        bodyPos.Parent = hrp
     end
-    local speed = maxSpeed * 2.5
-    local direction = Vector3.new(dx, dy, dz).Unit
-    local desired = direction * speed
-    _vel = _vel:Lerp(desired, 0.5)
-    if _vel.Magnitude > speed then _vel = _vel.Unit * speed end
-    hrp.AssemblyLinearVelocity = _vel
-    hrp.AssemblyAngularVelocity = Vector3.zero
+    if not bodyGyro or not bodyGyro.Parent then
+        if bodyGyro then bodyGyro:Destroy() end
+        bodyGyro = Instance.new("BodyGyro")
+        bodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+        bodyGyro.P = 6000
+        bodyGyro.D = 1200
+        bodyGyro.Parent = hrp
+    end
 end
 
-local function MoveStableTeleport(targetPos)
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+local function CleanupSmoothMovement()
+    if bodyPos then bodyPos:Destroy(); bodyPos = nil end
+    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
+end
+
+local function MoveSmooth(hrp, targetPos, targetLookDir)
+    if not hrp then return end
+    InitSmoothMovement(hrp)
+    bodyPos.Position = targetPos
+    if targetLookDir then
+        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetLookDir)
+    else
+        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
+    end
+end
+
+local function MoveStableTeleport(hrp, targetPos)
     if not hrp then return end
     hrp.CFrame = CFrame.new(targetPos)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
 end
 
 local CurrentEntry = nil
 local isDead = false
 local IdleHoverY = 80
+local reloadInProgress = false
 
 local function IsRewardsUIVisible()
     local interface = Player.PlayerGui:FindFirstChild("Interface")
@@ -6045,13 +6675,13 @@ local function OnDeath()
     ActiveTitans = {}
     CharRef = nil
     CharParts = {}
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
 end
 
 local function OnSpawn(char)
     isDead = false
     CharRef = nil
-    _vel = Vector3.zero
+    CleanupSmoothMovement()
     local hum = char:FindFirstChildOfClass("Humanoid")
     if hum then hum.Died:Connect(OnDeath) end
 end
@@ -6061,12 +6691,16 @@ Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
 local LastAtk = 0
-local ATK_DELAY = 0
+local ATK_DELAY = 0.2
 
 -- ========== โจมตีไททันทั้งหมด ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
+    
+    if reloadInProgress or getgenv().IsReloading or getgenv().IsRefilling or refillInProgress then
+        return
+    end
 
     local G = getgenv()
     local slayVisible = isSlayObjectiveVisible()
@@ -6105,9 +6739,21 @@ end
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
+        
+        -- สำคัญที่สุด: ถ้า AutoFarmBlade ปิดอยู่ ให้หยุดทำงานทันที
+        if not G.AutoFarmBlade then
+            if G.Farm then
+                G.Farm = false
+            end
+            return
+        end
+        
         if not G.Farm or isDead then return end
         
-        -- บังคับให้เปิดถ้าสวิตซ์เปิดอยู่แต่ G.Farm ยัง false
+        if reloadInProgress or getgenv().IsReloading or getgenv().IsRefilling or refillInProgress then
+            return
+        end
+        
         if G.AutoFarmBlade and not G.Farm then
             G.Farm = true
             G.FarmStartTime = tick()
@@ -6135,7 +6781,7 @@ local function FarmUpdate()
         if hrp.Position.Y < -50 then
             hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
             hrp.AssemblyLinearVelocity = Vector3.zero
-            _vel = Vector3.zero
+            CleanupSmoothMovement()
             return
         end
 
@@ -6144,15 +6790,16 @@ local function FarmUpdate()
         if #ActiveTitans == 0 then
             CurrentEntry = nil
             NoclipOn()
+            CleanupSmoothMovement()
             local dy = IdleHoverY - hrp.Position.Y
             hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
-            _vel = Vector3.zero
             return
         end
 
         if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
             CurrentEntry = GetBestTarget(hrp.Position)
         end
+        
         if not CurrentEntry then return end
 
         local nape = CurrentEntry.nape
@@ -6163,13 +6810,14 @@ local function FarmUpdate()
 
         local ty = nape.Position.Y + (G.HoverHeight or 120)
         local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
+        local lookDir = Vector3.new(nape.Position.X, ty, nape.Position.Z - 5)
 
         NoclipOn()
 
         if G.FarmMode == "Teleport" then
-            MoveStableTeleport(tp)
+            MoveStableTeleport(hrp, tp)
         else
-            MoveFastTween(tp, G.HoverSpeed or 120)
+            MoveSmooth(hrp, tp, lookDir)
         end
 
         local now = tick()
@@ -6191,18 +6839,19 @@ CreateFarmLoop()
 -- ========== ตรวจสอบ Toggle AutoFarmBlade แบบ realtime ==========
 task.spawn(function()
     while true do
-        task.wait(0.05)
+        task.wait(0.1)
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
                 G.Farm = true
                 G.FarmStartTime = tick()
-                CurrentEntry = nil  -- บังคับให้หาเป้าหมายใหม่ทันที
+                CurrentEntry = nil
             end
         else
             if G.Farm then
                 G.Farm = false
                 CurrentEntry = nil
+                CleanupSmoothMovement()
             end
         end
     end
@@ -6210,12 +6859,321 @@ end)
 
 -- ========== รักษาลูป ==========
 task.spawn(function()
-    while task.wait(1) do
+    while task.wait(2) do
         if not FarmConn or not FarmConn.Connected then
             CreateFarmLoop()
         end
     end
 end)
+
+
+
+--// =====================================================
+--// GLOBAL TOGGLE
+--// =====================================================
+
+getgenv().AutoReloadBlade = false
+
+--// =====================================================
+--// FULL AUTO BLADE + REFILL SYSTEM
+--// CUSTOM DELAY / CUSTOM CHECK / CUSTOM COOLDOWN
+--// =====================================================
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local LocalPlayer = Players.LocalPlayer
+
+--// =====================================================
+--// SETTINGS
+--// =====================================================
+
+local Settings = {
+
+    CheckDelay = 0.03,
+
+    BladeReload = {
+        Enabled = true,
+        FireDelay = 1.75,
+        Cooldown = 2,
+        DropToReloadDelay = 0.05,
+        RefillPath = "Climbable",
+        ConfirmCountRequired = 10,
+        -- จำนวนครั้งสูงสุดที่จะกด R ซ้ำหลังจาก reload แล้วยังไม่หาย
+        MaxPostReloadRetry = 5,
+        -- ระยะห่างระหว่างกด R ซ้ำ (วินาที)
+        PostReloadRetryDelay = 2.5,
+    },
+
+    Refill = {
+        Enabled = true,
+        FireDelay = 1.75,
+        Cooldown = 2,
+    }
+}
+
+--// =====================================================
+--// REMOTES
+--// =====================================================
+
+local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
+local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+
+--// =====================================================
+--// AUTO PRESS R KEY (ใช้เฉพาะตอน blades หมดจริงๆ เท่านั้น)
+--// =====================================================
+
+local VIM = game:GetService("VirtualInputManager")
+
+local function PressR()
+    pcall(function()
+        VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+        task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+    end)
+end
+
+--// =====================================================
+--// REFILL OBJECT (ลองทั้ง 2 path)
+--// =====================================================
+
+local REFILL = nil
+
+local function GetRefillObject()
+    local success, obj = pcall(function()
+        return workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
+    end)
+    if success and obj then
+        return obj
+    end
+    
+    local success2, obj2 = pcall(function()
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+    end)
+    if success2 and obj2 then
+        return obj2
+    end
+    
+    return nil
+end
+
+REFILL = GetRefillObject()
+
+task.spawn(function()
+    while true do
+        if not REFILL or not REFILL.Parent then
+            REFILL = GetRefillObject()
+        end
+        task.wait(3)
+    end
+end)
+
+--// =====================================================
+--// UI
+--// =====================================================
+
+local Sets = LocalPlayer
+    :WaitForChild("PlayerGui")
+    :WaitForChild("Interface")
+    :WaitForChild("HUD")
+    :WaitForChild("Main")
+    :WaitForChild("Top")
+    :WaitForChild("7")
+    :WaitForChild("Blades")
+    :WaitForChild("Sets")
+
+--// =====================================================
+--// INTERNAL
+--// =====================================================
+
+local BladeReloadPending = false
+local RefillPending = false
+local LastBladeReload = 0
+local LastRefill = 0
+
+local BladeEmptyConfirmCounter = 0
+
+-- ตัวแปรสำหรับ post-reload retry
+local PostReloadActive = false
+local PostReloadStop = false
+
+--// =====================================================
+--// CHECK REAL BLADES (นับ blade ที่หายไป)
+--// =====================================================
+
+local function GetBladeMissingCount()
+    local CharacterFolder = workspace:FindFirstChild("Characters")
+    if not CharacterFolder then return nil, nil end
+
+    local Character = CharacterFolder:FindFirstChild(LocalPlayer.Name)
+    if not Character then return nil, nil end
+
+    local Rig = Character:FindFirstChild("Rig_" .. LocalPlayer.Name)
+    if not Rig then return nil, nil end
+
+    local LeftHand = Rig:FindFirstChild("LeftHand")
+    local RightHand = Rig:FindFirstChild("RightHand")
+    if not LeftHand or not RightHand then return nil, nil end
+
+    local leftMissing = 0
+    local rightMissing = 0
+
+    for i = 1,7 do
+        local L = LeftHand:FindFirstChild("Blade_" .. i)
+        local R = RightHand:FindFirstChild("Blade_" .. i)
+        if L and L.Transparency == 1 then leftMissing = leftMissing + 1 end
+        if R and R.Transparency == 1 then rightMissing = rightMissing + 1 end
+    end
+
+    return leftMissing, rightMissing
+end
+
+local function AreBladesEmpty()
+    local leftMissing, rightMissing = GetBladeMissingCount()
+    if leftMissing == nil then return false end
+    return leftMissing == 7 and rightMissing == 7
+end
+
+--// =====================================================
+--// DROP + RELOAD BLADES (ใช้ GET Remote) - ไม่กด R
+--// =====================================================
+
+local function FullReloadBlades()
+    if not getgenv().AutoReloadBlade then return end
+    if not Settings.BladeReload.Enabled then return end
+    if tick() - LastBladeReload < Settings.BladeReload.Cooldown then return end
+    
+    if not AreBladesEmpty() then return end
+
+    LastBladeReload = tick()
+
+    pcall(function()
+        GET:InvokeServer("Blades", "Drop")
+        task.wait(Settings.BladeReload.DropToReloadDelay)
+        GET:InvokeServer("Blades", "Reload")
+    end)
+end
+
+--// =====================================================
+--// POST-RELOAD RETRY: กด R ซ้ำถ้า blades ยังไม่กลับมา
+--// =====================================================
+
+local function StartPostReloadRetry()
+    if PostReloadActive then return end
+    PostReloadActive = true
+    PostReloadStop = false
+
+    task.spawn(function()
+        local retryCount = 0
+        local maxRetry = Settings.BladeReload.MaxPostReloadRetry
+
+        while not PostReloadStop and retryCount < maxRetry and getgenv().AutoReloadBlade do
+            task.wait(Settings.BladeReload.PostReloadRetryDelay)
+
+            -- ถ้า blades ไม่หมดอีกแล้ว หรือ toggle ปิด ให้หยุด
+            if not AreBladesEmpty() or not getgenv().AutoReloadBlade then
+                break
+            end
+
+            -- ยัง empty → กด R หนึ่งครั้ง
+            PressR()
+            retryCount = retryCount + 1
+        end
+
+        PostReloadActive = false
+        PostReloadStop = false
+    end)
+end
+
+--// =====================================================
+--// REFILL BLADE SETS (ใช้ POST Remote)
+--// =====================================================
+
+local function RefillSets()
+    if not getgenv().AutoReloadBlade then return end
+    if not Settings.Refill.Enabled then return end
+    if tick() - LastRefill < Settings.Refill.Cooldown then return end
+
+    LastRefill = tick()
+
+    if not REFILL or not REFILL.Parent then
+        REFILL = GetRefillObject()
+        if not REFILL then return end
+    end
+
+    pcall(function()
+        POST:FireServer("Attacks", "Reload", REFILL)
+    end)
+end
+
+--// =====================================================
+--// MAIN LOOP
+--// =====================================================
+
+task.spawn(function()
+    while true do
+        if getgenv().AutoReloadBlade then
+            local success, text = pcall(function()
+                return tostring(Sets.Text)
+            end)
+
+            if success then
+                text = text:gsub("%s+", "")
+                local bladesEmpty = AreBladesEmpty()
+
+                -- Blade หมด (7/7 ทั้งสองมือ) - ต้องเช็คซ้ำ 10 ครั้งก่อน
+                if bladesEmpty then
+                    BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
+                    
+                    if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired and not BladeReloadPending then
+                        BladeReloadPending = true
+                        task.spawn(function()
+                            task.wait(Settings.BladeReload.FireDelay)
+                            if getgenv().AutoReloadBlade then
+                                if AreBladesEmpty() then
+                                    FullReloadBlades()
+                                    -- หลังจาก reload แล้ว ให้เริ่มกระบวนการกด R ซ้ำ (ถ้ายัง empty)
+                                    task.wait(0.5)
+                                    if AreBladesEmpty() then
+                                        StartPostReloadRetry()
+                                    end
+                                end
+                            end
+                            BladeReloadPending = false
+                        end)
+                        BladeEmptyConfirmCounter = 0
+                    end
+                else
+                    BladeEmptyConfirmCounter = 0
+                    -- ถ้า blades ไม่หมด และกำลังมี post-reload retry อยู่ ให้หยุด
+                    if PostReloadActive then
+                        PostReloadStop = true
+                    end
+                end
+
+                -- Blade Sets = 0/3
+                if text == "0/3" and not RefillPending then
+                    RefillPending = true
+                    task.spawn(function()
+                        task.wait(Settings.Refill.FireDelay)
+                        if getgenv().AutoReloadBlade then
+                            RefillSets()
+                        end
+                        RefillPending = false
+                    end)
+                end
+            end
+        else
+            BladeEmptyConfirmCounter = 0
+            if PostReloadActive then
+                PostReloadStop = true
+            end
+        end
+        task.wait(Settings.CheckDelay)
+    end
+end)
+
+
 
 -- ============================== THUNDER SPEAR CORE LOGIC ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
@@ -6565,149 +7523,7 @@ task.spawn(function()
     end)
 end)
 
-getgenv().AutoReloadBlade = false
 
-local player = game:GetService("Players").LocalPlayer
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-
--- Cooldown สำหรับ reload blades (รอ 1.5 วินาทีก่อนยิงซ้ำ)
-local RELOAD_COOLDOWN = 1.5
-local lastReload = 0
-
--- ตัวแปรสำหรับจัดการ refill แบบมีหน่วงและ retry
-local refillInProgress = false
-local lastRefillAttempt = 0
-local refillStage = 0 -- 0 = idle, 1 = รอ 5 วินาทีก่อนยิงครั้งแรก, 2 = รอ 3.5 วินาทีก่อนยิงซ้ำ
-
--- ฟังก์ชันตรวจสอบว่าใบมีดทั้งหมดหัก (Transparency == 1) ทุกเล่ม (14 เล่ม)
-local function areAllBladesBroken()
-    local char = player.Character
-    if not char then return false end
-    local rig = char:FindFirstChild("Rig_" .. player.Name)
-    if not rig then return false end
-    local leftHand = rig:FindFirstChild("LeftHand")
-    local rightHand = rig:FindFirstChild("RightHand")
-    if not leftHand or not rightHand then return false end
-
-    for i = 1, 7 do
-        local blade = leftHand:FindFirstChild("Blade_" .. i)
-        if not blade or blade.Transparency ~= 1 then
-            return false
-        end
-    end
-    for i = 1, 7 do
-        local blade = rightHand:FindFirstChild("Blade_" .. i)
-        if not blade or blade.Transparency ~= 1 then
-            return false
-        end
-    end
-    return true
-end
-
--- ฟังก์ชันตรวจสอบว่า HUD Sets เป็น "0/x"
-local function isSetsEmpty()
-    local success, sets = pcall(function()
-        return player.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
-    end)
-    if not success or not sets then return false end
-    return sets.Text:match("^0%s*/") ~= nil
-end
-
--- รีโหลดดาบ (Blades Reload) - จะถูกเรียกเมื่อผ่าน cooldown แล้ว
-local function doReloadBlades()
-    local args = {"Blades", "Reload"}
-    return pcall(function() GET:InvokeServer(unpack(args)) end)
-end
-
--- Refill ผ่าน path Climbable...Gate...GasTanks...Refill (ตามที่กำหนด)
-local function refillViaGate()
-    local success, refillPart = pcall(function()
-        return workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
-    end)
-    if not success or not refillPart then return false end
-    local args = {"Attacks", "Reload", refillPart}
-    return pcall(function() POST:FireServer(unpack(args)) end)
-end
-
--- กระบวนการ refill แบบมี delay และ retry (ทำงานใน main loop)
-local function startRefillProcess()
-    if refillInProgress then return end
-    refillInProgress = true
-    refillStage = 1
-    lastRefillAttempt = tick()
-end
-
--- ตรวจสอบและอัปเดตสถานะ refill ใน main loop
-local function updateRefillProcess()
-    if not refillInProgress then return false end
-    local now = tick()
-    if refillStage == 1 then
-        -- รอ 5 วินาทีแรก
-        if now - lastRefillAttempt >= 5 then
-            -- ยิง refill ครั้งแรก
-            refillViaGate()
-            refillStage = 2
-            lastRefillAttempt = now
-        end
-    elseif refillStage == 2 then
-        -- รอ 3.5 วินาที แล้วเช็คว่ายัง 0/3 อยู่ไหม
-        if now - lastRefillAttempt >= 3.5 then
-            if isSetsEmpty() then
-                -- ยิง refill ซ้ำอีกครั้ง
-                refillViaGate()
-            end
-            -- จบกระบวนการ refill
-            refillInProgress = false
-            refillStage = 0
-        end
-    end
-    return refillInProgress
-end
-
--- Main loop (ตรวจจับเร็วที่สุด)
-task.spawn(function()
-    while true do
-        task.wait()  -- ให้ลูปทำงานทุกเฟรม (เร็วที่สุด)
-        
-        if not getgenv().AutoReloadBlade then
-            refillInProgress = false
-            refillStage = 0
-            continue
-        end
-        
-        -- อัปเดตกระบวนการ refill (ถ้ากำลังทำงานอยู่)
-        updateRefillProcess()
-        
-        -- ถ้ากำลัง refill อยู่ ให้ข้ามการตรวจสอบปกติ เพื่อไม่ให้รบกวน
-        if refillInProgress then
-            continue
-        end
-        
-        local now = tick()
-        local bladesBroken = areAllBladesBroken()
-        if not bladesBroken then
-            continue
-        end
-        
-        local setsEmpty = isSetsEmpty()
-        
-        -- กรณีใบมีดหัก แต่แก๊สยังไม่หมด → รีโหลดดาบ (รอ 1.5 วินาทีระหว่างการยิงแต่ละครั้ง)
-        if not setsEmpty then
-            if (now - lastReload) >= RELOAD_COOLDOWN then
-                lastReload = now
-                doReloadBlades()
-            end
-            continue
-        end
-        
-        -- กรณีใบมีดหักและแก๊สหมด → เริ่มกระบวนการ refill แบบมีหน่วง
-        if setsEmpty and not refillInProgress then
-            startRefillProcess()
-        end
-    end
-end)
 -- ============================== RIPPER AUTO ==============================
 if getgenv().RipperLoaded then return end
 getgenv().RipperLoaded = true
@@ -7081,6 +7897,7 @@ if Tabs.Webhook then
     local hasSentWebhook = false
     local lastMissionState = ""
     local webhookMode = "All Data"
+    local webhookPingMode = "None"
     
     -- Reward Webhook variables
     local gamesPlayed = 0
@@ -7358,6 +8175,16 @@ if Tabs.Webhook then
         local hasSpecial = #specials > 0
         local executor = identifyexecutor and identifyexecutor() or "Unknown"
         
+        -- กำหนด content สำหรับ ping ตามที่ผู้ใช้เลือก
+        local pingContent = nil
+        if webhookPingMode == "Everyone" then
+            pingContent = "@everyone"
+        elseif webhookPingMode == "Here" then
+            pingContent = "@here"
+        else
+            pingContent = nil
+        end
+        
         local function formatTable(tbl)
             local str = ""
             for k, v in pairs(tbl) do
@@ -7376,7 +8203,7 @@ if Tabs.Webhook then
         end
         
         local payload = {
-            content = hasSpecial and "MYTHICAL DROP! @everyone" or nil,
+            content = (hasSpecial and pingContent) or nil,
             embeds = {{
                 title = "FakeHUB Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
@@ -7581,6 +8408,17 @@ if Tabs.Webhook then
         Callback = function(v) webhookMode = v end
     })
     
+    -- ========== เพิ่ม Dropdown สำหรับ Ping Mode ==========
+    WebhookGroup:AddDropdown("WebhookPingMode", {
+        Text = "Ping Mode (For Special Drops)",
+        Values = {"None", "@here", "@everyone"},
+        Default = "None",
+        Multi = false,
+        Callback = function(v)
+            webhookPingMode = v
+        end
+    })
+    
     WebhookGroup:AddDivider()
     
     local filterDropdown = WebhookGroup:AddDropdown("WebhookFilters", {
@@ -7620,6 +8458,7 @@ if Tabs.Webhook then
                 color = 65280,
                 fields = {
                     {name = "Mode", value = webhookMode, inline = true},
+                    {name = "Ping Mode", value = webhookPingMode, inline = true},
                     {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
                 },
                 footer = {text = "FakeHUB Webhook Test"}
