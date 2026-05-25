@@ -6071,6 +6071,24 @@ end
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
 
+-- เพิ่มฟังก์ชันรอให้ UI พร้อม
+local function waitForUIReady()
+    while not (Window and Window.Holder and Window.Holder.Visible and Library) do
+        task.wait(0.1)
+    end
+    -- รออีกเล็กน้อยให้ Options และระบบพร้อม
+    task.wait(0.2)
+end
+
+-- ฟังก์ชันปิด toggle อย่างปลอดภัย
+local function safeSetToggle(toggleName, value)
+    pcall(function()
+        if Options and Options[toggleName] and Options[toggleName].SetValue then
+            Options[toggleName]:SetValue(value)
+        end
+    end)
+end
+
 -- ฟังก์ชันตรวจสอบ UI Objectives สำหรับควบคุมการเริ่มฟาร์ม
 local function isObjectivesVisibleForFarm()
     local player = game:GetService("Players").LocalPlayer
@@ -6151,43 +6169,26 @@ if Tabs.AutoFarm then
         if G.AutoFarmBlade and G.AutoThunderSpear then
             if isBlade() then
                 G.AutoThunderSpear = false
-                pcall(function()
-                    if Options and Options.AutoThunderSpearToggle then
-                        Options.AutoThunderSpearToggle:SetValue(false)
-                    end
-                end)
+                safeSetToggle("AutoThunderSpearToggle", false)
             elseif isThunderSpear() then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                pcall(function()
-                    if Options and Options.AutoFarmBlade then
-                        Options.AutoFarmBlade:SetValue(false)
-                    end
-                end)
+                safeSetToggle("AutoFarmBlade", false)
             else
                 G.AutoFarmBlade = false
                 G.AutoThunderSpear = false
                 G.Farm = false
                 PendingFarmStart = false
-                pcall(function()
-                    if Options and Options.AutoFarmBlade then
-                        Options.AutoFarmBlade:SetValue(false)
-                    end
-                    if Options and Options.AutoThunderSpearToggle then
-                        Options.AutoThunderSpearToggle:SetValue(false)
-                    end
-                end)
+                safeSetToggle("AutoFarmBlade", false)
+                safeSetToggle("AutoThunderSpearToggle", false)
             end
         end
     end
 
     local function waitForUI()
-        local waited = 0
-        while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
-            task.wait(0.05)
-            waited = waited + 0.05
-        end
+        -- รอ UI ให้พร้อมก่อน แต่ไม่ต้องมี delay เพราะ waitForUIReady จะรอแล้ว
+        waitForUIReady()
     end
 
     local BladeTab = AutoFarmTabbox:AddTab("Blade")
@@ -6223,32 +6224,21 @@ if Tabs.AutoFarm then
         Callback=function(v)
             waitForUI()
             if v then
+                task.wait(1) -- รอ 1 วินาทีก่อนเริ่มทำงานครั้งแรก
                 if G.AutoThunderSpear then
                     if isThunderSpear() then
                         task.wait(0.05)
-                        pcall(function()
-                            if Options and Options.AutoThunderSpearToggle then
-                                Options.AutoThunderSpearToggle:SetValue(false)
-                            end
-                        end)
+                        safeSetToggle("AutoThunderSpearToggle", false)
                         return
                     else
                         G.AutoThunderSpear = false
-                        pcall(function()
-                            if Options and Options.AutoThunderSpearToggle then
-                                Options.AutoThunderSpearToggle:SetValue(false)
-                            end
-                        end)
+                        safeSetToggle("AutoThunderSpearToggle", false)
                     end
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
                     Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
-                    pcall(function()
-                        if Options and Options.AutoFarmBlade then
-                            Options.AutoFarmBlade:SetValue(false)
-                        end
-                    end)
+                    safeSetToggle("AutoFarmBlade", false)
                     return
                 end
                 
@@ -6264,8 +6254,8 @@ if Tabs.AutoFarm then
                 G.Farm = false
                 PendingFarmStart = false
                 -- หยุดการเคลื่อนที่ทั้งหมด
-                CleanupSmoothMovement()
-                CurrentEntry = nil
+                if CleanupSmoothMovement then CleanupSmoothMovement() end
+                if CurrentEntry then CurrentEntry = nil end
             end
         end
     })
@@ -6305,27 +6295,19 @@ if Tabs.AutoFarm then
         Callback = function(v)
             waitForUI()
             if v then
+                task.wait(1)
                 if G.AutoFarmBlade then
                     if isBlade() then
                         task.wait(0.05)
-                        pcall(function()
-                            if Options and Options.AutoThunderSpearToggle then
-                                Options.AutoThunderSpearToggle:SetValue(false)
-                            end
-                        end)
+                        safeSetToggle("AutoThunderSpearToggle", false)
                         return
                     else
                         G.AutoFarmBlade = false
                         G.Farm = false
                         PendingFarmStart = false
-                        pcall(function()
-                            if Options and Options.AutoFarmBlade then
-                                Options.AutoFarmBlade:SetValue(false)
-                            end
-                        end)
+                        safeSetToggle("AutoFarmBlade", false)
                     end
                 end
-                
                 G.AutoThunderSpear = true
             else
                 G.AutoThunderSpear = false
@@ -6354,11 +6336,11 @@ if Tabs.AutoFarm then
     })
 
     task.spawn(function()
+        waitForUIReady() -- รอ UI ก่อนเริ่ม loop
         while true do
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
-                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -6411,23 +6393,27 @@ if Tabs.AutoFarm then
         Text = "Enable Auto Teleport",
         Default = false,
         Callback = function(v)
-            autoTeleportEnabled = v
-            if not v then
-                teleportAttempts = 0
-                isTeleporting = false
-                startTime = 0
-            else
+            waitForUI()
+            if v then
+                task.wait(1)
+                autoTeleportEnabled = true
                 teleportAttempts = 0
                 isTeleporting = false
                 startTime = tick()
+            else
+                autoTeleportEnabled = false
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = 0
             end
         end
     })
     
+    -- loop สำหรับ auto teleport ต้องรอ UI ก่อนเริ่ม
     task.spawn(function()
+        waitForUIReady()
         while true do
             task.wait(1)
-            
             if autoTeleportEnabled and not isTeleporting then
                 local elapsed = tick() - startTime
                 if elapsed >= autoTeleportTime then
@@ -6435,7 +6421,6 @@ if Tabs.AutoFarm then
                     teleportAttempts = 0
                 end
             end
-            
             if autoTeleportEnabled and isTeleporting then
                 teleportAttempts = teleportAttempts + 1
                 pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
@@ -6447,14 +6432,14 @@ if Tabs.AutoFarm then
         end
     end)
 
- -- ============================== FAILED SAFE (KILL CHARACTER AFTER TIMER) ==============================
+    -- ============================== FAILED SAFE (KILL CHARACTER AFTER TIMER) ==============================
     TeleportGroup:AddDivider()
     
     local failedSafeEnabled = false
-    local failedSafeDelay = 0  -- ระยะเวลาหน่วงก่อนฆ่าตัวตาย (วินาที)
+    local failedSafeDelay = 0
     local failedSafeTimerRunning = false
     local failedSafeStartTime = 0
-    local killPending = false  -- สถานะรอการฆ่าตัวตาย
+    local killPending = false
     
     local function killCharacter()
         local player = game.Players.LocalPlayer
@@ -6474,15 +6459,12 @@ if Tabs.AutoFarm then
     local function startFailedSafeTimer()
         if failedSafeTimerRunning then return end
         if failedSafeDelay <= 0 then
-            -- ถ้า delay = 0 ให้ฆ่าทันที
             killCharacter()
             return
         end
-        
         failedSafeTimerRunning = true
         killPending = true
         failedSafeStartTime = tick()
-        
         task.spawn(function()
             while failedSafeEnabled and killPending do
                 local elapsed = tick() - failedSafeStartTime
@@ -6516,8 +6498,10 @@ if Tabs.AutoFarm then
         Text = "Enable Failed Safe (Auto Kill after delay)",
         Default = false,
         Callback = function(v)
-            failedSafeEnabled = v
+            waitForUI()
             if v then
+                task.wait(1)
+                failedSafeEnabled = true
                 startFailedSafeTimer()
                 if failedSafeDelay > 0 then
                     Library:Notify("⚠️ Failed Safe Enabled - Will kill character after " .. failedSafeDelay .. " seconds", 3)
@@ -6525,6 +6509,7 @@ if Tabs.AutoFarm then
                     Library:Notify("⚠️ Failed Safe Enabled - Will kill character immediately", 3)
                 end
             else
+                failedSafeEnabled = false
                 stopFailedSafeTimer()
                 Library:Notify("✅ Failed Safe Disabled", 2)
             end
