@@ -5599,20 +5599,10 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับตั้งแต่รันสคริปต์ ไม่ต้องรอ toggle)
+    -- ตัวแปร global สำหรับ Farm Timer (จะเริ่มนับเมื่อเห็น STATUS ON จริง ๆ เท่านั้น)
     getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
-
-    -- ฟังก์ชันเริ่มนับเวลาทันที (ถ้ายังไม่เคยเริ่ม)
-    local function startFarmTimer()
-        if not getgenv().FarmTimerStarted then
-            getgenv().FarmTimerStarted = true
-            getgenv().FarmStartTime = tick()
-        end
-    end
-
-    -- เริ่มนับทันทีเมื่อโหลดสคริปต์ส่วนนี้ (background)
-    startFarmTimer()
+    getgenv().FarmTimerConfirmed = false  -- เพิ่มตัวแปรเพื่อเช็คว่าได้ตรวจสอบครบ 10 ครั้งแล้ว
 
     -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
     local function IsActuallyVisible(gui)
@@ -5627,7 +5617,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return true
     end
 
-    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (ใช้แสดงสถานะ ON/OFF เท่านั้น)
+    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (ใช้แสดงสถานะ ON/OFF)
     local function isObjectivesVisible()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:FindFirstChild("PlayerGui")
@@ -5640,7 +5630,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time (จะแสดงเวลาที่นับไว้ตั้งแต่เริ่ม)
+    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
     local function getFarmElapsedTime()
         if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
             return tick() - getgenv().FarmStartTime
@@ -5648,6 +5638,48 @@ if IsIngameLobby() and Tabs.AutoFarm then
             return 0
         end
     end
+
+    -- ========== ระบบยืนยัน STATUS ON ก่อนเริ่มนับ (เช็ค 10 ครั้งใน 2 วินาที) ==========
+    local function waitForStableOn()
+        local onCount = 0
+        local startTime = tick()
+        local maxDuration = 2  -- 2 วินาที
+        local requiredCount = 10
+        while tick() - startTime < maxDuration do
+            if isObjectivesVisible() then
+                onCount = onCount + 1
+            else
+                onCount = 0  -- รีเซ็ตถ้าหาย
+            end
+            if onCount >= requiredCount then
+                return true
+            end
+            task.wait(0.05)
+        end
+        return false
+    end
+
+    -- ฟังก์ชันเริ่มนับ (จะถูกเรียกเมื่อเปิด Player Stats และตรวจสอบ ON จริง)
+    local function startFarmTimerIfNeeded()
+        if not StatsEnabled then return end
+        if getgenv().FarmTimerStarted then return end  -- เริ่มนับไปแล้ว ไม่ต้องทำอีก
+        
+        -- รอให้ STATUS ON มั่นคง
+        if waitForStableOn() then
+            getgenv().FarmTimerStarted = true
+            getgenv().FarmStartTime = tick()
+            getgenv().FarmTimerConfirmed = true
+            Library:Notify("✅ Farm timer started (Status confirmed ON)", 2)
+        end
+    end
+
+    -- ลูปพื้นหลังเพื่อเริ่มนับเมื่อเปิด Stats และรอ ON จริง
+    task.spawn(function()
+        while true do
+            task.wait(0.3)
+            startFarmTimerIfNeeded()
+        end
+    end)
 
     -- เพิ่ม Slider สำหรับปรับขนาด UI (Scale)
     MiscGroup:AddSlider("UIScaleSlider", {
@@ -5915,6 +5947,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
             StatsEnabled = v
             if v then
                 CreatePlayerStatsHUD()
+                -- เมื่อเปิด PlayerStats ให้เริ่มรอตรวจสอบ ON (ฟังก์ชัน startFarmTimerIfNeeded จะทำงานเองในพื้นหลัง)
             else
                 if StatsGui then
                     StatsGui:Destroy()
@@ -5927,7 +5960,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
     -- ============================== QUALITY CONTROL ==============================
     MiscGroup:AddDropdown("RenderModeDropdown", {
         Text = "FPS Performance",
-        Values = {"Low Graphic", "Delete Map", "Disable 3D", "Disable Text DMG"},
+        Values = {"Low Graphic", "Delete Map", "Disable 3D Render", "Disable Text DMG"},
         Default = {},
         Multi = true,
         Callback = function(v)
@@ -5974,20 +6007,28 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end
             end
 
-            -- จัดการ Disable 3D Rendering
+            -- จัดการ Disable 3D Render (พร้อมปรับ Material และ Quality Level)
             if v["Disable 3D Render"] then
                 pcall(function()
                     game:GetService("RunService"):Set3dRenderingEnabled(false)
+                    settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
+                    for _, part in ipairs(workspace:GetDescendants()) do
+                        if part:IsA("BasePart") then
+                            part.Material = Enum.Material.Plastic
+                            part.Reflectance = 0
+                        end
+                    end
                 end)
             else
                 pcall(function()
                     game:GetService("RunService"):Set3dRenderingEnabled(true)
+                    settings().Rendering.QualityLevel = Enum.QualityLevel.Level21
+                    -- ไม่ต้องคืนค่าวัสดุ เพราะเกมจะโหลดใหม่เอง
                 end)
             end
 
             -- จัดการ Disable Text DMG
             if v["Disable Text DMG"] then
-                -- ส่งคำสั่งปิด Damage Text Indicator 5 ครั้ง
                 for i = 1, 5 do
                     pcall(function()
                         local args = {
@@ -6001,7 +6042,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                     task.wait(0.1)
                 end
             else
-                -- ส่งคำสั่งเปิด Damage Text Indicator 5 ครั้ง
                 for i = 1, 5 do
                     pcall(function()
                         local args = {
@@ -6031,7 +6071,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 if setfpscap then
                     setfpscap(v)
                 else
-                    -- fallback สำหรับ executor ที่ใช้ setfpscap ต่างชื่อ
                     local fpsCap = syn and syn.set_fps_cap or (setfpscap and setfpscap)
                     if fpsCap then
                         fpsCap(v)
@@ -6041,6 +6080,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     })
 end
+
 -- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
@@ -6053,8 +6093,7 @@ if Tabs.AutoFarm then
         Drag = true
     })
     
-    -- 🔥 ตัวเลือกจำนวนไททันที่เหลือก่อนหยุดฆ่า (ก่อน Safety Time)
-    getgenv().StopAtTitansLeft = getgenv().StopAtTitansLeft or 10   -- ค่าเริ่มต้น 10 ตัว
+    getgenv().StopAtTitansLeft = getgenv().StopAtTitansLeft or 10
     
     SafetyGroup:AddSlider("StopAtTitansLeftSlider", {
         Text="⚠️ Stop attacking when ≤ X titans left (before safe time)",
@@ -6883,7 +6922,7 @@ local function getWaveProgress()
     return nil, nil, nil
 end
 
--- ========== โจมตีไททันทั้งหมด (เพิ่มเช็ค flags reload/refill และ interval + Wave Safety) ==========
+-- ========== โจมตีไททันทั้งหมด (ปรับให้เมื่อถึง Safety Time จะยกเลิกทุกการตรวจสอบ) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
@@ -6893,18 +6932,32 @@ local function AttackAllTitans()
         return
     end
 
+    local G = getgenv()
+    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
+    local safe = elapsed >= (G.SafetyTime or 25)
+
+    -- เมื่อถึง Safety Time ให้ฟาร์มแบบไม่สนใจอะไรเลย (ยกเลิก Wave Check, StopAt, Slay Check)
+    if safe then
+        SafeFire(POST, "Attacks", "Slash", true)
+        for _, entry in ipairs(ActiveTitans) do
+            local nape = entry.nape
+            if nape and nape.Parent then
+                SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
+            end
+        end
+        return
+    end
+
+    -- ยังไม่ถึง Safety Time → ใช้ระบบตรวจสอบปกติ
     -- ========== Wave Safety Check ==========
     local currentWave, maxWave, defendText = getWaveProgress()
     if currentWave and maxWave and currentWave < maxWave then
         local nearComplete = (currentWave >= maxWave - 2)  -- ใกล้จบ 2 ตัวสุดท้าย
         if nearComplete then
-            local G = getgenv()
-            local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-            local safeTime = G.SafetyTime or 25
-            if elapsed < safeTime then
+            if elapsed < (G.SafetyTime or 25) then
                 if not waveWaiting then
                     waveWaiting = true
-                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, safeTime), 3)
+                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 25), 3)
                 end
                 return  -- หยุดโจมตีชั่วคราว
             else
@@ -6917,12 +6970,11 @@ local function AttackAllTitans()
             waveWaiting = false
         end
     elseif currentWave and currentWave == maxWave then
-        waveWaiting = false  -- จบ wave แล้ว
+        waveWaiting = false
     elseif not currentWave then
         waveWaiting = false
     end
 
-    local G = getgenv()
     local slayVisible = isSlayObjectiveVisible()
     
     if not slayVisible then
@@ -6937,10 +6989,7 @@ local function AttackAllTitans()
         return
     end
     
-    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-    local safe = elapsed >= (G.SafetyTime or 25)
-    local dmg = safe and 9999 or 2500
-
+    local dmg = 2500
     local stopAt = G.StopAtTitansLeft or 1
     if not safe and #ActiveTitans <= stopAt then
         return
@@ -6955,7 +7004,7 @@ local function AttackAllTitans()
     end
 end
 
--- ========== ฟังก์ชันหลักฟาร์ม (เพิ่มเช็ค interval 2 วินาที) ==========
+-- ========== ฟังก์ชันหลักฟาร์ม ==========
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
@@ -7040,7 +7089,6 @@ local function FarmUpdate()
             MoveSmooth(hrp, tp, lookDir)
         end
 
-        -- ตรวจสอบ interval การโจมตี (ทุก 2 วินาที)
         local now = tick()
         if now - LastAttackTime >= FARM_ATTACK_INTERVAL then
             LastAttackTime = now
