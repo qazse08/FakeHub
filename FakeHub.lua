@@ -6889,8 +6889,8 @@ local LocalPlayer = Players.LocalPlayer
 local Settings = {
     CheckDelay = 0.03,
     BladeReload = {
-        Cooldown = 2,
-        ConfirmCountRequired = 10,
+        Cooldown = 0.5,          -- cooldown ระหว่างการกด R แต่ละครั้ง (วินาที)
+        ConfirmCountRequired = 5, -- ลดเหลือ 5 เพื่อให้ตอบสนองเร็วขึ้น
     },
     Refill = {
         Cooldown = 2,
@@ -6904,17 +6904,49 @@ local Settings = {
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
 
 --// =====================================================
---// KEY PRESS (R)
+--// KEY PRESS (R) - หลายวิธีเพื่อความเข้ากันได้
 --// =====================================================
 
 local VIM = game:GetService("VirtualInputManager")
+local GuiService = game:GetService("GuiService")
+local VirtualUser = game:GetService("VirtualUser") -- บาง executor ใช้ VirtualUser แทน
 
-local function PressR()
+-- ฟังก์ชันกด R แบบที่ 1 (VirtualInputManager)
+local function PressR_VIM()
     pcall(function()
         VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
-        task.wait(0.05)
+        task.wait(0.02)
         VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
     end)
+end
+
+-- ฟังก์ชันกด R แบบที่ 2 (VirtualUser) สำหรับ executor ที่ไม่รองรับ VIM
+local function PressR_VirtualUser()
+    pcall(function()
+        VirtualUser:KeyDown(Enum.KeyCode.R)
+        task.wait(0.02)
+        VirtualUser:KeyUp(Enum.KeyCode.R)
+    end)
+end
+
+-- ฟังก์ชันกด R แบบที่ 3 (ContextActionService) ทางเลือกสุดท้าย
+local function PressR_Context()
+    pcall(function()
+        local ContextActionService = game:GetService("ContextActionService")
+        ContextActionService:Simulate(Enum.UserInputType.Keyboard, Enum.KeyCode.R, true)
+        task.wait(0.02)
+        ContextActionService:Simulate(Enum.UserInputType.Keyboard, Enum.KeyCode.R, false)
+    end)
+end
+
+-- เลือกวิธีที่ใช้ได้อัตโนมัติ
+local PressR = nil
+if pcall(function() return VIM.SendKeyEvent end) and VIM then
+    PressR = PressR_VIM
+elseif pcall(function() return VirtualUser.KeyDown end) and VirtualUser then
+    PressR = PressR_VirtualUser
+else
+    PressR = PressR_Context
 end
 
 --// =====================================================
@@ -6973,6 +7005,7 @@ local Sets = LocalPlayer
 local LastBladeReload = 0
 local LastRefill = 0
 local BladeEmptyConfirmCounter = 0
+local IsReloadingRapid = false  -- ป้องกันการสปามลูปซ้อน
 
 --// =====================================================
 --// CHECK REAL BLADES
@@ -7012,16 +7045,26 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// RELOAD BLADES (กด R)
+--// RAPID RELOAD (กด R ซ้ำๆ จนกว่า blades จะมี)
 --// =====================================================
 
-local function ReloadBladesByKey()
+local function RapidReloadBlades()
     if not getgenv().AutoReloadBlade then return end
-    if tick() - LastBladeReload < Settings.BladeReload.Cooldown then return end
-    if not AreBladesEmpty() then return end
-
-    LastBladeReload = tick()
-    PressR()
+    if IsReloadingRapid then return end
+    
+    IsReloadingRapid = true
+    task.spawn(function()
+        while getgenv().AutoReloadBlade and AreBladesEmpty() do
+            -- ตรวจสอบ cooldown การกด R
+            local now = tick()
+            if now - LastBladeReload >= Settings.BladeReload.Cooldown then
+                LastBladeReload = now
+                PressR()
+            end
+            task.wait(0.08) -- กดเร็วมาก (ประมาณ 12 ครั้ง/วินาที)
+        end
+        IsReloadingRapid = false
+    end)
 end
 
 --// =====================================================
@@ -7059,15 +7102,16 @@ task.spawn(function()
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
 
-                -- Blade หมด: กด R หลังจาก confirm 10 ครั้ง
+                -- Blade หมด: สะสม counter แล้วเริ่ม rapid reload
                 if bladesEmpty then
                     BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                     if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
-                        ReloadBladesByKey()
+                        RapidReloadBlades()
                         BladeEmptyConfirmCounter = 0
                     end
                 else
                     BladeEmptyConfirmCounter = 0
+                    -- ถ้า blades ไม่หมดแล้ว และกำลัง rapid reload อยู่ ให้หยุด (จะหยุดเองเมื่อ loop ตรวจพบว่าไม่ empty)
                 end
 
                 -- Blade Sets = 0/3: refill
@@ -7077,6 +7121,7 @@ task.spawn(function()
             end
         else
             BladeEmptyConfirmCounter = 0
+            IsReloadingRapid = false
         end
         task.wait(Settings.CheckDelay)
     end
