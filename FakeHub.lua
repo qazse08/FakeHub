@@ -6875,13 +6875,11 @@ end)
 getgenv().AutoReloadBlade = false
 
 --// =====================================================
---// FULL AUTO BLADE + REFILL SYSTEM
---// CUSTOM DELAY / CUSTOM CHECK / CUSTOM COOLDOWN
+--// AUTO BLADE RELOAD + REFILL SYSTEM (POST + KEYPRESS ONLY)
 --// =====================================================
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-
 local LocalPlayer = Players.LocalPlayer
 
 --// =====================================================
@@ -6889,25 +6887,12 @@ local LocalPlayer = Players.LocalPlayer
 --// =====================================================
 
 local Settings = {
-
     CheckDelay = 0.03,
-
     BladeReload = {
-        Enabled = true,
-        FireDelay = 1.75,
         Cooldown = 2,
-        DropToReloadDelay = 0.05,
-        RefillPath = "Climbable",
         ConfirmCountRequired = 10,
-        -- จำนวนครั้งสูงสุดที่จะกด R ซ้ำหลังจาก reload แล้วยังไม่หาย
-        MaxPostReloadRetry = 5,
-        -- ระยะห่างระหว่างกด R ซ้ำ (วินาที)
-        PostReloadRetryDelay = 2.5,
     },
-
     Refill = {
-        Enabled = true,
-        FireDelay = 1.75,
         Cooldown = 2,
     }
 }
@@ -6917,10 +6902,9 @@ local Settings = {
 --// =====================================================
 
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
 --// =====================================================
---// AUTO PRESS R KEY (ใช้เฉพาะตอน blades หมดจริงๆ เท่านั้น)
+--// KEY PRESS (R)
 --// =====================================================
 
 local VIM = game:GetService("VirtualInputManager")
@@ -6934,7 +6918,7 @@ local function PressR()
 end
 
 --// =====================================================
---// REFILL OBJECT (ลองทั้ง 2 path)
+--// REFILL OBJECT
 --// =====================================================
 
 local REFILL = nil
@@ -6986,19 +6970,12 @@ local Sets = LocalPlayer
 --// INTERNAL
 --// =====================================================
 
-local BladeReloadPending = false
-local RefillPending = false
 local LastBladeReload = 0
 local LastRefill = 0
-
 local BladeEmptyConfirmCounter = 0
 
--- ตัวแปรสำหรับ post-reload retry
-local PostReloadActive = false
-local PostReloadStop = false
-
 --// =====================================================
---// CHECK REAL BLADES (นับ blade ที่หายไป)
+--// CHECK REAL BLADES
 --// =====================================================
 
 local function GetBladeMissingCount()
@@ -7035,54 +7012,16 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// DROP + RELOAD BLADES (ใช้ GET Remote) - ไม่กด R
+--// RELOAD BLADES (กด R)
 --// =====================================================
 
-local function FullReloadBlades()
+local function ReloadBladesByKey()
     if not getgenv().AutoReloadBlade then return end
-    if not Settings.BladeReload.Enabled then return end
     if tick() - LastBladeReload < Settings.BladeReload.Cooldown then return end
-    
     if not AreBladesEmpty() then return end
 
     LastBladeReload = tick()
-
-    pcall(function()
-        GET:InvokeServer("Blades", "Drop")
-        task.wait(Settings.BladeReload.DropToReloadDelay)
-        GET:InvokeServer("Blades", "Reload")
-    end)
-end
-
---// =====================================================
---// POST-RELOAD RETRY: กด R ซ้ำถ้า blades ยังไม่กลับมา
---// =====================================================
-
-local function StartPostReloadRetry()
-    if PostReloadActive then return end
-    PostReloadActive = true
-    PostReloadStop = false
-
-    task.spawn(function()
-        local retryCount = 0
-        local maxRetry = Settings.BladeReload.MaxPostReloadRetry
-
-        while not PostReloadStop and retryCount < maxRetry and getgenv().AutoReloadBlade do
-            task.wait(Settings.BladeReload.PostReloadRetryDelay)
-
-            -- ถ้า blades ไม่หมดอีกแล้ว หรือ toggle ปิด ให้หยุด
-            if not AreBladesEmpty() or not getgenv().AutoReloadBlade then
-                break
-            end
-
-            -- ยัง empty → กด R หนึ่งครั้ง
-            PressR()
-            retryCount = retryCount + 1
-        end
-
-        PostReloadActive = false
-        PostReloadStop = false
-    end)
+    PressR()
 end
 
 --// =====================================================
@@ -7091,7 +7030,6 @@ end
 
 local function RefillSets()
     if not getgenv().AutoReloadBlade then return end
-    if not Settings.Refill.Enabled then return end
     if tick() - LastRefill < Settings.Refill.Cooldown then return end
 
     LastRefill = tick()
@@ -7121,58 +7059,28 @@ task.spawn(function()
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
 
-                -- Blade หมด (7/7 ทั้งสองมือ) - ต้องเช็คซ้ำ 10 ครั้งก่อน
+                -- Blade หมด: กด R หลังจาก confirm 10 ครั้ง
                 if bladesEmpty then
                     BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
-                    
-                    if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired and not BladeReloadPending then
-                        BladeReloadPending = true
-                        task.spawn(function()
-                            task.wait(Settings.BladeReload.FireDelay)
-                            if getgenv().AutoReloadBlade then
-                                if AreBladesEmpty() then
-                                    FullReloadBlades()
-                                    -- หลังจาก reload แล้ว ให้เริ่มกระบวนการกด R ซ้ำ (ถ้ายัง empty)
-                                    task.wait(0.5)
-                                    if AreBladesEmpty() then
-                                        StartPostReloadRetry()
-                                    end
-                                end
-                            end
-                            BladeReloadPending = false
-                        end)
+                    if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
+                        ReloadBladesByKey()
                         BladeEmptyConfirmCounter = 0
                     end
                 else
                     BladeEmptyConfirmCounter = 0
-                    -- ถ้า blades ไม่หมด และกำลังมี post-reload retry อยู่ ให้หยุด
-                    if PostReloadActive then
-                        PostReloadStop = true
-                    end
                 end
 
-                -- Blade Sets = 0/3
-                if text == "0/3" and not RefillPending then
-                    RefillPending = true
-                    task.spawn(function()
-                        task.wait(Settings.Refill.FireDelay)
-                        if getgenv().AutoReloadBlade then
-                            RefillSets()
-                        end
-                        RefillPending = false
-                    end)
+                -- Blade Sets = 0/3: refill
+                if text == "0/3" then
+                    RefillSets()
                 end
             end
         else
             BladeEmptyConfirmCounter = 0
-            if PostReloadActive then
-                PostReloadStop = true
-            end
         end
         task.wait(Settings.CheckDelay)
     end
 end)
-
 
 
 -- ============================== THUNDER SPEAR CORE LOGIC ==============================
