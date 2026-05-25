@@ -6071,24 +6071,6 @@ end
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
 
--- เพิ่มฟังก์ชันรอให้ UI พร้อม
-local function waitForUIReady()
-    while not (Window and Window.Holder and Window.Holder.Visible and Library) do
-        task.wait(0.1)
-    end
-    -- รออีกเล็กน้อยให้ Options และระบบพร้อม
-    task.wait(0.2)
-end
-
--- ฟังก์ชันปิด toggle อย่างปลอดภัย
-local function safeSetToggle(toggleName, value)
-    pcall(function()
-        if Options and Options[toggleName] and Options[toggleName].SetValue then
-            Options[toggleName]:SetValue(value)
-        end
-    end)
-end
-
 -- ฟังก์ชันตรวจสอบ UI Objectives สำหรับควบคุมการเริ่มฟาร์ม
 local function isObjectivesVisibleForFarm()
     local player = game:GetService("Players").LocalPlayer
@@ -6169,26 +6151,43 @@ if Tabs.AutoFarm then
         if G.AutoFarmBlade and G.AutoThunderSpear then
             if isBlade() then
                 G.AutoThunderSpear = false
-                safeSetToggle("AutoThunderSpearToggle", false)
+                pcall(function()
+                    if Options and Options.AutoThunderSpearToggle then
+                        Options.AutoThunderSpearToggle:SetValue(false)
+                    end
+                end)
             elseif isThunderSpear() then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                safeSetToggle("AutoFarmBlade", false)
+                pcall(function()
+                    if Options and Options.AutoFarmBlade then
+                        Options.AutoFarmBlade:SetValue(false)
+                    end
+                end)
             else
                 G.AutoFarmBlade = false
                 G.AutoThunderSpear = false
                 G.Farm = false
                 PendingFarmStart = false
-                safeSetToggle("AutoFarmBlade", false)
-                safeSetToggle("AutoThunderSpearToggle", false)
+                pcall(function()
+                    if Options and Options.AutoFarmBlade then
+                        Options.AutoFarmBlade:SetValue(false)
+                    end
+                    if Options and Options.AutoThunderSpearToggle then
+                        Options.AutoThunderSpearToggle:SetValue(false)
+                    end
+                end)
             end
         end
     end
 
     local function waitForUI()
-        -- รอ UI ให้พร้อมก่อน แต่ไม่ต้องมี delay เพราะ waitForUIReady จะรอแล้ว
-        waitForUIReady()
+        local waited = 0
+        while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
+            task.wait(0.05)
+            waited = waited + 0.05
+        end
     end
 
     local BladeTab = AutoFarmTabbox:AddTab("Blade")
@@ -6222,23 +6221,36 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoFarmBlade", {
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
+            -- รอ 1 วินาทีเมื่อเปิด toggle ครั้งแรก
+            if v then task.wait(1) end
             waitForUI()
             if v then
-                task.wait(1) -- รอ 1 วินาทีก่อนเริ่มทำงานครั้งแรก
                 if G.AutoThunderSpear then
                     if isThunderSpear() then
                         task.wait(0.05)
-                        safeSetToggle("AutoThunderSpearToggle", false)
+                        pcall(function()
+                            if Options and Options.AutoThunderSpearToggle then
+                                Options.AutoThunderSpearToggle:SetValue(false)
+                            end
+                        end)
                         return
                     else
                         G.AutoThunderSpear = false
-                        safeSetToggle("AutoThunderSpearToggle", false)
+                        pcall(function()
+                            if Options and Options.AutoThunderSpearToggle then
+                                Options.AutoThunderSpearToggle:SetValue(false)
+                            end
+                        end)
                     end
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
                     Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
-                    safeSetToggle("AutoFarmBlade", false)
+                    pcall(function()
+                        if Options and Options.AutoFarmBlade then
+                            Options.AutoFarmBlade:SetValue(false)
+                        end
+                    end)
                     return
                 end
                 
@@ -6254,8 +6266,8 @@ if Tabs.AutoFarm then
                 G.Farm = false
                 PendingFarmStart = false
                 -- หยุดการเคลื่อนที่ทั้งหมด
-                if CleanupSmoothMovement then CleanupSmoothMovement() end
-                if CurrentEntry then CurrentEntry = nil end
+                CleanupSmoothMovement()
+                CurrentEntry = nil
             end
         end
     })
@@ -6263,6 +6275,7 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoReloadBlade", {
         Text="Auto Reload Blade", Default=false,
         Callback=function(v) 
+            if v then task.wait(1) end
             G.AutoReloadBlade = v
             if not v then
                 getgenv().IsReloading = false
@@ -6276,12 +6289,16 @@ if Tabs.AutoFarm then
     
     BladeTab:AddToggle("StartRejoin", {
         Text="Auto Retry", Default=false,
-        Callback=function(v) G.StartRejoin = v end
+        Callback=function(v) 
+            if v then task.wait(1) end
+            G.StartRejoin = v 
+        end
     })
     
     BladeTab:AddToggle("RipperSafetyToggle", {
         Text="Ripper Safe (No Physics Bug)", Default=false,
         Callback=function(v)
+            if v then task.wait(1) end
             G.RipperSafety = v
             if not v then G.canExecuteRipper = false end
         end
@@ -6293,21 +6310,30 @@ if Tabs.AutoFarm then
         Text = "Auto Thunder Spear",
         Default = false,
         Callback = function(v)
+            if v then task.wait(1) end
             waitForUI()
             if v then
-                task.wait(1)
                 if G.AutoFarmBlade then
                     if isBlade() then
                         task.wait(0.05)
-                        safeSetToggle("AutoThunderSpearToggle", false)
+                        pcall(function()
+                            if Options and Options.AutoThunderSpearToggle then
+                                Options.AutoThunderSpearToggle:SetValue(false)
+                            end
+                        end)
                         return
                     else
                         G.AutoFarmBlade = false
                         G.Farm = false
                         PendingFarmStart = false
-                        safeSetToggle("AutoFarmBlade", false)
+                        pcall(function()
+                            if Options and Options.AutoFarmBlade then
+                                Options.AutoFarmBlade:SetValue(false)
+                            end
+                        end)
                     end
                 end
+                
                 G.AutoThunderSpear = true
             else
                 G.AutoThunderSpear = false
@@ -6336,11 +6362,11 @@ if Tabs.AutoFarm then
     })
 
     task.spawn(function()
-        waitForUIReady() -- รอ UI ก่อนเริ่ม loop
         while true do
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
+                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -6393,27 +6419,24 @@ if Tabs.AutoFarm then
         Text = "Enable Auto Teleport",
         Default = false,
         Callback = function(v)
-            waitForUI()
-            if v then
-                task.wait(1)
-                autoTeleportEnabled = true
-                teleportAttempts = 0
-                isTeleporting = false
-                startTime = tick()
-            else
-                autoTeleportEnabled = false
+            if v then task.wait(1) end
+            autoTeleportEnabled = v
+            if not v then
                 teleportAttempts = 0
                 isTeleporting = false
                 startTime = 0
+            else
+                teleportAttempts = 0
+                isTeleporting = false
+                startTime = tick()
             end
         end
     })
     
-    -- loop สำหรับ auto teleport ต้องรอ UI ก่อนเริ่ม
     task.spawn(function()
-        waitForUIReady()
         while true do
             task.wait(1)
+            
             if autoTeleportEnabled and not isTeleporting then
                 local elapsed = tick() - startTime
                 if elapsed >= autoTeleportTime then
@@ -6421,6 +6444,7 @@ if Tabs.AutoFarm then
                     teleportAttempts = 0
                 end
             end
+            
             if autoTeleportEnabled and isTeleporting then
                 teleportAttempts = teleportAttempts + 1
                 pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
@@ -6462,9 +6486,11 @@ if Tabs.AutoFarm then
             killCharacter()
             return
         end
+        
         failedSafeTimerRunning = true
         killPending = true
         failedSafeStartTime = tick()
+        
         task.spawn(function()
             while failedSafeEnabled and killPending do
                 local elapsed = tick() - failedSafeStartTime
@@ -6498,10 +6524,9 @@ if Tabs.AutoFarm then
         Text = "Enable Failed Safe (Auto Kill after delay)",
         Default = false,
         Callback = function(v)
-            waitForUI()
+            if v then task.wait(1) end
+            failedSafeEnabled = v
             if v then
-                task.wait(1)
-                failedSafeEnabled = true
                 startFailedSafeTimer()
                 if failedSafeDelay > 0 then
                     Library:Notify("⚠️ Failed Safe Enabled - Will kill character after " .. failedSafeDelay .. " seconds", 3)
@@ -6509,13 +6534,39 @@ if Tabs.AutoFarm then
                     Library:Notify("⚠️ Failed Safe Enabled - Will kill character immediately", 3)
                 end
             else
-                failedSafeEnabled = false
                 stopFailedSafeTimer()
                 Library:Notify("✅ Failed Safe Disabled", 2)
             end
         end
     })
 end
+
+local TitansFolder = workspace:FindFirstChild("Titans")
+
+local function IsInCutscene()
+    local ok, result = pcall(function()
+        local gui = Player:FindFirstChild("PlayerGui")
+        if not gui then return false end
+        local Interface = gui:FindFirstChild("Interface")
+        if not Interface then return false end
+        local skip = Interface:FindFirstChild("Skip")
+        local skipWarning = Interface:FindFirstChild("Skip_Warning")
+        return (skip and skip.Visible) or (skipWarning and skipWarning.Visible) or false
+    end)
+    return ok and result or false
+end
+
+if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
+
+if not TitansFolder then
+    TitansFolder = workspace:FindFirstChild("Titans")
+    if not TitansFolder then
+        TitansFolder = Instance.new("Folder")
+        TitansFolder.Name = "Titans"
+        TitansFolder.Parent = workspace
+    end
+end
+
 -- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
@@ -6809,10 +6860,30 @@ Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
 -- เปลี่ยนช่วงเวลาโจมตีเป็น 2 วินาที
-local FARM_ATTACK_INTERVAL = 2
+local FARM_ATTACK_INTERVAL = 0.15
 local LastAttackTime = 0
 
--- ========== โจมตีไททันทั้งหมด (เพิ่มเช็ค flags reload/refill และ interval) ==========
+-- ==================== เพิ่มระบบ Wave Safety ====================
+local waveWaiting = false
+local lastDefendText = ""
+local function getWaveProgress()
+    local player = game:GetService("Players").LocalPlayer
+    local defend = player.PlayerGui:FindFirstChild("Interface") and 
+                   player.PlayerGui.Interface:FindFirstChild("HUD") and
+                   player.PlayerGui.Interface.HUD:FindFirstChild("Objectives") and
+                   player.PlayerGui.Interface.HUD.Objectives:FindFirstChild("Main") and
+                   player.PlayerGui.Interface.HUD.Objectives.Main:FindFirstChild("Defend")
+    if defend and defend:IsA("TextLabel") and defend.Visible then
+        local text = defend.Text
+        local current, max = text:match("(%d+)/(%d+)")
+        if current and max then
+            return tonumber(current), tonumber(max), text
+        end
+    end
+    return nil, nil, nil
+end
+
+-- ========== โจมตีไททันทั้งหมด (เพิ่มเช็ค flags reload/refill และ interval + Wave Safety) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
@@ -6820,6 +6891,35 @@ local function AttackAllTitans()
     -- หยุดโจมตีหากกำลัง reload หรือ refill
     if getgenv().IsReloading or getgenv().IsRefilling then
         return
+    end
+
+    -- ========== Wave Safety Check ==========
+    local currentWave, maxWave, defendText = getWaveProgress()
+    if currentWave and maxWave and currentWave < maxWave then
+        local nearComplete = (currentWave >= maxWave - 2)  -- ใกล้จบ 2 ตัวสุดท้าย
+        if nearComplete then
+            local G = getgenv()
+            local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
+            local safeTime = G.SafetyTime or 25
+            if elapsed < safeTime then
+                if not waveWaiting then
+                    waveWaiting = true
+                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, safeTime), 3)
+                end
+                return  -- หยุดโจมตีชั่วคราว
+            else
+                if waveWaiting then
+                    waveWaiting = false
+                    Library:Notify("Safety timer reached, resuming attack!", 2)
+                end
+            end
+        else
+            waveWaiting = false
+        end
+    elseif currentWave and currentWave == maxWave then
+        waveWaiting = false  -- จบ wave แล้ว
+    elseif not currentWave then
+        waveWaiting = false
     end
 
     local G = getgenv()
