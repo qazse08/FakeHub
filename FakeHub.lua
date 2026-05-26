@@ -234,15 +234,16 @@ if IsMainmenuLobby() then
 
     local webhookURL = ""
     local autoNotifyEnabled = false
-    local hasSentThisToggle = false
-    local lastNotifyFamily = ""
-    local lastNotifyTime = 0
     local pingMode = "None"
-    local lastSpinTime = 0
 
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+
+    -- เก็บ spin count ล่าสุด เพื่อตรวจจับการเปลี่ยนแปลง
+    local lastSpinCount = 0
+    -- เก็บสถานะว่าได้ส่ง webhook สำหรับการสุ่มครั้งนี้หรือยัง
+    local hasSentForCurrentRoll = false
 
     local function GetCurrentFamily()
         local ok, result = pcall(function()
@@ -258,32 +259,35 @@ if IsMainmenuLobby() then
         return ok and result or "Unknown"
     end
 
+    -- แปลง spin text เป็นตัวเลข
+    local function GetSpinCountNumber()
+        local spinStr = GetSpinCount()
+        if spinStr == "Unknown" then return -1 end
+        local num = tonumber(spinStr:match("%d+"))
+        return num or -1
+    end
+
     local function GetStoredFamilies()
         local data = {}
         local count = 0
-
         local ok, familiesFolder = pcall(function()
             return PlayerGui.Interface.Customisation.Storage.Main.Families
         end)
-
         if not ok or not familiesFolder then
             return data, count
         end
-        
         for _, v in ipairs(familiesFolder:GetChildren()) do
             pcall(function()
                 local inner = v:FindFirstChild("Inner")
                 if inner then
                     local title = inner:FindFirstChild("Title")
                     if title and title:IsA("TextLabel") and title.Text and title.Text ~= "" then
-                        local fullText = title.Text
-                        table.insert(data, fullText)
+                        table.insert(data, title.Text)
                         count = count + 1
                     end
                 end
             end)
         end
-        
         return data, count
     end
 
@@ -325,62 +329,11 @@ if IsMainmenuLobby() then
         end
     end
 
-    local function UpdateLastSpinTime()
-        lastSpinTime = tick()
-        hasSentThisToggle = false
-        if _G._resetSpinDepleted then _G._resetSpinDepleted() end
-    end
-
-    local function IsFakeValue(family, spins)
-        if family and spins then
-            local isHume = string.find(family, "Hume") ~= nil
-            local isSpins299 = string.find(spins, "299") ~= nil or spins == "299"
-            if isHume and isSpins299 then
-                return true
-            end
-        end
-        return false
-    end
-
-    local function ShouldSendWebhook(currentFamily, currentSpins)
-        if not autoNotifyEnabled then return false end
-        if lastSpinTime == 0 then return false end
-        if hasSentThisToggle then return false end
-        if currentFamily == lastNotifyFamily and (tick() - lastNotifyTime) < 30 then return false end
-        if IsFakeValue(currentFamily, currentSpins) then return false end
-        return true
-    end
-
-    local function ExtractSpinNumber(spinText)
-        if type(spinText) ~= "string" then return "0" end
-        local num = spinText:match("%d+")
-        return num or "0"
-    end
-
-    local function SendWebhook(triggerReason)
+    -- ฟังก์ชันส่ง webhook เมื่อได้ target family หลังจาก roll
+    local function SendTargetWebhook(currentFamily, spinNumber)
         if webhookURL == "" then return false end
 
-        local currentFamily = GetCurrentFamily()
-        local spins = GetSpinCount()
-        local spinNumber = ExtractSpinNumber(spins)
         local familyList, familyCount = GetStoredFamilies()
-        
-        local storedDisplay = ""
-        if familyCount > 0 then
-            local maxDisplay = 15
-            local displayList = {}
-            for i = 1, math.min(#familyList, maxDisplay) do
-                table.insert(displayList, string.format("• %s", familyList[i]))
-            end
-            if #familyList > maxDisplay then
-                table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
-            end
-            storedDisplay = table.concat(displayList, "\n")
-        else
-            storedDisplay = "• No stored families"
-        end
-
-        local title = triggerReason or "Notify"
         local rarity = GetFamilyRarity(currentFamily)
         local color = GetColorByRarity(rarity)
         
@@ -400,10 +353,25 @@ if IsMainmenuLobby() then
         local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
         local spinsField = string.format("**Remaining:** %s", spinNumber)
 
+        local storedDisplay = ""
+        if familyCount > 0 then
+            local maxDisplay = 15
+            local displayList = {}
+            for i = 1, math.min(#familyList, maxDisplay) do
+                table.insert(displayList, string.format("• %s", familyList[i]))
+            end
+            if #familyList > maxDisplay then
+                table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
+            end
+            storedDisplay = table.concat(displayList, "\n")
+        else
+            storedDisplay = "• No stored families"
+        end
+
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
             embeds = {{
-                title = title,
+                title = "🎯 TARGET FAMILY FOUND: " .. currentFamily,
                 color = color,
                 thumbnail = {
                     url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
@@ -427,174 +395,149 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ================= ส่วนตรวจจับสปินหมด =================
-    do
-        local lastSpinCountNum = -1
-        local hasSentZeroNotify = false
-        local previousNonZeroSpin = -1
-
-        local function GetSpinCountNumber()
-            local spinStr = GetSpinCount()
-            if spinStr == "Unknown" then return -1 end
-            local num = tonumber(spinStr:match("%d+"))
-            return num or -1
+    -- ฟังก์ชันส่ง webhook สปินหมด
+    local function SendSpinDepletedWebhook(beforeSpins)
+        if webhookURL == "" then return false end
+        
+        local currentFamily = GetCurrentFamily()
+        local familyList, familyCount = GetStoredFamilies()
+        local rarity = GetFamilyRarity(currentFamily)
+        
+        local storedDisplay = ""
+        if familyCount > 0 then
+            local maxDisplay = 15
+            local displayList = {}
+            for i = 1, math.min(#familyList, maxDisplay) do
+                table.insert(displayList, string.format("• %s", familyList[i]))
+            end
+            if #familyList > maxDisplay then
+                table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
+            end
+            storedDisplay = table.concat(displayList, "\n")
+        else
+            storedDisplay = "• No stored families"
+        end
+        
+        local content = nil
+        if pingMode == "Everyone" then
+            content = "@everyone"
+        elseif pingMode == "Here" then
+            content = "@here"
         end
 
-        local function SendSpinDepletedWebhook(beforeSpins)
-            if webhookURL == "" then return false end
-            
-            local currentFamily = GetCurrentFamily()
-            local familyList, familyCount = GetStoredFamilies()
-            local rarity = GetFamilyRarity(currentFamily)
-            
-            local storedDisplay = ""
-            if familyCount > 0 then
-                local maxDisplay = 15
-                local displayList = {}
-                for i = 1, math.min(#familyList, maxDisplay) do
-                    table.insert(displayList, string.format("• %s", familyList[i]))
-                end
-                if #familyList > maxDisplay then
-                    table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
-                end
-                storedDisplay = table.concat(displayList, "\n")
-            else
-                storedDisplay = "• No stored families"
-            end
-            
-            local content = nil
-            if pingMode == "Everyone" then
-                content = "@everyone"
-            elseif pingMode == "Here" then
-                content = "@here"
-            end
+        local player = game:GetService("Players").LocalPlayer
+        local userId = player.UserId
+        local displayName = player.DisplayName
+        local userName = player.Name
 
-            local player = game:GetService("Players").LocalPlayer
-            local userId = player.UserId
-            local displayName = player.DisplayName
-            local userName = player.Name
+        local playerField = string.format("**Display Name:** %s\n**Username:** @%s\n**User ID:** `%d`", displayName, userName, userId)
+        local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
+        local spinsField = string.format("**Before:** ~~%s~~ → **0**\n**Status:** `DEPLETED`", beforeSpins)
 
-            local playerField = string.format("**Display Name:** %s\n**Username:** @%s\n**User ID:** `%d`", displayName, userName, userId)
-            local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
-            local spinsField = string.format("**Before:** ~~%s~~ → **0**\n**Status:** `DEPLETED`", beforeSpins)
+        local body = game:GetService("HttpService"):JSONEncode({
+            content = content,
+            embeds = {{
+                title = "⚠️ SPINS HAVE RUN OUT",
+                color = 0xe74c3c,
+                thumbnail = {
+                    url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
+                },
+                fields = {
+                    { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
+                    { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
+                    { name = "━━━━━━━━━ 🎲 SPINS ━━━━━━━━━", value = spinsField, inline = true },
+                    { name = "━━━━━━━━━ 📦 STORED (" .. familyCount .. ") ━━━━━━━━━", value = storedDisplay, inline = false }
+                },
+                footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                timestamp = DateTime.now():ToIsoDate()
+            }}
+        })
 
-            local body = game:GetService("HttpService"):JSONEncode({
-                content = content,
-                embeds = {{
-                    title = "⚠️ SPINS HAVE RUN OUT",
-                    color = 0xe74c3c,
-                    thumbnail = {
-                        url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
-                    },
-                    fields = {
-                        { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
-                        { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
-                        { name = "━━━━━━━━━ 🎲 SPINS ━━━━━━━━━", value = spinsField, inline = true },
-                        { name = "━━━━━━━━━ 📦 STORED (" .. familyCount .. ") ━━━━━━━━━", value = storedDisplay, inline = false }
-                    },
-                    footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
-                    timestamp = DateTime.now():ToIsoDate()
-                }}
-            })
+        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+        if not requestFunction then return false end
 
-            local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
-            if not requestFunction then return false end
-
-            return pcall(function()
-                requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
-            end)
-        end
-
-        local function resetSpinDepleted()
-            hasSentZeroNotify = false
-            local current = GetSpinCountNumber()
-            if current > 0 then
-                lastSpinCountNum = current
-                previousNonZeroSpin = current
-            else
-                lastSpinCountNum = -1
-                previousNonZeroSpin = -1
-            end
-        end
-        _G._resetSpinDepleted = resetSpinDepleted
-
-        task.spawn(function()
-            while true do
-                task.wait(2)
-                if not autoNotifyEnabled or webhookURL == "" then
-                    task.wait(1)
-                    continue
-                end
-                if lastSpinTime == 0 then continue end
-                
-                local current = GetSpinCountNumber()
-                
-                if lastSpinCountNum == -1 and current > 0 then
-                    lastSpinCountNum = current
-                    previousNonZeroSpin = current
-                end
-                
-                if lastSpinCountNum > 0 and current == 0 and not hasSentZeroNotify then
-                    local success = SendSpinDepletedWebhook(previousNonZeroSpin)
-                    if success then
-                        hasSentZeroNotify = true
-                    end
-                end
-                
-                if current > 0 then
-                    lastSpinCountNum = current
-                    previousNonZeroSpin = current
-                elseif current == 0 then
-                    lastSpinCountNum = current
-                end
-            end
+        return pcall(function()
+            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
         end)
     end
-    -- ================= จบส่วนตรวจจับสปินหมด =================
 
-    -- MAIN LOOP สำหรับแจ้งเตือน Target Family
+    -- รีเซ็ตสถานะ spin depleted (ไว้เรียกจาก autoSpinLoop)
+    local function resetSpinDepleted()
+        -- ไม่ต้องทำอะไรเพิ่มเติม
+    end
+    _G._resetSpinDepleted = resetSpinDepleted
+
+    -- อัปเดตเวลาสปิน (ไว้เรียกจาก autoSpinLoop เพื่อให้ระบบรู้ว่ามีการกด roll)
+    -- แต่ตอนนี้ใช้การตรวจจับ spin count แทน, แต่ยังคงไว้เพื่อความเข้ากันได้
+    local function UpdateLastSpinTime()
+        -- ไม่ต้องทำ เพราะเราใช้วิธีตรวจจับ spin count แทน แต่ถ้ามีการเรียกก็ไม่เสียหาย
+    end
+    _G.UpdateLastSpinTime = UpdateLastSpinTime
+
+    -- MAIN LOOP ตรวจจับการเปลี่ยนแปลงของ spin count และส่ง webhook หลังจาก roll
     task.spawn(function()
         while true do
-            task.wait(1)
-            if not autoNotifyEnabled or webhookURL == "" then continue end
-            if lastSpinTime == 0 then continue end
-            
-            local currentFamily = GetCurrentFamily()
-            local currentSpins = GetSpinCount()
-            
-            if currentFamily == "Unknown" then continue end
-            
-            local targetFamilies = {}
-            if Options and Options.AutoSpinFamilies then
-                for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
-                    if enabled and not string.match(name, "^%-%-%-") then
-                        table.insert(targetFamilies, name)
+            task.wait(0.3) -- ตรวจสอบถี่พอ
+            if not autoNotifyEnabled or webhookURL == "" then
+                task.wait(1)
+                continue
+            end
+
+            local currentSpinNum = GetSpinCountNumber()
+            if currentSpinNum == -1 then
+                task.wait(0.5)
+                continue
+            end
+
+            -- ตรวจจับว่ามีการลดลงของ spin count (แสดงว่ามีการสุ่ม)
+            if lastSpinCount > 0 and currentSpinNum < lastSpinCount then
+                -- มีการสุ่มเกิดขึ้นแล้ว!
+                hasSentForCurrentRoll = false  -- รีเซ็ต flag สำหรับการสุ่มใหม่
+                
+                -- รอให้ Family อัปเดต (หน่วงเล็กน้อย)
+                task.wait(0.2)
+                
+                -- ตรวจสอบ family ปัจจุบัน
+                local currentFamily = GetCurrentFamily()
+                if currentFamily and currentFamily ~= "Unknown" then
+                    -- ตรวจสอบว่าเป็น target family หรือไม่
+                    local targetFamilies = {}
+                    if Options and Options.AutoSpinFamilies then
+                        for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
+                            if enabled and not string.match(name, "^%-%-%-") then
+                                table.insert(targetFamilies, string.lower(name))
+                            end
+                        end
+                    end
+                    local isTarget = false
+                    if #targetFamilies > 0 then
+                        local lowerFamily = string.lower(currentFamily)
+                        for _, target in ipairs(targetFamilies) do
+                            if string.find(lowerFamily, target) then
+                                isTarget = true
+                                break
+                            end
+                        end
+                    end
+                    if isTarget and not hasSentForCurrentRoll then
+                        SendTargetWebhook(currentFamily, currentSpinNum)
+                        hasSentForCurrentRoll = true
                     end
                 end
             end
-            if #targetFamilies == 0 then continue end
-            
-            local isTarget = false
-            local lowerFamily = string.lower(currentFamily)
-            for _, target in ipairs(targetFamilies) do
-                if string.find(lowerFamily, string.lower(target)) then
-                    isTarget = true
-                    break
-                end
+
+            -- ตรวจจับสปินหมด
+            if lastSpinCount > 0 and currentSpinNum == 0 and lastSpinCount ~= currentSpinNum then
+                -- สปินหมดจากการสุ่มครั้งล่าสุด
+                SendSpinDepletedWebhook(lastSpinCount)
             end
-            
-            if isTarget and ShouldSendWebhook(currentFamily, currentSpins) then
-                local success = SendWebhook("🎯 TARGET FAMILY FOUND: " .. currentFamily)
-                if success then
-                    hasSentThisToggle = true
-                    lastNotifyFamily = currentFamily
-                    lastNotifyTime = tick()
-                end
-            end
+
+            -- อัปเดตค่า lastSpinCount
+            lastSpinCount = currentSpinNum
         end
     end)
 
-    -- UI
+    -- UI (ลบ notify ออกทั้งหมด)
     WebhookGroup:AddInput("Webhook_URL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
@@ -611,8 +554,8 @@ if IsMainmenuLobby() then
     })
 
     WebhookGroup:AddButton("Test Send", function()
-        SendWebhook("Test Notification")
-        Library:Notify("Test webhook sent!", 2)
+        SendTargetWebhook("Test Family (Fake)", "?")
+        -- ไม่มี notify
     end)
 
     WebhookGroup:AddToggle("AutoNotifyToggle", {
@@ -621,18 +564,13 @@ if IsMainmenuLobby() then
         Callback = function(v)
             autoNotifyEnabled = v
             if v then
-                hasSentThisToggle = false
-                lastNotifyFamily = ""
-                lastNotifyTime = 0
-                if _G._resetSpinDepleted then _G._resetSpinDepleted() end
-                Library:Notify("Discord webhook notification enabled!", 2)
-            else
-                Library:Notify("Discord webhook notification disabled.", 2)
+                -- รีเซ็ตสถานะเพื่อให้เริ่มตรวจจับใหม่
+                lastSpinCount = GetSpinCountNumber()
+                hasSentForCurrentRoll = false
+                -- ไม่มี notify
             end
         end
     })
-    
-    _G.UpdateLastSpinTime = UpdateLastSpinTime
 end
 -- ============================== END WEBHOOK SECTION ==============================
 
@@ -931,12 +869,12 @@ if IsMainmenuLobby() then
         UpdateDisplay()
     end
 
-    -- Slider สำหรับปรับขนาด UI
+    -- Slider สำหรับปรับขนาด UI (ปรับได้ 10% - 200%)
     PopupGroup:AddSlider("PopupUIScale", {
-        Text = "UI Scale",
+        Text = "UI Scale (%)",
         Default = 100,
         Min = 10,
-        Max = 100,
+        Max = 200,
         Rounding = 0,
         Suffix = "%",
         Callback = function(v)
@@ -952,17 +890,16 @@ if IsMainmenuLobby() then
             popupEnabled = v
             if v then
                 CreatePopupUI()
-                Library:Notify("✅ Family popup opened! (Shows only in Family page)", 3)
+                -- ลบ Notify ออก
             else
                 if updateConnection then updateConnection:Disconnect() end
                 if glowConnection then glowConnection:Disconnect() end
                 if popupGui then popupGui:Destroy() end
-                Library:Notify("❌ Family popup closed", 2)
+                -- ลบ Notify ออก
             end
         end
     })
 end
-
 -- ============================== AUTO SPIN (MAIN MENU) - FAMILY TAB CHECK BEFORE ROLL ==============================
 if IsMainmenuLobby() then
     local SpinGroup = Tabs.MainMenu:AddLeftGroupbox("Auto Spin")
@@ -971,17 +908,25 @@ if IsMainmenuLobby() then
     local isSpinning = false
     local stopSpin = false
     local rollDelay = 0.01
-    local lastSlotNotify = 0
 
     local player = game:GetService("Players").LocalPlayer
     local VIM = game:GetService("VirtualInputManager")
     local GS = game:GetService("GuiService")
     local playerGui = player:WaitForChild("PlayerGui")
 
+    -- safe function for disabling toggle without error
+    local function safeSetToggleOff(toggleName)
+        pcall(function()
+            if Options and Options[toggleName] and Options[toggleName].SetValue then
+                Options[toggleName]:SetValue(false)
+            end
+        end)
+    end
+
     -- ========== ตัวแปรสำหรับ Follow Frame Check ==========
     local followFrameVisible = false
     local checkInterval = 0.5
-    local waitingForFollowToClose = false  -- รอให้ Follow Frame ปิดก่อนเริ่มทำงาน
+    local waitingForFollowToClose = false
 
     -- ========== ฟังก์ชันตรวจสอบ Follow Frame ==========
     local function IsActuallyVisible(gui)
@@ -1010,39 +955,24 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- ========== ฟังก์ชันกดปุ่ม Customisation ==========
+    -- ========== ฟังก์ชันกดปุ่ม Customisation (ปลอดภัย 100%) ==========
     local function clickCustomisation()
-        local customBtn = getCustomBtn()
-        if customBtn and isGuiVisible(customBtn) then
-            press(customBtn)
-            return true
-        end
-        return false
-    end
-
-    -- ========== ฟังก์ชันรอให้ Follow Frame หายไป ==========
-    local function waitForFollowToClose()
-        local startTime = tick()
-        local timeout = 10  -- รอสูงสุด 10 วินาที
-        
-        while tick() - startTime < timeout do
-            if not isFollowFrameVisible() then
-                return true
+        pcall(function()
+            local customBtn = getCustomBtn()
+            if customBtn and isGuiVisible(customBtn) then
+                press(customBtn)
             end
-            task.wait(0.2)
-        end
-        return false
+        end)
+        return false -- ไม่ต้องสนใจผลลัพธ์
     end
 
-    -- ========== ลูปตรวจสอบ Follow Frame และกด Customisation อัตโนมัติ (แบบไม่ต้องกดเอง) ==========
+    -- ========== ลูปตรวจสอบ Follow Frame และกด Customisation อัตโนมัติ ==========
     task.spawn(function()
         while true do
             task.wait(checkInterval)
             local currentVisible = isFollowFrameVisible()
             followFrameVisible = currentVisible
-            
             if followFrameVisible then
-                -- ถ้า Follow Frame ยังแสดงอยู่ ให้กด Customisation ทุกครั้งที่เจอ
                 clickCustomisation()
                 waitingForFollowToClose = true
             else
@@ -1070,6 +1000,7 @@ if IsMainmenuLobby() then
         return string.sub(name, 1, 3) == "---"
     end
 
+    -- ========== UI Element Getters (ปลอดภัย) ==========
     local function getInterface()
         return playerGui:FindFirstChild("Interface")
     end
@@ -1136,6 +1067,7 @@ if IsMainmenuLobby() then
         return fam:FindFirstChild("Title")
     end
 
+    -- ========== Slot & UI Helpers ==========
     local function IsOnScreen(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
         local current = gui
@@ -1199,174 +1131,181 @@ if IsMainmenuLobby() then
         if not target then return false end
         if not isGuiVisible(target) then return false end
         pcall(function() target.Selectable = true end)
-        GS.SelectedObject = nil; task.wait(0.005)
-        GS.SelectedObject = target; task.wait(0.005)
+        GS.SelectedObject = nil
+        task.wait(0.005)
+        GS.SelectedObject = target
+        task.wait(0.005)
         if GS.SelectedObject ~= target then return false end
-        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game); task.wait(0.005)
-        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game); task.wait(0.005)
+        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.005)
+        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
+        task.wait(0.005)
         GS.SelectedObject = nil
         return true
     end
 
     -- ========== ฟังก์ชันจัดการ Warning Popup ==========
     local function handleWarningPopup()
-        local warningMain = playerGui:FindFirstChild("Interface")
-        if warningMain then
-            warningMain = warningMain:FindFirstChild("Warning")
+        pcall(function()
+            local warningMain = playerGui:FindFirstChild("Interface")
             if warningMain then
-                warningMain = warningMain:FindFirstChild("Prompt")
+                warningMain = warningMain:FindFirstChild("Warning")
                 if warningMain then
-                    warningMain = warningMain:FindFirstChild("Main")
-                    if warningMain and warningMain.Visible then
-                        local familyTitle = getFamilyTitle()
-                        local currentFamily = familyTitle and familyTitle.Text or ""
-                        local isTarget = false
-                        if currentFamily ~= "" and #selectedFamilies > 0 then
-                            local lower = string.lower(currentFamily)
-                            for _, t in ipairs(selectedFamilies) do
-                                if string.find(lower, string.lower(t)) then
-                                    isTarget = true
-                                    break
+                    warningMain = warningMain:FindFirstChild("Prompt")
+                    if warningMain then
+                        warningMain = warningMain:FindFirstChild("Main")
+                        if warningMain and warningMain.Visible then
+                            local familyTitle = getFamilyTitle()
+                            local currentFamily = familyTitle and familyTitle.Text or ""
+                            local isTarget = false
+                            if currentFamily ~= "" and #selectedFamilies > 0 then
+                                local lower = string.lower(currentFamily)
+                                for _, t in ipairs(selectedFamilies) do
+                                    if string.find(lower, string.lower(t)) then
+                                        isTarget = true
+                                        break
+                                    end
                                 end
                             end
-                        end
-                        
-                        if not isTarget then
-                            local yesBtn = warningMain:FindFirstChild("Yes")
-                            if yesBtn and isGuiVisible(yesBtn) then
-                                local confirmed = true
-                                for i = 1, 10 do
-                                    if not isGuiVisible(yesBtn) then 
-                                        confirmed = false
-                                        break 
-                                    end
-                                    local recheckTitle = getFamilyTitle()
-                                    local recheckFamily = recheckTitle and recheckTitle.Text or ""
-                                    if recheckFamily ~= "" and #selectedFamilies > 0 then
-                                        local lower2 = string.lower(recheckFamily)
-                                        local found = false
-                                        for _, t in ipairs(selectedFamilies) do
-                                            if string.find(lower2, string.lower(t)) then
-                                                found = true
+                            
+                            if not isTarget then
+                                local yesBtn = warningMain:FindFirstChild("Yes")
+                                if yesBtn and isGuiVisible(yesBtn) then
+                                    local confirmed = true
+                                    for i = 1, 10 do
+                                        if not isGuiVisible(yesBtn) then 
+                                            confirmed = false
+                                            break 
+                                        end
+                                        local recheckTitle = getFamilyTitle()
+                                        local recheckFamily = recheckTitle and recheckTitle.Text or ""
+                                        if recheckFamily ~= "" and #selectedFamilies > 0 then
+                                            local lower2 = string.lower(recheckFamily)
+                                            local found = false
+                                            for _, t in ipairs(selectedFamilies) do
+                                                if string.find(lower2, string.lower(t)) then
+                                                    found = true
+                                                    break
+                                                end
+                                            end
+                                            if found then
+                                                confirmed = false
                                                 break
                                             end
                                         end
-                                        if found then
-                                            confirmed = false
-                                            break
-                                        end
+                                        task.wait(1)
                                     end
-                                    task.wait(1)
-                                end
-                                if confirmed then
-                                    press(yesBtn)
-                                    task.wait(0.5)
-                                    return true
+                                    if confirmed then
+                                        press(yesBtn)
+                                        task.wait(0.5)
+                                    end
                                 end
                             end
                         end
                     end
                 end
             end
-        end
-        return false
+        end)
     end
 
+    -- ========== UI Preparation Functions (ปลอดภัย) ==========
     local function ensureFamilyTabAndCheckTitle()
-        local familyBtn = getFamilyBtn()
-        
-        if not isGuiVisible(familyBtn) then
-            local customBtn = getCustomBtn()
-            if isGuiVisible(customBtn) then
-                press(customBtn); task.wait(0.1)
-            end
-            local t = tick()
-            while tick() - t < 3 do
-                if isGuiVisible(getFamilyBtn()) then break end
-                task.wait(0.05)
-            end
-        end
-        
-        familyBtn = getFamilyBtn()
-        if isGuiVisible(familyBtn) then
-            press(familyBtn)
-            task.wait(0.1)
-        end
-        
-        local titleChecked = false
-        local startCheck = tick()
-        
-        for i = 1, 10 do
-            if tick() - startCheck > 3 then break end
+        return pcall(function()
+            local familyBtn = getFamilyBtn()
             
-            local title = getFamilyTitle()
-            if title and title:IsA("TextLabel") and title.Visible and title.Text ~= "" then
-                titleChecked = true
-                break
+            if not isGuiVisible(familyBtn) then
+                local customBtn = getCustomBtn()
+                if isGuiVisible(customBtn) then
+                    press(customBtn)
+                    task.wait(0.1)
+                end
+                local t = tick()
+                while tick() - t < 3 do
+                    if isGuiVisible(getFamilyBtn()) then break end
+                    task.wait(0.05)
+                end
             end
             
             familyBtn = getFamilyBtn()
             if isGuiVisible(familyBtn) then
                 press(familyBtn)
+                task.wait(0.1)
             end
-            task.wait(0.1)
-        end
-        
-        return titleChecked
+            
+            local titleChecked = false
+            local startCheck = tick()
+            for i = 1, 10 do
+                if tick() - startCheck > 3 then break end
+                local title = getFamilyTitle()
+                if title and title:IsA("TextLabel") and title.Visible and title.Text ~= "" then
+                    titleChecked = true
+                    break
+                end
+                familyBtn = getFamilyBtn()
+                if isGuiVisible(familyBtn) then
+                    press(familyBtn)
+                end
+                task.wait(0.1)
+            end
+            return titleChecked
+        end) or false
     end
 
     local function ensureUIOpen()
-        local rollBtn = getRollBtn()
-        
-        if isGuiVisible(rollBtn) then
+        return pcall(function()
+            local rollBtn = getRollBtn()
+            
+            if isGuiVisible(rollBtn) then
+                local storageBtn = getStorageBtn()
+                local storageUI = getStorageUI()
+                if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
+                    press(storageBtn)
+                    local t = tick()
+                    while tick() - t < 1 do
+                        if isGuiVisible(getStorageUI()) then break end
+                        task.wait(0.05)
+                    end
+                end
+                return true
+            end
+            
+            local customBtn = getCustomBtn()
+            if isGuiVisible(customBtn) then
+                press(customBtn)
+                task.wait(0.1)
+            end
+            
+            local t = tick()
+            while tick() - t < 3 do
+                if isGuiVisible(getFamilyBtn()) then break end
+                task.wait(0.05)
+            end
+            
+            local familyBtn = getFamilyBtn()
+            if not isGuiVisible(familyBtn) then return false end
+            
+            if not isGuiVisible(getRollBtn()) then
+                press(familyBtn)
+                local t2 = tick()
+                while tick() - t2 < 1 do
+                    if isGuiVisible(getRollBtn()) then break end
+                    task.wait(0.05)
+                end
+            end
+            
             local storageBtn = getStorageBtn()
             local storageUI = getStorageUI()
             if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
                 press(storageBtn)
-                local t = tick()
-                while tick() - t < 1 do
+                local t3 = tick()
+                while tick() - t3 < 1 do
                     if isGuiVisible(getStorageUI()) then break end
                     task.wait(0.05)
                 end
             end
-            return true
-        end
-        
-        local customBtn = getCustomBtn()
-        if isGuiVisible(customBtn) then
-            press(customBtn); task.wait(0.1)
-        end
-        
-        local t = tick()
-        while tick() - t < 3 do
-            if isGuiVisible(getFamilyBtn()) then break end
-            task.wait(0.05)
-        end
-        
-        local familyBtn = getFamilyBtn()
-        if not isGuiVisible(familyBtn) then return false end
-        
-        if not isGuiVisible(getRollBtn()) then
-            press(familyBtn)
-            local t2 = tick()
-            while tick() - t2 < 1 do
-                if isGuiVisible(getRollBtn()) then break end
-                task.wait(0.05)
-            end
-        end
-        
-        local storageBtn = getStorageBtn()
-        local storageUI = getStorageUI()
-        if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
-            press(storageBtn)
-            local t3 = tick()
-            while tick() - t3 < 1 do
-                if isGuiVisible(getStorageUI()) then break end
-                task.wait(0.05)
-            end
-        end
-        
-        return isGuiVisible(getRollBtn())
+            
+            return isGuiVisible(getRollBtn())
+        end) or false
     end
 
     local function getCurrentFamily()
@@ -1379,7 +1318,7 @@ if IsMainmenuLobby() then
 
     local function getSpinCount()
         local rollBtn = getRollBtn()
-        if not isGuiVisible(rollBtn) then return -1 end
+        if not rollBtn or not isGuiVisible(rollBtn) then return -1 end
         if rollBtn.Text and rollBtn.Text ~= "" then 
             local num = tonumber(rollBtn.Text:match("%d+"))
             if num then return num end 
@@ -1408,76 +1347,87 @@ if IsMainmenuLobby() then
         end
     end
 
+    -- ========== Main Auto Spin Loop ==========
     local function autoSpinLoop()
         if isSpinning then return end
-        isSpinning = true; stopSpin = false
+        isSpinning = true
+        stopSpin = false
 
         if #selectedFamilies == 0 then 
             isSpinning = false
-            Options.AutoSpinToggle:SetValue(false)
+            safeSetToggleOff("AutoSpinToggle")
             return 
         end
 
         while not stopSpin do
-            -- ตรวจสอบ Follow Frame และกด Customisation ถ้ายังมี (ทำใน loop อื่นอยู่แล้ว)
+            task.wait(0.05)
             
-            handleWarningPopup()
-            
-            if isAnySlotOpen() then
-                task.wait(0.5)
-                continue
-            end
-
-            if not isGuiVisible(getRollBtn()) then
-                if not ensureUIOpen() then
-                    task.wait(0.1)
-                    continue
+            pcall(function()
+                handleWarningPopup()
+                
+                if isAnySlotOpen() then
+                    task.wait(0.5)
+                    return
                 end
-            else
-                ensureUIOpen()
-            end
 
-            if not ensureFamilyTabAndCheckTitle() then
-                task.wait(0.5)
-                continue
-            end
+                local rollVisible = isGuiVisible(getRollBtn())
+                if not rollVisible then
+                    if not ensureUIOpen() then
+                        task.wait(0.1)
+                        return
+                    end
+                else
+                    ensureUIOpen()
+                end
 
-            local currentFamily = getCurrentFamily()
-            if currentFamily and isTargetFamily(currentFamily) then
-                stopSpin = true; break
-            end
+                if not ensureFamilyTabAndCheckTitle() then
+                    task.wait(0.5)
+                    return
+                end
 
-            if getSpinCount() == 0 then 
-                break 
-            end
+                local currentFamily = getCurrentFamily()
+                if currentFamily and isTargetFamily(currentFamily) then
+                    stopSpin = true
+                    return
+                end
 
-            local rb = getRollBtn()
-            if not isGuiVisible(rb) then continue end
-            
-            if not press(rb) then task.wait(0.01); continue end
-            
-            updateSpinTime()
+                if getSpinCount() == 0 then 
+                    stopSpin = true
+                    return 
+                end
 
-            task.wait(rollDelay)
+                local rb = getRollBtn()
+                if not rb or not isGuiVisible(rb) then return end
+                
+                if not press(rb) then 
+                    task.wait(0.01)
+                    return 
+                end
+                
+                updateSpinTime()
+                task.wait(rollDelay)
 
-            local newFamily
-            for i = 1, 5 do
-                newFamily = getCurrentFamily()
-                if newFamily then break end
-                task.wait(0.01)
-            end
+                local newFamily
+                for i = 1, 5 do
+                    newFamily = getCurrentFamily()
+                    if newFamily then break end
+                    task.wait(0.01)
+                end
 
-            if newFamily and isTargetFamily(newFamily) then 
-                stopSpin = true; break 
-            end
+                if newFamily and isTargetFamily(newFamily) then 
+                    stopSpin = true
+                    return 
+                end
 
-            task.wait(0.001)
+                task.wait(0.001)
+            end)
         end
 
         isSpinning = false
-        Options.AutoSpinToggle:SetValue(false)
+        safeSetToggleOff("AutoSpinToggle")
     end
 
+    -- ========== UI Components ==========
     SpinGroup:AddDropdown("AutoSpinFamilies", {
         Text = "Select Families",
         Values = FAMILY_LIST,
@@ -1518,7 +1468,6 @@ if IsMainmenuLobby() then
         end
     })
 end
-
 
 
 
@@ -3961,6 +3910,56 @@ end
 -- ใช้ Tabs.Lobby เหมือนของเก่า
 if Tabs.Lobby then
 
+    -- ========== ฟังก์ชันตรวจสอบ Lobby Key หรือ Inventory (เพิ่มโดยไม่แก้ของเดิม) ==========
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function isUIActive()
+        -- ตรวจสอบ Interface.Gear_Up.Lobby.Key
+        local keyGui = player.PlayerGui:FindFirstChild("Interface")
+        if keyGui then
+            keyGui = keyGui:FindFirstChild("Gear_Up")
+            if keyGui then
+                keyGui = keyGui:FindFirstChild("Lobby")
+                if keyGui then
+                    keyGui = keyGui:FindFirstChild("Key")
+                end
+            end
+        end
+        local keyVisible = (keyGui and IsActuallyVisible(keyGui)) or false
+
+        -- ตรวจสอบ Interface.Topbar.Main.Categories.Inventory
+        local invGui = player.PlayerGui:FindFirstChild("Interface")
+        if invGui then
+            invGui = invGui:FindFirstChild("Topbar")
+            if invGui then
+                invGui = invGui:FindFirstChild("Main")
+                if invGui then
+                    invGui = invGui:FindFirstChild("Categories")
+                    if invGui then
+                        invGui = invGui:FindFirstChild("Inventory")
+                    end
+                end
+            end
+        end
+        local inventoryVisible = (invGui and IsActuallyVisible(invGui)) or false
+
+        return (keyVisible or inventoryVisible)
+    end
+    -- =====================================================
+
     local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
 
     -- ============================== TAB: MISSION ==============================
@@ -4280,18 +4279,36 @@ if Tabs.Lobby then
         Callback = function(v) MissionDelay = v end
     })
 
+    -- ========== ปรับ Toggle Mission ให้รอ UI ก่อนทำงาน (Key หรือ Inventory) ==========
+    local missionPendingStart = false
+    local missionStartTask = nil
+
     local missionToggle = MissionTab:AddToggle("AutoStartMissionToggle", {
         Text = "Start Mission",
         Default = false,
         Callback = function(v)
             if v then
-                if missionRunning then return end
-                task.wait(0.5)
-                missionRunning = true
-                missionBusy = false
-                missionSessionId = missionSessionId + 1
-                task.spawn(MissionLoop, missionSessionId)
+                if missionRunning or missionPendingStart then return end
+                missionPendingStart = true
+                missionStartTask = task.spawn(function()
+                    while missionPendingStart do
+                        if isUIActive() then
+                            Library:Notify("Content Ready (Mission)", 2)
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                    if missionPendingStart then
+                        missionRunning = true
+                        missionBusy = false
+                        missionSessionId = missionSessionId + 1
+                        task.spawn(MissionLoop, missionSessionId)
+                    end
+                    missionPendingStart = false
+                end)
             else
+                missionPendingStart = false
+                if missionStartTask then task.cancel(missionStartTask) end
                 missionRunning = false
                 missionSessionId = missionSessionId + 1
                 LeaveMission()
@@ -4497,18 +4514,36 @@ if Tabs.Lobby then
         Callback = function(v) RaidDelay = v end
     })
 
+    -- ========== ปรับ Toggle Raid ให้รอ UI ก่อนทำงาน ==========
+    local raidPendingStart = false
+    local raidStartTask = nil
+
     local raidToggle = RaidTab:AddToggle("AutoRaidToggle", {
         Text = "Start Raid",
         Default = false,
         Callback = function(v)
             if v then
-                if raidRunning then return end
-                task.wait(0.5)
-                raidRunning = true
-                raidBusy = false
-                raidSessionId = raidSessionId + 1
-                task.spawn(RaidLoop, raidSessionId)
+                if raidRunning or raidPendingStart then return end
+                raidPendingStart = true
+                raidStartTask = task.spawn(function()
+                    while raidPendingStart do
+                        if isUIActive() then
+                            Library:Notify("Content Ready (Raid)", 2)
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                    if raidPendingStart then
+                        raidRunning = true
+                        raidBusy = false
+                        raidSessionId = raidSessionId + 1
+                        task.spawn(RaidLoop, raidSessionId)
+                    end
+                    raidPendingStart = false
+                end)
             else
+                raidPendingStart = false
+                if raidStartTask then task.cancel(raidStartTask) end
                 raidRunning = false
                 raidSessionId = raidSessionId + 1
                 LeaveRaid()
@@ -4573,21 +4608,39 @@ if Tabs.Lobby then
         end
     end
 
+    -- ========== ปรับ Toggle Waves ให้รอ UI ก่อนทำงาน ==========
+    local wavesPendingStart = false
+    local wavesStartTask = nil
+
     local wavesToggle = WavesTab:AddToggle("AutoWavesToggle", {
         Text = "Start Waves",
         Default = false,
         Callback = function(v)
             if v then
-                if wavesRunning then return end
-                task.wait(0.5)
-                wavesRunning = true
-                wavesBusy = false
-                wavesSessionId = wavesSessionId + 1
-                local mySession = wavesSessionId
-                task.spawn(function()
-                    WavesLoop(mySession)
+                if wavesRunning or wavesPendingStart then return end
+                wavesPendingStart = true
+                wavesStartTask = task.spawn(function()
+                    while wavesPendingStart do
+                        if isUIActive() then
+                            Library:Notify("Content Ready (Waves)", 2)
+                            break
+                        end
+                        task.wait(0.5)
+                    end
+                    if wavesPendingStart then
+                        wavesRunning = true
+                        wavesBusy = false
+                        wavesSessionId = wavesSessionId + 1
+                        local mySession = wavesSessionId
+                        task.spawn(function()
+                            WavesLoop(mySession)
+                        end)
+                    end
+                    wavesPendingStart = false
                 end)
             else
+                wavesPendingStart = false
+                if wavesStartTask then task.cancel(wavesStartTask) end
                 wavesRunning = false
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
@@ -5669,7 +5722,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
             getgenv().FarmTimerStarted = true
             getgenv().FarmStartTime = tick()
             getgenv().FarmTimerConfirmed = true
-            Library:Notify("✅ Farm timer started (Status confirmed ON)", 2)
+            -- ลบ Notify ออก
         end
     end
 
@@ -6432,109 +6485,95 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-    -- ============================== AUTO TELEPORT MAIN MENU AFTER TIME ==============================
+    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
     TeleportGroup:AddDivider()
     
-    local autoTeleportEnabled = false
-    local autoTeleportTime = 0
+    local combinedDelay = 0
+    local selectedActions = {}  -- e.g., {"Teleport to Main Menu", "Kill Character"}
+    local combinedEnabled = false
+    local combinedTimerRunning = false
+    local combinedStartTime = 0
+    local actionPending = false
     local teleportAttempts = 0
     local maxAttempts = 5
-    local isTeleporting = false
-    local startTime = 0
     
-    TeleportGroup:AddSlider("AutoTeleportTimeSlider", {
-        Text = "Teleport Main Menu After x Minute",
+    TeleportGroup:AddSlider("CombinedActionDelaySlider", {
+        Text = "Set Delay (seconds)",
         Default = 0,
         Min = 0,
         Max = 600,
         Rounding = 0,
-        Suffix = "sec",
+        Suffix = " sec",
         Callback = function(v)
-            autoTeleportTime = v
+            combinedDelay = v
         end
     })
     
-    TeleportGroup:AddToggle("AutoTeleportToggle", {
-        Text = "Enable Auto Teleport",
-        Default = false,
+    TeleportGroup:AddDropdown("CombinedActionsDropdown", {
+        Values = {"Teleport to Main Menu", "Kill Character"},
+        Default = {},
+        Multi = true,
+        Text = "Select [ Multi ]",
         Callback = function(v)
-            if v then task.wait(1) end
-            autoTeleportEnabled = v
-            if not v then
-                teleportAttempts = 0
-                isTeleporting = false
-                startTime = 0
+            if type(v) == "table" then
+                selectedActions = v
             else
-                teleportAttempts = 0
-                isTeleporting = false
-                startTime = tick()
+                selectedActions = {v}
             end
         end
     })
     
-    task.spawn(function()
-        while true do
-            task.wait(1)
-            
-            if autoTeleportEnabled and not isTeleporting then
-                local elapsed = tick() - startTime
-                if elapsed >= autoTeleportTime then
-                    isTeleporting = true
-                    teleportAttempts = 0
-                end
-            end
-            
-            if autoTeleportEnabled and isTeleporting then
-                teleportAttempts = teleportAttempts + 1
-                pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
-                if teleportAttempts >= maxAttempts then
-                    game:Shutdown()
-                end
-                task.wait(5)
-            end
+    local function performTeleportToMainMenu()
+        teleportAttempts = teleportAttempts + 1
+        pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+        if teleportAttempts >= maxAttempts then
+            game:Shutdown()
         end
-    end)
-
-    -- ============================== FAILED SAFE (KILL CHARACTER AFTER TIMER) ==============================
-    TeleportGroup:AddDivider()
+    end
     
-    local failedSafeEnabled = false
-    local failedSafeDelay = 0
-    local failedSafeTimerRunning = false
-    local failedSafeStartTime = 0
-    local killPending = false
-    
-    local function killCharacter()
+    local function performKillCharacter()
         local player = game.Players.LocalPlayer
         if player.Character and player.Character:FindFirstChild("Humanoid") then
             player.Character.Humanoid.Health = 0
         end
     end
     
-    local function executeKill()
-        if killPending then
-            killCharacter()
-            killPending = false
-            failedSafeTimerRunning = false
+    local function executeCombinedActions()
+        if not actionPending then return end
+        actionPending = false
+        combinedTimerRunning = false
+        
+        for _, action in ipairs(selectedActions) do
+            if action == "Teleport to Main Menu" then
+                performTeleportToMainMenu()
+            elseif action == "Kill Character" then
+                performKillCharacter()
+            end
+            task.wait(0.2)  -- slight delay between actions if both selected
         end
+        teleportAttempts = 0
     end
     
-    local function startFailedSafeTimer()
-        if failedSafeTimerRunning then return end
-        if failedSafeDelay <= 0 then
-            killCharacter()
+    local function startCombinedTimer()
+        if combinedTimerRunning then return end
+        if combinedDelay <= 0 then
+            -- execute immediately
+            if #selectedActions > 0 then
+                actionPending = true
+                executeCombinedActions()
+            end
             return
         end
         
-        failedSafeTimerRunning = true
-        killPending = true
-        failedSafeStartTime = tick()
+        combinedTimerRunning = true
+        actionPending = true
+        combinedStartTime = tick()
         
         task.spawn(function()
-            while failedSafeEnabled and killPending do
-                local elapsed = tick() - failedSafeStartTime
-                if elapsed >= failedSafeDelay then
-                    executeKill()
+            while combinedEnabled and actionPending do
+                local elapsed = tick() - combinedStartTime
+                if elapsed >= combinedDelay then
+                    executeCombinedActions()
                     break
                 end
                 task.wait(0.1)
@@ -6542,39 +6581,22 @@ if Tabs.AutoFarm then
         end)
     end
     
-    local function stopFailedSafeTimer()
-        killPending = false
-        failedSafeTimerRunning = false
+    local function stopCombinedTimer()
+        actionPending = false
+        combinedTimerRunning = false
+        teleportAttempts = 0
     end
     
-    TeleportGroup:AddSlider("FailedSafeDelaySlider", {
-        Text = "Failed Safe Delay (seconds)",
-        Default = 0,
-        Min = 0,
-        Max = 500,
-        Rounding = 0,
-        Suffix = " sec",
-        Callback = function(v)
-            failedSafeDelay = v
-        end
-    })
-    
-    TeleportGroup:AddToggle("FailedSafeToggle", {
-        Text = "Enable Failed Safe (Auto Kill after delay)",
+    TeleportGroup:AddToggle("CombinedActionToggle", {
+        Text = "Enable Failed Safe",
         Default = false,
         Callback = function(v)
             if v then task.wait(1) end
-            failedSafeEnabled = v
+            combinedEnabled = v
             if v then
-                startFailedSafeTimer()
-                if failedSafeDelay > 0 then
-                    Library:Notify("⚠️ Failed Safe Enabled - Will kill character after " .. failedSafeDelay .. " seconds", 3)
-                else
-                    Library:Notify("⚠️ Failed Safe Enabled - Will kill character immediately", 3)
-                end
+                startCombinedTimer()
             else
-                stopFailedSafeTimer()
-                Library:Notify("✅ Failed Safe Disabled", 2)
+                stopCombinedTimer()
             end
         end
     })
@@ -6703,6 +6725,85 @@ local function isSlayObjectiveVisible()
     slayCache = false
     return false
 end
+
+-- ==================== เพิ่มระบบตรวจจับ Mission สำหรับ Shiganshina Breach ====================
+local isShiganshinaBreachMission = false
+local isProtectHQActive = false
+local protectHQCompleted = false
+local lastMissionCheck = 0
+
+-- ฟังก์ชันอัปเดตข้อมูล Mission (เรียกทุก 3 วินาที)
+local function updateMissionInfo()
+    local now = tick()
+    if now - lastMissionCheck < 3 then return end
+    lastMissionCheck = now
+    
+    pcall(function()
+        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+        local data = GET:InvokeServer("Data", "Copy")
+        if data and data.Map then
+            local mapName = data.Map.Map or ""
+            local objective = data.Map.Objective or ""
+            if mapName == "Shiganshina" and objective == "Breach" then
+                if not isShiganshinaBreachMission then
+                    isShiganshinaBreachMission = true
+                    Library:Notify("[DEBUG] Shiganshina Breach mission detected - Slay check disabled until Protect_HQ appears", 4)
+                end
+            else
+                if isShiganshinaBreachMission then
+                    isShiganshinaBreachMission = false
+                    isProtectHQActive = false
+                    protectHQCompleted = false
+                    Library:Notify("[DEBUG] Not Shiganshina Breach - Returning to normal mode", 3)
+                end
+            end
+        end
+    end)
+end
+
+-- ฟังก์ชันตรวจสอบ Protect_HQ
+local function checkProtectHQ()
+    if not isShiganshinaBreachMission then return end
+    
+    local player = game:GetService("Players").LocalPlayer
+    local protect = player.PlayerGui:FindFirstChild("Interface") and 
+                    player.PlayerGui.Interface:FindFirstChild("HUD") and
+                    player.PlayerGui.Interface.HUD:FindFirstChild("Objectives") and
+                    player.PlayerGui.Interface.HUD.Objectives:FindFirstChild("Main") and
+                    player.PlayerGui.Interface.HUD.Objectives.Main:FindFirstChild("Protect_HQ")
+    
+    if protect and protect:IsA("TextLabel") and protect.Visible then
+        if not isProtectHQActive then
+            isProtectHQActive = true
+            protectHQCompleted = false
+            Library:Notify("[DEBUG] Protect_HQ appeared - Slay check will be re-enabled after completing Protect_HQ", 3)
+        end
+        
+        -- ตรวจสอบความคืบหน้า
+        local text = protect.Text
+        local current, max = text:match("(%d+)/(%d+)")
+        if current and max then
+            if tonumber(current) >= tonumber(max) and not protectHQCompleted then
+                protectHQCompleted = true
+                Library:Notify("[DEBUG] Protect_HQ completed ("..current.."/"..max..") - Re-enabling Slay check", 3)
+            end
+        end
+    else
+        if isProtectHQActive and not protectHQCompleted then
+            -- Protect_HQ หายไปแต่ยังไม่ครบ? อาจเป็นด่านอื่น
+            isProtectHQActive = false
+        end
+    end
+end
+
+-- เริ่มลูปตรวจจับ Mission และ Protect_HQ
+task.spawn(function()
+    while true do
+        updateMissionInfo()
+        checkProtectHQ()
+        task.wait(1)
+    end
+end)
 
 -- ==================== BOSS DETECTION ====================
 local BOSS_NAMES = {
@@ -6947,6 +7048,21 @@ local function AttackAllTitans()
         end
         return
     end
+
+    -- ****************** เพิ่มเงื่อนไข Shiganshina Breach ******************
+    if isShiganshinaBreachMission and not protectHQCompleted then
+        -- ระหว่างที่ยังไม่จบ Protect_HQ (หรือยังไม่ปรากฏ) ให้ข้าม Slay และ Wave safety ทั้งหมด
+        -- โจมตีปกติด้วย dmg 2500
+        SafeFire(POST, "Attacks", "Slash", true)
+        for _, entry in ipairs(ActiveTitans) do
+            local nape = entry.nape
+            if nape and nape.Parent then
+                SafeFire(POST, "Hitboxes", "Register", nape, 2500, 0)
+            end
+        end
+        return
+    end
+    -- ***************************************************************
 
     -- ยังไม่ถึง Safety Time → ใช้ระบบตรวจสอบปกติ
     -- ========== Wave Safety Check ==========
