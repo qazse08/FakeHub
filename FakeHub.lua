@@ -631,6 +631,18 @@ if IsMainmenuLobby() then
         return ok and result or "Unknown"
     end
 
+    -- ดึงจำนวน Spins จาก Roll Button
+    local function GetTotalSpins()
+        local ok, result = pcall(function()
+            return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll.Title.Text
+        end)
+        if ok and result then
+            local num = tonumber(result:match("%d+"))
+            return num or 0
+        end
+        return 0
+    end
+
     -- ฟังก์ชันหา Rarity
     local function GetFamilyRarityPopup(familyName)
         if not familyName or familyName == "Unknown" then return "Common" end
@@ -815,6 +827,18 @@ if IsMainmenuLobby() then
         familyLabel.TextWrapped = true
         familyLabel.Parent = mainFrame
 
+        -- เพิ่ม Label แสดง Total Spins
+        local spinLabel = Instance.new("TextLabel")
+        spinLabel.Size = UDim2.new(1, -40, 0, 20)
+        spinLabel.Position = UDim2.new(0, 12, 1, -42)   -- เหนือ footerLabel เล็กน้อย
+        spinLabel.BackgroundTransparency = 1
+        spinLabel.Text = "Total Spins: 0"
+        spinLabel.Font = Enum.Font.GothamMedium
+        spinLabel.TextSize = 12
+        spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
+        spinLabel.TextXAlignment = Enum.TextXAlignment.Left
+        spinLabel.Parent = mainFrame
+
         local footerLabel = Instance.new("TextLabel")
         footerLabel.Size = UDim2.new(1, -40, 0, 16)
         footerLabel.Position = UDim2.new(0, 12, 1, -20)
@@ -838,6 +862,7 @@ if IsMainmenuLobby() then
                     familyLabel.TextColor3 = Color3.fromHex("#888888")
                     titleLabel.TextColor3 = Color3.fromHex("#888888")
                     closeBtn.BackgroundColor3 = Color3.fromHex("#888888")
+                    spinLabel.Text = "Total Spins: -"
                 end
                 return
             end
@@ -845,12 +870,14 @@ if IsMainmenuLobby() then
             local family = GetCurrentFamilyPopup()
             local rarity = GetFamilyRarityPopup(family)
             local baseColor = GetBaseColor(rarity)
+            local spins = GetTotalSpins()
 
             familyLabel.Text = family
             familyLabel.TextColor3 = baseColor
             titleLabel.TextColor3 = baseColor
             closeBtn.BackgroundColor3 = baseColor
             closeBtn.TextColor3 = (rarity == "Legendary" or rarity == "Mythic") and Color3.fromHex("#111111") or Color3.new(1,1,1)
+            spinLabel.Text = "Total Spins: " .. tostring(spins)
             
             if currentRarity ~= rarity then
                 currentRarity = rarity
@@ -923,12 +950,10 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ========== ตัวแปรสำหรับ Follow Frame Check ==========
-    local followFrameVisible = false
-    local checkInterval = 0.5
-    local waitingForFollowToClose = false
+    -- ตัวแปรสำหรับ UI Ready
+    local uiReady = false
 
-    -- ========== ฟังก์ชันตรวจสอบ Follow Frame ==========
+    -- ========== ฟังก์ชันตรวจสอบ Follow Frame (สำหรับกดปิดตอนขึ้น) ==========
     local function IsActuallyVisible(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
         if not gui.Visible then return false end
@@ -955,7 +980,7 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- ========== ฟังก์ชันกดปุ่ม Customisation (ปลอดภัย 100%) ==========
+    -- ========== ฟังก์ชันกดปุ่ม Customisation ==========
     local function clickCustomisation()
         pcall(function()
             local customBtn = getCustomBtn()
@@ -963,22 +988,31 @@ if IsMainmenuLobby() then
                 press(customBtn)
             end
         end)
-        return false -- ไม่ต้องสนใจผลลัพธ์
     end
 
-    -- ========== ลูปตรวจสอบ Follow Frame และกด Customisation อัตโนมัติ ==========
+    -- ========== ลูปกด Customisation ตลอดเวลาจนกว่า UI จะพร้อม ==========
     task.spawn(function()
         while true do
-            task.wait(checkInterval)
-            local currentVisible = isFollowFrameVisible()
-            followFrameVisible = currentVisible
-            if followFrameVisible then
+            if not uiReady then
                 clickCustomisation()
-                waitingForFollowToClose = true
+                task.wait(0.3)
             else
-                if waitingForFollowToClose then
-                    waitingForFollowToClose = false
+                local rollBtn = getRollBtn()
+                local familyTitle = getFamilyTitle()
+                if not (rollBtn and isGuiVisible(rollBtn)) and not (familyTitle and familyTitle.Visible and familyTitle.Text ~= "") then
+                    uiReady = false
                 end
+                task.wait(0.5)
+            end
+        end
+    end)
+
+    -- ========== ลูปตรวจสอบ Follow Frame และกด Customisation เพิ่มเติม ==========
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            if isFollowFrameVisible() then
+                clickCustomisation()
             end
         end
     end)
@@ -1000,7 +1034,7 @@ if IsMainmenuLobby() then
         return string.sub(name, 1, 3) == "---"
     end
 
-    -- ========== UI Element Getters (ปลอดภัย) ==========
+    -- ========== UI Element Getters ==========
     local function getInterface()
         return playerGui:FindFirstChild("Interface")
     end
@@ -1208,9 +1242,59 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ========== UI Preparation Functions (ปลอดภัย) ==========
+    -- ========== ฟังก์ชันเปิด UI ให้พร้อม ==========
+    local function ensureUIOpen()
+        local success = pcall(function()
+            local rollBtn = getRollBtn()
+            
+            if isGuiVisible(rollBtn) then
+                local storageBtn = getStorageBtn()
+                local storageUI = getStorageUI()
+                if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
+                    press(storageBtn)
+                    task.wait(0.3)
+                end
+                return true
+            end
+            
+            local customBtn = getCustomBtn()
+            if isGuiVisible(customBtn) then
+                press(customBtn)
+                task.wait(0.2)
+            end
+            
+            local t = tick()
+            while tick() - t < 2 do
+                if isGuiVisible(getFamilyBtn()) then break end
+                task.wait(0.05)
+            end
+            
+            local familyBtn = getFamilyBtn()
+            if not isGuiVisible(familyBtn) then return false end
+            
+            if not isGuiVisible(getRollBtn()) then
+                press(familyBtn)
+                task.wait(0.2)
+            end
+            
+            local storageBtn = getStorageBtn()
+            local storageUI = getStorageUI()
+            if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
+                press(storageBtn)
+                task.wait(0.2)
+            end
+            
+            return isGuiVisible(getRollBtn())
+        end) or false
+
+        if success and not uiReady then
+            uiReady = true
+        end
+        return success
+    end
+
     local function ensureFamilyTabAndCheckTitle()
-        return pcall(function()
+        local success = pcall(function()
             local familyBtn = getFamilyBtn()
             
             if not isGuiVisible(familyBtn) then
@@ -1220,7 +1304,7 @@ if IsMainmenuLobby() then
                     task.wait(0.1)
                 end
                 local t = tick()
-                while tick() - t < 3 do
+                while tick() - t < 2 do
                     if isGuiVisible(getFamilyBtn()) then break end
                     task.wait(0.05)
                 end
@@ -1233,79 +1317,21 @@ if IsMainmenuLobby() then
             end
             
             local titleChecked = false
-            local startCheck = tick()
             for i = 1, 10 do
-                if tick() - startCheck > 3 then break end
                 local title = getFamilyTitle()
                 if title and title:IsA("TextLabel") and title.Visible and title.Text ~= "" then
                     titleChecked = true
                     break
                 end
-                familyBtn = getFamilyBtn()
-                if isGuiVisible(familyBtn) then
-                    press(familyBtn)
-                end
                 task.wait(0.1)
             end
             return titleChecked
         end) or false
-    end
 
-    local function ensureUIOpen()
-        return pcall(function()
-            local rollBtn = getRollBtn()
-            
-            if isGuiVisible(rollBtn) then
-                local storageBtn = getStorageBtn()
-                local storageUI = getStorageUI()
-                if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
-                    press(storageBtn)
-                    local t = tick()
-                    while tick() - t < 1 do
-                        if isGuiVisible(getStorageUI()) then break end
-                        task.wait(0.05)
-                    end
-                end
-                return true
-            end
-            
-            local customBtn = getCustomBtn()
-            if isGuiVisible(customBtn) then
-                press(customBtn)
-                task.wait(0.1)
-            end
-            
-            local t = tick()
-            while tick() - t < 3 do
-                if isGuiVisible(getFamilyBtn()) then break end
-                task.wait(0.05)
-            end
-            
-            local familyBtn = getFamilyBtn()
-            if not isGuiVisible(familyBtn) then return false end
-            
-            if not isGuiVisible(getRollBtn()) then
-                press(familyBtn)
-                local t2 = tick()
-                while tick() - t2 < 1 do
-                    if isGuiVisible(getRollBtn()) then break end
-                    task.wait(0.05)
-                end
-            end
-            
-            local storageBtn = getStorageBtn()
-            local storageUI = getStorageUI()
-            if isGuiVisible(storageBtn) and not isGuiVisible(storageUI) then
-                press(storageBtn)
-                local t3 = tick()
-                while tick() - t3 < 1 do
-                    if isGuiVisible(getStorageUI()) then break end
-                    task.wait(0.05)
-                end
-            end
-            
-            return isGuiVisible(getRollBtn())
-        end) or false
+        if success and not uiReady then
+            uiReady = true
+        end
+        return success
     end
 
     local function getCurrentFamily()
@@ -1370,10 +1396,9 @@ if IsMainmenuLobby() then
                     return
                 end
 
-                local rollVisible = isGuiVisible(getRollBtn())
-                if not rollVisible then
+                if not isGuiVisible(getRollBtn()) then
                     if not ensureUIOpen() then
-                        task.wait(0.1)
+                        task.wait(0.2)
                         return
                     end
                 else
@@ -1460,6 +1485,14 @@ if IsMainmenuLobby() then
         Default = false,
         Callback = function(v)
             if v then 
+                if #selectedFamilies == 0 then
+                    pcall(function()
+                        if Options and Options.AutoSpinToggle then
+                            Options.AutoSpinToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
                 stopSpin = false
                 task.spawn(autoSpinLoop)
             else 
@@ -1468,7 +1501,6 @@ if IsMainmenuLobby() then
         end
     })
 end
-
 
 
 -- ============================== TRADE SYSTEM ==============================
@@ -3035,7 +3067,7 @@ end
 -- ใช้ Tabs.Lobby เหมือนของเก่า
 if Tabs.Lobby then
 
-    -- ========== ฟังก์ชันตรวจสอบ Lobby Key หรือ Inventory (เพิ่มโดยไม่แก้ของเดิม) ==========
+    -- ========== ฟังก์ชันตรวจสอบ Lobby Key หรือ Inventory ==========
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
 
@@ -3404,7 +3436,10 @@ if Tabs.Lobby then
         Callback = function(v) MissionDelay = v end
     })
 
-    -- ========== ปรับ Toggle Mission ให้รอ UI ก่อนทำงาน (Key หรือ Inventory) ==========
+    -- ตัวแปรกลางสำหรับ Auto Content (เพิ่มตรงนี้)
+    local activeAutoContent = nil  -- "mission", "raid", "waves"
+
+    -- ========== ปรับ Toggle Mission ==========
     local missionPendingStart = false
     local missionStartTask = nil
 
@@ -3414,6 +3449,16 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if missionRunning or missionPendingStart then return end
+                if activeAutoContent ~= nil then
+                    Library:Notify("Select one Toggle", 2)
+                    pcall(function()
+                        if Options and Options.AutoStartMissionToggle then
+                            Options.AutoStartMissionToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                activeAutoContent = "mission"
                 missionPendingStart = true
                 missionStartTask = task.spawn(function()
                     while missionPendingStart do
@@ -3437,6 +3482,7 @@ if Tabs.Lobby then
                 missionRunning = false
                 missionSessionId = missionSessionId + 1
                 LeaveMission()
+                if activeAutoContent == "mission" then activeAutoContent = nil end
             end
         end
     })
@@ -3639,7 +3685,7 @@ if Tabs.Lobby then
         Callback = function(v) RaidDelay = v end
     })
 
-    -- ========== ปรับ Toggle Raid ให้รอ UI ก่อนทำงาน ==========
+    -- ========== ปรับ Toggle Raid ==========
     local raidPendingStart = false
     local raidStartTask = nil
 
@@ -3649,6 +3695,16 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if raidRunning or raidPendingStart then return end
+                if activeAutoContent ~= nil then
+                    Library:Notify("Select one Toggle", 2)
+                    pcall(function()
+                        if Options and Options.AutoRaidToggle then
+                            Options.AutoRaidToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                activeAutoContent = "raid"
                 raidPendingStart = true
                 raidStartTask = task.spawn(function()
                     while raidPendingStart do
@@ -3672,6 +3728,7 @@ if Tabs.Lobby then
                 raidRunning = false
                 raidSessionId = raidSessionId + 1
                 LeaveRaid()
+                if activeAutoContent == "raid" then activeAutoContent = nil end
             end
         end
     })
@@ -3733,7 +3790,7 @@ if Tabs.Lobby then
         end
     end
 
-    -- ========== ปรับ Toggle Waves ให้รอ UI ก่อนทำงาน ==========
+    -- ========== ปรับ Toggle Waves ==========
     local wavesPendingStart = false
     local wavesStartTask = nil
 
@@ -3743,6 +3800,16 @@ if Tabs.Lobby then
         Callback = function(v)
             if v then
                 if wavesRunning or wavesPendingStart then return end
+                if activeAutoContent ~= nil then
+                    Library:Notify("Select one Toggle", 2)
+                    pcall(function()
+                        if Options and Options.AutoWavesToggle then
+                            Options.AutoWavesToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                activeAutoContent = "waves"
                 wavesPendingStart = true
                 wavesStartTask = task.spawn(function()
                     while wavesPendingStart do
@@ -3770,6 +3837,7 @@ if Tabs.Lobby then
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
                 LeaveWave()
+                if activeAutoContent == "waves" then activeAutoContent = nil end
             end
         end
     })
