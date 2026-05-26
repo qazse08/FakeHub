@@ -226,7 +226,7 @@ end
 
 
 
--- ============================== WEBHOOK NOTIFICATION SECTION ==============================
+-- ============================== WEBHOOK NOTIFICATION SECTION (FIXED SPIN DETECTION) ==============================
 if IsMainmenuLobby() then
     Tabs.Webhook = Window:AddTab("Webhook")
 
@@ -240,29 +240,49 @@ if IsMainmenuLobby() then
     local LocalPlayer = Players.LocalPlayer
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- เก็บ spin count ล่าสุด เพื่อตรวจจับการเปลี่ยนแปลง
-    local lastSpinCount = 0
-    -- เก็บสถานะว่าได้ส่ง webhook สำหรับการสุ่มครั้งนี้หรือยัง
+    -- ตัวแปรสถานะ
+    local lastSpinCount = -1          -- เริ่มต้น -1 หมายถึงยังไม่เคยอ่านค่าได้ถูกต้อง
+    local hasRolledBefore = false     -- เคยมีการกด Roll จริงหรือยัง (spin count ลดลง)
     local hasSentForCurrentRoll = false
+    local lastValidFamily = ""        -- เก็บ family ล่าสุดที่เชื่อถือได้
+
+    -- ตรวจสอบว่าอยู่ในหน้า Family Tab จริงหรือไม่
+    local function isFamilyTabOpen()
+        local success, rollBtn = pcall(function()
+            return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll
+        end)
+        if not success or not rollBtn then return false end
+        -- ตรวจสอบ visible ตาม hierarchy
+        local visible = rollBtn.Visible
+        if not visible then return false end
+        local parent = rollBtn.Parent
+        while parent and parent ~= PlayerGui do
+            if parent:IsA("GuiObject") and not parent.Visible then return false end
+            if parent:IsA("ScreenGui") and not parent.Enabled then return false end
+            parent = parent.Parent
+        end
+        return true
+    end
 
     local function GetCurrentFamily()
+        if not isFamilyTabOpen() then return nil end
         local ok, result = pcall(function()
             return PlayerGui.Interface.Customisation.Family.Family.Title.Text
         end)
-        return ok and result or "Unknown"
+        return ok and result or nil
     end
 
     local function GetSpinCount()
+        if not isFamilyTabOpen() then return nil end
         local ok, result = pcall(function()
             return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll.Title.Text
         end)
-        return ok and result or "Unknown"
+        return ok and result or nil
     end
 
-    -- แปลง spin text เป็นตัวเลข
     local function GetSpinCountNumber()
         local spinStr = GetSpinCount()
-        if spinStr == "Unknown" then return -1 end
+        if not spinStr or spinStr == "" then return -1 end
         local num = tonumber(spinStr:match("%d+"))
         return num or -1
     end
@@ -270,12 +290,11 @@ if IsMainmenuLobby() then
     local function GetStoredFamilies()
         local data = {}
         local count = 0
+        if not isFamilyTabOpen() then return data, count end
         local ok, familiesFolder = pcall(function()
             return PlayerGui.Interface.Customisation.Storage.Main.Families
         end)
-        if not ok or not familiesFolder then
-            return data, count
-        end
+        if not ok or not familiesFolder then return data, count end
         for _, v in ipairs(familiesFolder:GetChildren()) do
             pcall(function()
                 local inner = v:FindFirstChild("Inner")
@@ -318,31 +337,20 @@ if IsMainmenuLobby() then
     end
 
     local function GetColorByRarity(rarity)
-        if rarity == "Epic" then
-            return 0x9b59b6
-        elseif rarity == "Legendary" then
-            return 0xf1c40f
-        elseif rarity == "Mythic" then
-            return 0xe74c3c
-        else
-            return 0x2ecc71
-        end
+        if rarity == "Epic" then return 0x9b59b6
+        elseif rarity == "Legendary" then return 0xf1c40f
+        elseif rarity == "Mythic" then return 0xe74c3c
+        else return 0x2ecc71 end
     end
 
-    -- ฟังก์ชันส่ง webhook เมื่อได้ target family หลังจาก roll
     local function SendTargetWebhook(currentFamily, spinNumber)
         if webhookURL == "" then return false end
-
         local familyList, familyCount = GetStoredFamilies()
         local rarity = GetFamilyRarity(currentFamily)
         local color = GetColorByRarity(rarity)
-        
         local content = nil
-        if pingMode == "Everyone" then
-            content = "@everyone"
-        elseif pingMode == "Here" then
-            content = "@here"
-        end
+        if pingMode == "Everyone" then content = "@everyone"
+        elseif pingMode == "Here" then content = "@here" end
 
         local player = game:GetService("Players").LocalPlayer
         local userId = player.UserId
@@ -373,9 +381,7 @@ if IsMainmenuLobby() then
             embeds = {{
                 title = "🎯 TARGET FAMILY FOUND: " .. currentFamily,
                 color = color,
-                thumbnail = {
-                    url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
-                },
+                thumbnail = { url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId) },
                 fields = {
                     { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
                     { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
@@ -389,20 +395,16 @@ if IsMainmenuLobby() then
 
         local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
         if not requestFunction then return false end
-
         return pcall(function()
             requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
         end)
     end
 
-    -- ฟังก์ชันส่ง webhook สปินหมด
     local function SendSpinDepletedWebhook(beforeSpins)
         if webhookURL == "" then return false end
-        
-        local currentFamily = GetCurrentFamily()
+        local currentFamily = GetCurrentFamily() or "Unknown"
         local familyList, familyCount = GetStoredFamilies()
         local rarity = GetFamilyRarity(currentFamily)
-        
         local storedDisplay = ""
         if familyCount > 0 then
             local maxDisplay = 15
@@ -419,11 +421,8 @@ if IsMainmenuLobby() then
         end
         
         local content = nil
-        if pingMode == "Everyone" then
-            content = "@everyone"
-        elseif pingMode == "Here" then
-            content = "@here"
-        end
+        if pingMode == "Everyone" then content = "@everyone"
+        elseif pingMode == "Here" then content = "@here" end
 
         local player = game:GetService("Players").LocalPlayer
         local userId = player.UserId
@@ -439,9 +438,7 @@ if IsMainmenuLobby() then
             embeds = {{
                 title = "⚠️ SPINS HAVE RUN OUT",
                 color = 0xe74c3c,
-                thumbnail = {
-                    url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId)
-                },
+                thumbnail = { url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId) },
                 fields = {
                     { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
                     { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
@@ -455,31 +452,27 @@ if IsMainmenuLobby() then
 
         local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
         if not requestFunction then return false end
-
         return pcall(function()
             requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
         end)
     end
 
-    -- รีเซ็ตสถานะ spin depleted (ไว้เรียกจาก autoSpinLoop)
-    local function resetSpinDepleted()
-        -- ไม่ต้องทำอะไรเพิ่มเติม
-    end
-    _G._resetSpinDepleted = resetSpinDepleted
-
-    -- อัปเดตเวลาสปิน (ไว้เรียกจาก autoSpinLoop เพื่อให้ระบบรู้ว่ามีการกด roll)
-    -- แต่ตอนนี้ใช้การตรวจจับ spin count แทน, แต่ยังคงไว้เพื่อความเข้ากันได้
-    local function UpdateLastSpinTime()
-        -- ไม่ต้องทำ เพราะเราใช้วิธีตรวจจับ spin count แทน แต่ถ้ามีการเรียกก็ไม่เสียหาย
-    end
-    _G.UpdateLastSpinTime = UpdateLastSpinTime
-
-    -- MAIN LOOP ตรวจจับการเปลี่ยนแปลงของ spin count และส่ง webhook หลังจาก roll
+    -- MAIN LOOP: ตรวจจับการเปลี่ยนแปลงของ spin count เฉพาะเมื่ออยู่ใน Family Tab เท่านั้น
     task.spawn(function()
         while true do
-            task.wait(0.3) -- ตรวจสอบถี่พอ
+            task.wait(0.3)
             if not autoNotifyEnabled or webhookURL == "" then
+                -- ถ้าปิดการแจ้งเตือน ให้รีเซ็ตสถานะ
+                lastSpinCount = -1
+                hasRolledBefore = false
                 task.wait(1)
+                continue
+            end
+
+            -- อ่านค่าเฉพาะเมื่ออยู่ใน Family Tab เท่านั้น
+            if not isFamilyTabOpen() then
+                -- ถ้ายังไม่ได้เปิด Family Tab ให้ข้ามไป
+                task.wait(0.5)
                 continue
             end
 
@@ -489,18 +482,27 @@ if IsMainmenuLobby() then
                 continue
             end
 
-            -- ตรวจจับว่ามีการลดลงของ spin count (แสดงว่ามีการสุ่ม)
-            if lastSpinCount > 0 and currentSpinNum < lastSpinCount then
-                -- มีการสุ่มเกิดขึ้นแล้ว!
-                hasSentForCurrentRoll = false  -- รีเซ็ต flag สำหรับการสุ่มใหม่
+            -- ถ้ายังไม่เคยมี lastSpinCount ที่ถูกต้อง (ครั้งแรก)
+            if lastSpinCount == -1 then
+                -- ตั้งค่าเริ่มต้น แต่ยังไม่ถือว่าเคย roll
+                lastSpinCount = currentSpinNum
+                hasRolledBefore = false
+                task.wait(0.2)
+                continue
+            end
+
+            -- ตรวจจับการลดลงของ spin count (เกิดการกด Roll)
+            if currentSpinNum < lastSpinCount and lastSpinCount > 0 then
+                -- นี่คือการ Roll จริง
+                hasRolledBefore = true
+                hasSentForCurrentRoll = false
                 
-                -- รอให้ Family อัปเดต (หน่วงเล็กน้อย)
+                -- รอให้ Family อัปเดต
                 task.wait(0.2)
                 
-                -- ตรวจสอบ family ปัจจุบัน
                 local currentFamily = GetCurrentFamily()
                 if currentFamily and currentFamily ~= "Unknown" then
-                    -- ตรวจสอบว่าเป็น target family หรือไม่
+                    -- ตรวจสอบ target family
                     local targetFamilies = {}
                     if Options and Options.AutoSpinFamilies then
                         for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
@@ -526,10 +528,11 @@ if IsMainmenuLobby() then
                 end
             end
 
-            -- ตรวจจับสปินหมด
-            if lastSpinCount > 0 and currentSpinNum == 0 and lastSpinCount ~= currentSpinNum then
-                -- สปินหมดจากการสุ่มครั้งล่าสุด
+            -- ตรวจจับสปินหมด: ต้องเคย roll มาก่อน, spin ก่อนหน้า > 0, และปัจจุบันเป็น 0
+            if hasRolledBefore and lastSpinCount > 0 and currentSpinNum == 0 then
                 SendSpinDepletedWebhook(lastSpinCount)
+                -- รีเซ็ตเพื่อไม่ให้ส่งซ้ำสำหรับรอบนี้
+                hasRolledBefore = false
             end
 
             -- อัปเดตค่า lastSpinCount
@@ -537,7 +540,7 @@ if IsMainmenuLobby() then
         end
     end)
 
-    -- UI (ลบ notify ออกทั้งหมด)
+    -- UI Components
     WebhookGroup:AddInput("Webhook_URL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
@@ -555,7 +558,6 @@ if IsMainmenuLobby() then
 
     WebhookGroup:AddButton("Test Send", function()
         SendTargetWebhook("Test Family (Fake)", "?")
-        -- ไม่มี notify
     end)
 
     WebhookGroup:AddToggle("AutoNotifyToggle", {
@@ -564,10 +566,10 @@ if IsMainmenuLobby() then
         Callback = function(v)
             autoNotifyEnabled = v
             if v then
-                -- รีเซ็ตสถานะเพื่อให้เริ่มตรวจจับใหม่
-                lastSpinCount = GetSpinCountNumber()
+                -- รีเซ็ตทุกสถานะเมื่อเปิดใช้งาน
+                lastSpinCount = -1
+                hasRolledBefore = false
                 hasSentForCurrentRoll = false
-                -- ไม่มี notify
             end
         end
     })
