@@ -1474,1027 +1474,152 @@ end
 -- ============================== TRADE SYSTEM ==============================
 if IsLobbyLobby() then
     task.defer(function()
-        local file1 = "FakeHUB/saved_players.txt"
-        local file2 = "FakeHUB/saved_players_2.txt"
-
-        local function loadList(f) local t={} if isfile(f) then for n in string.gmatch(readfile(f),"[^\r\n]+") do n=n:gsub("^%s+",""):gsub("%s+$","") if n~="" then table.insert(t,n) end end end return t end
-        local function saveList(f,t) writefile(f,table.concat(t,"\n")) end
-        local function addName(f,n) n=n:gsub("^%s+",""):gsub("%s+$","") if n=="" then return false end local t=loadList(f) for _,v in ipairs(t) do if v:lower()==n:lower() then return false end end table.insert(t,n) saveList(f,t) return true end
-        local function addMulti(f,s) local a,d=0,0 for n in string.gmatch(s,"[^,;\r\n%s]+") do if addName(f,n) then a=a+1 else d=d+1 end end return a,d end
-        local function removeName(f,n) local t=loadList(f) local r={} for _,v in ipairs(t) do if v~=n then table.insert(r,v) end end saveList(f,r) end
-        local function toList(v) local r={} if type(v)=="table" then for k,e in pairs(v) do if e then table.insert(r,k) end end end return r end
-        local function inGame(n) if n:lower()==Player.Name:lower() then return false end for _,p in ipairs(Players:GetPlayers()) do if p~=Player and p.Name:lower()==n:lower() then return true end end return false end
-        local function filterOnline(l) local o={} for _,n in ipairs(l) do if n~="No Players" and n:lower()~=Player.Name:lower() and inGame(n) then table.insert(o,n) end end return o end
+        local Players = game:GetService("Players")
+        local Player = Players.LocalPlayer
+        local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
         
-        local function selectAllFromFile(file)
-            local all = loadList(file)
-            local newVal = {}
-            for _, name in ipairs(all) do
-                newVal[name] = true
-            end
-            return newVal
+        local file1, file2 = "FakeHUB/saved_players.txt", "FakeHUB/saved_players_2.txt"
+        
+        -- ไฟล์ utilities
+        local function loadList(f) 
+            local t={} 
+            if isfile(f) then 
+                for n in string.gmatch(readfile(f),"[^\r\n]+") do 
+                    n=n:gsub("^%s+",""):gsub("%s+$","") 
+                    if n~="" then table.insert(t,n) end 
+                end 
+            end 
+            return t 
         end
-
-        local function isTradeOpen()
-            local ok, r = pcall(function() return Player.PlayerGui.Interface.Trading.Prompt.Visible end)
-            return ok and r
+        local function saveList(f,t) writefile(f,table.concat(t,"\n")) end
+        local function addName(f,n) 
+            n=n:gsub("^%s+",""):gsub("%s+$","") 
+            if n=="" then return false end 
+            local t=loadList(f) 
+            for _,v in ipairs(t) do if v:lower()==n:lower() then return false end end 
+            table.insert(t,n) 
+            saveList(f,t) 
+            return true 
         end
-
+        local function addMulti(f,s) 
+            local a=0 
+            for n in string.gmatch(s,"[^,;\r\n%s]+") do if addName(f,n) then a=a+1 end end 
+            return a,0 
+        end
+        local function removeName(f,n) 
+            local t=loadList(f) 
+            local r={} 
+            for _,v in ipairs(t) do if v~=n then table.insert(r,v) end end 
+            saveList(f,r) 
+        end
+        local function toList(v) 
+            local r={} 
+            if type(v)=="table" then for k,e in pairs(v) do if e then table.insert(r,k) end end end 
+            return r 
+        end
+        local function inGame(n) 
+            if n:lower()==Player.Name:lower() then return false end 
+            for _,p in ipairs(Players:GetPlayers()) do if p~=Player and p.Name:lower()==n:lower() then return true end end 
+            return false 
+        end
+        local function filterOnline(l) 
+            local o={} 
+            for _,n in ipairs(l) do if n~="No Players" and n:lower()~=Player.Name:lower() and inGame(n) then table.insert(o,n) end end 
+            return o 
+        end
+        local function selectAllFromFile(file) 
+            local all=loadList(file) 
+            local new={} 
+            for _,n in ipairs(all) do new[n]=true end 
+            return new 
+        end
+        
+        -- Trade logic
+        local isTradeOpen = function() return pcall(function() return Player.PlayerGui.Interface.Trading.Prompt.Visible end) and true or false end
         local sendCooldown, acceptCooldown = {}, {}
         local lastSend, lastAccept = 0, 0
+        local function clearCooldownForPlayer(name) sendCooldown[name]=nil; acceptCooldown[name]=nil end
         
-        local function clearCooldownForPlayer(name)
-            sendCooldown[name] = nil
-            acceptCooldown[name] = nil
-        end
-        
-        local trackedPlayers = {}
         task.spawn(function()
             while true do
                 task.wait(2)
                 pcall(function()
-                    local currentPlayers = {}
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        if p ~= Player then
-                            currentPlayers[p.Name] = true
-                            if not trackedPlayers[p.Name] then
-                                trackedPlayers[p.Name] = true
-                                clearCooldownForPlayer(p.Name)
-                            end
-                        end
-                    end
-                    for name in pairs(trackedPlayers) do
-                        if not currentPlayers[name] then
-                            trackedPlayers[name] = nil
-                        end
-                    end
+                    local current={}
+                    for _,p in ipairs(Players:GetPlayers()) do if p~=Player then current[p.Name]=true end end
+                    for name in pairs(sendCooldown) do if not current[name] then clearCooldownForPlayer(name) end end
                 end)
             end
         end)
         
         local function sendTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
-            local now = tick()
-            if sendCooldown[n] and now-sendCooldown[n] < 1.5 then return end
-            if now-lastSend < 0.35 then return end
+            local now=tick()
+            if sendCooldown[n] and now-sendCooldown[n]<1.5 then return end
+            if now-lastSend<0.35 then return end
             lastSend, sendCooldown[n] = now, now
             pcall(function() POST:FireServer("Invites","Invite",n) end)
         end
         
         local function acceptTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
-            local now = tick()
-            if acceptCooldown[n] and now-acceptCooldown[n] < 1 then return end
-            if now-lastAccept < 0.25 then return end
+            local now=tick()
+            if acceptCooldown[n] and now-acceptCooldown[n]<1 then return end
+            if now-lastAccept<0.25 then return end
             lastAccept, acceptCooldown[n] = now, now
             pcall(function() POST:FireServer("Invites","State",n,"Accept") end)
         end
-
-        local function buildSendLoop(getCache)
+        
+        local function buildLoop(getCache, isSend)
             return function(toggleRef)
                 task.spawn(function()
                     while toggleRef.Enabled do
-                        if isTradeOpen() then task.wait(0.3); continue end
+                        if isTradeOpen() then task.wait(0.3) continue end
                         local targets = filterOnline(toList(getCache()))
-                        for _, n in ipairs(targets) do
-                            if not toggleRef.Enabled then break end
-                            if isTradeOpen() then break end
-                            sendTrade(n)
-                            task.wait(0.12)
+                        for _,n in ipairs(targets) do
+                            if not toggleRef.Enabled or isTradeOpen() then break end
+                            if isSend then sendTrade(n) else acceptTrade(n) end
+                            task.wait(isSend and 0.12 or 0.08)
                         end
                         task.wait(0.3)
                     end
                 end)
             end
         end
-
-        local function buildAcceptLoop(getCache)
-            return function(toggleRef)
-                task.spawn(function()
-                    while toggleRef.Enabled do
-                        if isTradeOpen() then task.wait(0.3); continue end
-                        local targets = filterOnline(toList(getCache()))
-                        for _, n in ipairs(targets) do
-                            if not toggleRef.Enabled then break end
-                            if isTradeOpen() then break end
-                            acceptTrade(n)
-                            task.wait(0.08)
-                        end
-                        task.wait(0.2)
-                    end
-                end)
-            end
-        end
-
+        
         local function addToggles(box, cacheName, getCache)
-            local sendToggle = { Enabled = false }
-            local acceptToggle = { Enabled = false }
-            
-            box:AddToggle(cacheName.."_Send", {Text="Send Trade", Default=false, Callback=function(v)
-                sendToggle.Enabled = v
-                if v then buildSendLoop(getCache)(sendToggle) end
-            end})
-            box:AddToggle(cacheName.."_Accept", {Text="Auto Accept", Default=false, Callback=function(v)
-                acceptToggle.Enabled = v
-                if v then buildAcceptLoop(getCache)(acceptToggle) end
-            end})
+            local sendToggle={Enabled=false}
+            local acceptToggle={Enabled=false}
+            box:AddToggle(cacheName.."_Send", {Text="Send Trade", Default=false, Callback=function(v) sendToggle.Enabled=v; if v then buildLoop(getCache,true)(sendToggle) end end})
+            box:AddToggle(cacheName.."_Accept", {Text="Auto Accept", Default=false, Callback=function(v) acceptToggle.Enabled=v; if v then buildLoop(getCache,false)(acceptToggle) end end})
         end
-
+        
         local function buildSavedBox(title, file, cacheName)
-            local State = {}
+            local State={Cache={}}
             local box = Tabs.Trade:AddLeftGroupbox(title)
             local dd = box:AddDropdown(cacheName.."_Dropdown", {Text="Players", Values=loadList(file), Multi=true, Default={}, Callback=function(v) State.Cache=v end})
-            
-            local inputField = box:AddInput(cacheName.."_Input", {
-                Text = "Add Users",
-                Placeholder = "name1, name2",
-                Default = "",
-                Callback = function(v)
-                    State.Input = v
-                end
-            })
-            
+            box:AddInput(cacheName.."_Input", {Text="Add Users", Placeholder="name1, name2", Default="", Callback=function(v) State.Input=v end})
             box:AddButton("Save", function()
-                local inputText = State.Input or ""
-                if inputText ~= "" then
-                    addMulti(file, inputText)
+                local txt=State.Input or ""
+                if txt~="" then
+                    addMulti(file, txt)
                     dd:SetValues(loadList(file))
-                    pcall(function()
-                        if Options and Options[cacheName.."_Input"] then
-                            Options[cacheName.."_Input"]:SetValue("")
-                        end
-                    end)
-                    State.Input = ""
+                    pcall(function() if Options and Options[cacheName.."_Input"] then Options[cacheName.."_Input"]:SetValue("") end end)
+                    State.Input=""
                 end
             end)
-            
-            box:AddButton("Remove", function()
-                for _, n in ipairs(toList(State.Cache)) do removeName(file, n) end
-                dd:SetValues(loadList(file))
-            end)
-            
-            box:AddButton("Select All", function()
-                local allSelected = selectAllFromFile(file)
-                dd:SetValue(allSelected)
-                State.Cache = allSelected
-            end)
-            
-            box:AddButton("Deselect All", function()
-                dd:SetValue({})
-                State.Cache = {}
-            end)
-            
+            box:AddButton("Remove", function() for _,n in ipairs(toList(State.Cache)) do removeName(file, n) end dd:SetValues(loadList(file)) end)
+            box:AddButton("Select All", function() local all=selectAllFromFile(file) dd:SetValue(all); State.Cache=all end)
+            box:AddButton("Deselect All", function() dd:SetValue({}); State.Cache={} end)
             box:AddButton("Refresh", function() dd:SetValues(loadList(file)) end)
             addToggles(box, cacheName, function() return State.Cache end)
         end
-
-        local currentState = { Cache = nil }
-        local g1 = Tabs.Trade:AddLeftGroupbox("Current Players")
-        local cd = g1:AddDropdown("Trade_CurrentDropdown", {Text="Online", Values={"No Players"}, Multi=true, Default={}, Callback=function(v) currentState.Cache=v end})
         
-        g1:AddButton("Select All Online", function()
-            local allOnline = {}
-            for _, p in ipairs(Players:GetPlayers()) do
-                if p ~= Player then allOnline[p.Name] = true end
-            end
-            cd:SetValue(allOnline)
-            currentState.Cache = allOnline
-        end)
-        
-        g1:AddButton("Deselect All", function()
-            cd:SetValue({})
-            currentState.Cache = {}
-        end)
-        
-        addToggles(g1, "Trade_Current", function() return currentState.Cache end)
-
         buildSavedBox("Account 1", file1, "Trade_Acc1")
         buildSavedBox("Account 2", file2, "Trade_Acc2")
-
-        task.spawn(function()
-            while true do
-                task.wait(1.5)
-                pcall(function()
-                    local f = {}
-                    for _, p in ipairs(Players:GetPlayers()) do
-                        if p ~= Player then table.insert(f, p.Name) end
-                    end
-                    cd:SetValues(#f > 0 and f or {"No Players"})
-                end)
-            end
-        end)
     end)
 end
 
--- ============================== TRADE BOX DETECTOR + AUTO ADD ==============================
-if IsLobbyLobby() then
-    task.spawn(function()
-        while not Tabs.Trade do
-            task.wait(0.1)
-        end
 
-        local TradeDetectorBox = Tabs.Trade:AddRightGroupbox("Trade Box Detector")
-
-        local Players = game:GetService("Players")
-        local GuiService = game:GetService("GuiService")
-        local VirtualInputManager = game:GetService("VirtualInputManager")
-
-        local player = Players.LocalPlayer
-
-        local isDetectorEnabled = false
-        local wasBoxOpen = false
-        local selectedSide = "Receiver"
-        local selectedItems = {"Memory Scroll"}
-        local selectedCosmetics = {}
-        local addAmountItems = 1
-        local addAmountCosmetics = 0
-        local isAdding = false
-        local lastConfirmClick = 0
-        local CONFIRM_COOLDOWN = 0.5
-
-        local readyLoopRunning = false
-        local readyLoopToggle = { Enabled = false }
-
-        local stallStartTime = 0
-        local STALL_TIMEOUT = 5
-
-        local ADD_DELAY = 0.008
-        local PANEL_WAIT = 0.2
-        local CLICK_WAIT = 0.05
-        local RETRY_WAIT = 0.1
-        local BATCH_SIZE = 10
-        local BATCH_DELAY = 0.02
-        local MAX_RETRY_AFTER_STALL = 3
-        local READY_LOOP_DELAY = 0.2
-        local COSMETICS_MAX = 10
-
-        local OTHER_BOX_CHECK_TIMEOUT = 1.25
-        
-        -- CLICK MODE
-        local clickMode = "Hover"
-        local hasHiddenUIThisSession = false
-
-        local HOLDER_NAMES = {
-            ["Memory Scroll"] = "600_Memory Scroll",
-            ["Emperor's Key"] = "500_Emperor's Key",
-        }
-
-        -- ============================== SAFE GUI ==============================
-
-        local function isGuiAlive(obj)
-            if not obj then
-                return false
-            end
-
-            if typeof(obj) ~= "Instance" then
-                return false
-            end
-
-            if not obj.Parent then
-                return false
-            end
-
-            local ok = pcall(function()
-                return obj.AbsoluteSize
-            end)
-
-            if not ok then
-                return false
-            end
-
-            if obj:IsA("GuiObject") then
-                if obj.AbsoluteSize.X <= 0 or obj.AbsoluteSize.Y <= 0 then
-                    return false
-                end
-            end
-
-            local current = obj
-
-            while current do
-                if current:IsA("GuiObject") and not current.Visible then
-                    return false
-                end
-
-                if current:IsA("ScreenGui") and not current.Enabled then
-                    return false
-                end
-
-                current = current.Parent
-            end
-
-            return true
-        end
-
-        local function safeSelectObject(obj)
-            if not isGuiAlive(obj) then
-                return false
-            end
-
-            local ok = pcall(function()
-                GuiService.SelectedObject = nil
-                task.wait()
-
-                if not isGuiAlive(obj) then
-                    return
-                end
-
-                GuiService.SelectedObject = obj
-            end)
-
-            return ok
-        end
-
-        local function clearSelectedObject()
-            pcall(function()
-                GuiService.SelectedObject = nil
-            end)
-        end
-        
-        -- HOVER CLICK METHOD
-        local function clickWithHover(target)
-            if not isGuiAlive(target) then
-                clearSelectedObject()
-                return false
-            end
-
-            safeSelectObject(target)
-            task.wait(0.05)
-
-            if not isGuiAlive(target) then
-                clearSelectedObject()
-                return false
-            end
-
-            VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-            task.wait(0.05)
-            VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-            task.wait(0.1)
-
-            clearSelectedObject()
-
-            return true
-        end
-        
-        -- MOUSE CLICK METHOD
-        local function clickWithMouse(target)
-            if not isGuiAlive(target) then
-                return false
-            end
-            
-            -- Hide UI once per trade box session
-            if not hasHiddenUIThisSession then
-                if Window and Window.Holder and Window.Holder.Visible then
-                    if Library and Library.Toggle then
-                        Library:Toggle()
-                        hasHiddenUIThisSession = true
-                        task.wait(0.15)
-                    end
-                end
-            end
-            
-            -- Get real mouse position with GuiInset
-            local inset = GuiService:GetGuiInset()
-            local x = target.AbsolutePosition.X + (target.AbsoluteSize.X / 2) + inset.X
-            local y = target.AbsolutePosition.Y + (target.AbsoluteSize.Y / 2) + inset.Y
-            
-            -- Move mouse to target
-            VirtualInputManager:SendMouseMoveEvent(x, y, game)
-            task.wait(0.05)
-            
-            -- Click
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.05)
-            VirtualInputManager:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            task.wait(0.1)
-            
-            return true
-        end
-        
-        local function showUIIfHidden()
-            if hasHiddenUIThisSession then
-                if Window and Window.Holder and not Window.Holder.Visible then
-                    if Library and Library.Toggle then
-                        Library:Toggle()
-                    end
-                end
-                hasHiddenUIThisSession = false
-            end
-        end
-        
-        -- MAIN CLICK DISPATCHER
-        local function clickTarget(target)
-            if clickMode == "Mouse" then
-                return clickWithMouse(target)
-            else
-                return clickWithHover(target)
-            end
-        end
-
-        -- ============================== FUNCTIONS ==============================
-
-        local function getOtherBoxItemCount(itemName)
-            local holderName = HOLDER_NAMES[itemName]
-            if not holderName then
-                return 0
-            end
-
-            local ok, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.Other.Box.Items[holderName]
-            end)
-
-            if ok and item then
-                local main = item:FindFirstChild("Main")
-                local inner = main and main:FindFirstChild("Inner")
-                local qty = inner and inner:FindFirstChild("Quantity")
-
-                if qty and qty:IsA("TextLabel") then
-                    return tonumber(qty.Text:match("%d+")) or 0
-                end
-            end
-
-            return 0
-        end
-
-        local function hasOtherBoxChanged()
-            local totalItems = 0
-
-            for _, itemName in ipairs(selectedItems) do
-                totalItems = totalItems + getOtherBoxItemCount(itemName)
-            end
-
-            return totalItems > 0
-        end
-
-        local function waitForOtherBoxStable()
-            local lastCount = 0
-            local stableStart = tick()
-
-            while true do
-                local currentCount = 0
-
-                for _, itemName in ipairs(selectedItems) do
-                    currentCount = currentCount + getOtherBoxItemCount(itemName)
-                end
-
-                if currentCount ~= lastCount then
-                    lastCount = currentCount
-                    stableStart = tick()
-                end
-
-                if tick() - stableStart >= OTHER_BOX_CHECK_TIMEOUT then
-                    return true
-                end
-
-                if currentCount == 0 and tick() - stableStart >= 0.1 then
-                    return true
-                end
-
-                task.wait(0.05)
-            end
-        end
-
-        local function getHolderCount(itemName)
-            local holderName = HOLDER_NAMES[itemName]
-
-            if not holderName then
-                return 0
-            end
-
-            local ok, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[holderName]
-            end)
-
-            if ok and item then
-                local main = item:FindFirstChild("Main")
-                local inner = main and main:FindFirstChild("Inner")
-                local qty = inner and inner:FindFirstChild("Quantity")
-
-                if qty and qty:IsA("TextLabel") then
-                    return tonumber(qty.Text:match("%d+")) or 0
-                end
-            end
-
-            return 0
-        end
-
-        local function isYouBoxVisible()
-            local ok, box = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box
-            end)
-
-            if not ok or not box then
-                return false
-            end
-
-            return isGuiAlive(box)
-        end
-
-        local function getAddButtonTitle()
-            local ok, title = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items.Item_Add.Add.Inner.Title
-            end)
-
-            if ok and title and title:IsA("TextLabel") then
-                return title.Text
-            end
-
-            return nil
-        end
-
-        local function getConfirmTitle()
-            local ok, title = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Review.Rate.Title
-            end)
-
-            if ok and title and title:IsA("TextLabel") then
-                return title.Text
-            end
-
-            return nil
-        end
-
-        local function isConfirmVisible()
-            local ok, confirm = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Review.Rate
-            end)
-
-            if not ok or not confirm then
-                return false
-            end
-
-            if not isGuiAlive(confirm) then
-                return false
-            end
-
-            local title = getConfirmTitle()
-
-            return title and string.lower(title) == "confirm"
-        end
-
-        local function clickConfirm()
-            local now = tick()
-
-            if now - lastConfirmClick < CONFIRM_COOLDOWN then
-                return false
-            end
-
-            local target = nil
-
-            pcall(function()
-                target = player.PlayerGui.Interface.Trading.Prompt.Review.Rate
-            end)
-
-            if not isGuiAlive(target) then
-                clearSelectedObject()
-                return false
-            end
-
-            local success = clickTarget(target)
-
-            lastConfirmClick = now
-
-            return success
-        end
-
-        local function clickAddButton()
-            local target = nil
-
-            pcall(function()
-                target = player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items.Item_Add
-            end)
-
-            if not isGuiAlive(target) then
-                clearSelectedObject()
-                return false
-            end
-
-            local success = clickTarget(target)
-            
-            task.wait(0.1)
-
-            return success
-        end
-
-        local function ensureAddPanelOpen()
-            for _ = 1, 3 do
-                local title = getAddButtonTitle()
-
-                if title == "-" then
-                    return true
-                end
-
-                if title == "+" then
-                    clickAddButton()
-                    task.wait(PANEL_WAIT)
-                else
-                    task.wait(RETRY_WAIT)
-                end
-            end
-
-            return getAddButtonTitle() == "-"
-        end
-
-        local function endTrade()
-            pcall(function()
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Assets")
-                    :WaitForChild("Remotes")
-                    :WaitForChild("GET")
-                    :InvokeServer("S_Trade", "End")
-            end)
-        end
-
-        local function addItem(side, category, item, amount)
-            local successCount = 0
-            local batchCount = 0
-            local stallCount = 0
-            local lastSuccessTime = tick()
-
-            local actualAmount =
-                (category == "Cosmetics")
-                and math.min(amount, COSMETICS_MAX)
-                or amount
-
-            local GET = game:GetService("ReplicatedStorage")
-                :WaitForChild("Assets")
-                :WaitForChild("Remotes")
-                :WaitForChild("GET")
-
-            local args = {
-                "S_Trade",
-                "Item",
-                side,
-                "Add",
-                category,
-                item
-            }
-
-            for i = 1, actualAmount do
-                if not isDetectorEnabled then
-                    break
-                end
-
-                if not isYouBoxVisible() then
-                    stallCount = stallCount + 1
-
-                    if stallCount > MAX_RETRY_AFTER_STALL then
-                        break
-                    end
-
-                    task.wait(0.3)
-                    continue
-                else
-                    stallCount = 0
-                end
-
-                if tick() - lastSuccessTime > 2 then
-                    break
-                end
-
-                local ok = pcall(function()
-                    GET:InvokeServer(unpack(args))
-                end)
-
-                if ok then
-                    successCount = successCount + 1
-                    lastSuccessTime = tick()
-                end
-
-                batchCount = batchCount + 1
-
-                if batchCount >= BATCH_SIZE then
-                    task.wait(BATCH_DELAY)
-                    batchCount = 0
-                else
-                    task.wait(ADD_DELAY)
-                end
-            end
-
-            return successCount
-        end
-
-        local function sendReady(side)
-            return pcall(function()
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Assets")
-                    :WaitForChild("Remotes")
-                    :WaitForChild("GET")
-                    :InvokeServer("S_Trade", "State", side, true)
-            end)
-        end
-
-        local function startReadyLoop()
-            if readyLoopRunning then
-                return
-            end
-
-            readyLoopRunning = true
-            readyLoopToggle.Enabled = true
-
-            task.spawn(function()
-                while readyLoopToggle.Enabled do
-                    if not isDetectorEnabled then
-                        break
-                    end
-
-                    if isYouBoxVisible() then
-                        sendReady(selectedSide)
-                    end
-
-                    task.wait(READY_LOOP_DELAY)
-                end
-
-                readyLoopRunning = false
-            end)
-        end
-
-        local function stopReadyLoop()
-            readyLoopToggle.Enabled = false
-            readyLoopRunning = false
-        end
-
-        -- ============================== UI ==============================
-
-        TradeDetectorBox:AddDropdown("TradeDetector_SideDropdown", {
-            Text = "Select Side",
-            Values = {"Receiver", "Sender"},
-            Default = "Receiver",
-            Multi = false,
-            Callback = function(v)
-                selectedSide = v
-            end
-        })
-
-        TradeDetectorBox:AddDropdown("TradeDetector_ItemDropdown", {
-            Text = "Select Items",
-            Values = {"Memory Scroll", "Emperor's Key"},
-            Default = {"Memory Scroll"},
-            Multi = true,
-            Callback = function(v)
-                selectedItems = {}
-
-                for name, enabled in pairs(v) do
-                    if enabled then
-                        table.insert(selectedItems, name)
-                    end
-                end
-            end
-        })
-
-        TradeDetectorBox:AddSlider("TradeDetector_AmountSlider", {
-            Text = "Amount Items",
-            Default = 1,
-            Min = 1,
-            Max = 100,
-            Rounding = 0,
-            Callback = function(v)
-                addAmountItems = v
-            end
-        })
-
-        TradeDetectorBox:AddDropdown("TradeDetector_CosmeticsDropdown", {
-            Text = "Select Cosmetics",
-            Values = {
-                "Angel's Halo",
-                "Radiant Headband",
-                "Kitsune Mask",
-                "Blood Vial",
-                "Kitsune Ribbon"
-            },
-            Default = {},
-            Multi = true,
-            Callback = function(v)
-                selectedCosmetics = {}
-
-                for name, enabled in pairs(v) do
-                    if enabled then
-                        table.insert(selectedCosmetics, name)
-                    end
-                end
-            end
-        })
-
-        TradeDetectorBox:AddSlider("TradeDetector_CosmeticsAmountSlider", {
-            Text = "Amount per Cosmetic",
-            Default = 0,
-            Min = 0,
-            Max = 10,
-            Rounding = 0,
-            Callback = function(v)
-                addAmountCosmetics = v
-            end
-        })
-
-        -- CLICK MODE DROPDOWN
-        TradeDetectorBox:AddDropdown("TradeDetector_ClickMode", {
-            Text = "Click Mode",
-            Values = {"Hover", "Mouse"},
-            Default = "Hover",
-            Multi = false,
-            Callback = function(v)
-                clickMode = v
-            end
-        })
-
-        TradeDetectorBox:AddToggle("TradeDetector_Toggle", {
-            Text = "Auto Add + Ready + Confirm",
-            Default = false,
-            Callback = function(v)
-                isDetectorEnabled = v
-                wasBoxOpen = false
-                isAdding = false
-
-                stopReadyLoop()
-
-                stallStartTime = 0
-
-                clearSelectedObject()
-                
-                if not v then
-                    showUIIfHidden()
-                    hasHiddenUIThisSession = false
-                end
-
-                if v then
-                    if #selectedItems == 0 and #selectedCosmetics == 0 then
-                        return
-                    end
-                end
-            end
-        })
-
-        -- ============================== CONFIRM LOOP ==============================
-
-        task.spawn(function()
-            while true do
-                task.wait(0.1)
-
-                pcall(function()
-                    if not isDetectorEnabled then
-                        clearSelectedObject()
-                        return
-                    end
-
-                    if isConfirmVisible() then
-                        clickConfirm()
-                    end
-                end)
-            end
-        end)
-
-        -- ============================== STALL LOOP ==============================
-
-        task.spawn(function()
-            while true do
-                task.wait(0.5)
-
-                pcall(function()
-                    if not isDetectorEnabled then
-                        stallStartTime = 0
-                        return
-                    end
-
-                    if not isYouBoxVisible() then
-                        stallStartTime = 0
-                        return
-                    end
-
-                    if getAddButtonTitle() == "+" then
-                        if stallStartTime == 0 then
-                            stallStartTime = tick()
-                        elseif tick() - stallStartTime >= STALL_TIMEOUT then
-                            endTrade()
-                            stallStartTime = 0
-                        end
-                    else
-                        stallStartTime = 0
-                    end
-                end)
-            end
-        end)
-
-        -- ============================== MAIN LOOP ==============================
-
-        task.spawn(function()
-            while true do
-                task.wait(0.15)
-
-                pcall(function()
-                    if not isDetectorEnabled then
-                        wasBoxOpen = false
-                        isAdding = false
-
-                        stopReadyLoop()
-                        clearSelectedObject()
-                        
-                        if clickMode == "Mouse" then
-                            showUIIfHidden()
-                        end
-
-                        return
-                    end
-
-                    local isOpen = isYouBoxVisible()
-
-                    if isOpen and not wasBoxOpen then
-                        wasBoxOpen = true
-                        stallStartTime = 0
-                        
-                        if clickMode == "Mouse" then
-                            hasHiddenUIThisSession = false
-                        end
-
-                        task.wait(0.3)
-
-                        if not isYouBoxVisible() then
-                            wasBoxOpen = false
-                            return
-                        end
-
-                        if not ensureAddPanelOpen() then
-                            return
-                        end
-
-                        if isAdding then
-                            return
-                        end
-
-                        isAdding = true
-
-                        waitForOtherBoxStable()
-
-                        if not isDetectorEnabled or not isYouBoxVisible() then
-                            isAdding = false
-                            return
-                        end
-
-                        local grandTotal = 0
-
-                        if #selectedItems > 0 then
-                            for _, item in ipairs(selectedItems) do
-                                local available = getHolderCount(item)
-                                local toAdd = math.min(available, addAmountItems)
-
-                                if toAdd > 0 then
-                                    local cnt = addItem(
-                                        selectedSide,
-                                        "Items",
-                                        item,
-                                        toAdd
-                                    )
-
-                                    grandTotal = grandTotal + cnt
-                                end
-
-                                task.wait(0.05)
-                            end
-                        end
-
-                        if addAmountCosmetics > 0 and #selectedCosmetics > 0 then
-                            for _, item in ipairs(selectedCosmetics) do
-                                if not isDetectorEnabled or not isYouBoxVisible() then
-                                    break
-                                end
-
-                                local cnt = addItem(
-                                    selectedSide,
-                                    "Cosmetics",
-                                    item,
-                                    addAmountCosmetics
-                                )
-
-                                grandTotal = grandTotal + cnt
-
-                                task.wait(0.05)
-                            end
-                        end
-
-                        task.wait(0.15)
-
-                        startReadyLoop()
-
-                        isAdding = false
-
-                    elseif not isOpen and wasBoxOpen then
-                        wasBoxOpen = false
-                        isAdding = false
-
-                        stopReadyLoop()
-
-                        stallStartTime = 0
-
-                        clearSelectedObject()
-                        
-                        if clickMode == "Mouse" then
-                            showUIIfHidden()
-                            hasHiddenUIThisSession = false
-                        end
-                    end
-                end)
-            end
-        end)
-    end)
-end
 -- ============================== SETTING TRADING ==============================
 if IsLobbyLobby() then
     local SettingBox = Tabs.Trade:AddLeftGroupbox("Setting Trading")
@@ -5076,12 +4201,11 @@ if IsLobbyLobby() then
         end
     })
 end
--- ============================== BOOST SELECTION (CURRENCY NOTIFY AFTER PURCHASE) ==============================
+-- ============================== BOOST SELECTION ==============================
 if IsLobbyLobby() then
 
     local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
 
-    local selectedCurrency = "Gems"
     local purchaseAmount = 1
     local purchaseDelay = 0
     local isReady = false
@@ -5092,16 +4216,43 @@ if IsLobbyLobby() then
         "2X XP Boost [2H]", "2X Luck [2H]", "2X Gold [2H]"
     }
 
+    -- ราคาตาม duration
+    local PRICE_MAP = {
+        ["30M"] = 4499,
+        ["1H"] = 7999,
+        ["2H"] = 13999,
+    }
+
+    local function getBoostPrice(boostName)
+        for duration, price in pairs(PRICE_MAP) do
+            if boostName:find(duration) then
+                return price
+            end
+        end
+        return 0
+    end
+
+    -- ฟังก์ชันจัดรูปแบบตัวเลขแบบมี comma
+    local function formatNumberWithComma(num)
+        local formatted = tostring(num)
+        local k = 0
+        for i = #formatted - 2, 1, -3 do
+            k = k + 1
+            formatted = formatted:sub(1, i) .. "," .. formatted:sub(i + 1)
+        end
+        return formatted
+    end
+
     local BOOST_MAP = {
-        ["2X XP Boost [30M]"] = {type = "xp", duration = "30M", gemsId = 1, canesId = 1},
-        ["2X XP Boost [1H]"] = {type = "xp", duration = "1H", gemsId = 2, canesId = 2},
-        ["2X XP Boost [2H]"] = {type = "xp", duration = "2H", gemsId = 3, canesId = 3},
-        ["2X Luck [30M]"] = {type = "luck", duration = "30M", gemsId = 4, canesId = 4},
-        ["2X Luck [1H]"] = {type = "luck", duration = "1H", gemsId = 5, canesId = 5},
-        ["2X Luck [2H]"] = {type = "luck", duration = "2H", gemsId = 6, canesId = 6},
-        ["2X Gold [30M]"] = {type = "gold", duration = "30M", gemsId = 7, canesId = 7},
-        ["2X Gold [1H]"] = {type = "gold", duration = "1H", gemsId = 8, canesId = 8},
-        ["2X Gold [2H]"] = {type = "gold", duration = "2H", gemsId = 9, canesId = 9},
+        ["2X XP Boost [30M]"] = {type = "xp", duration = "30M", id = 1},
+        ["2X XP Boost [1H]"] = {type = "xp", duration = "1H", id = 2},
+        ["2X XP Boost [2H]"] = {type = "xp", duration = "2H", id = 3},
+        ["2X Luck [30M]"] = {type = "luck", duration = "30M", id = 4},
+        ["2X Luck [1H]"] = {type = "luck", duration = "1H", id = 5},
+        ["2X Luck [2H]"] = {type = "luck", duration = "2H", id = 6},
+        ["2X Gold [30M]"] = {type = "gold", duration = "30M", id = 7},
+        ["2X Gold [1H]"] = {type = "gold", duration = "1H", id = 8},
+        ["2X Gold [2H]"] = {type = "gold", duration = "2H", id = 9},
     }
 
     local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
@@ -5167,11 +4318,14 @@ if IsLobbyLobby() then
         local data = BOOST_MAP[boostName]
         if not data then return false end
         if not isReady then return false end
-        local boostTypeStr = selectedCurrency == "Gems" and "1_Boosts" or "2_Boosts"
-        local id = selectedCurrency == "Gems" and data.gemsId or data.canesId
-        local args = {"S_Market", "Buy", boostTypeStr, id, purchaseAmount}
+        local args = {"S_Market", "Buy", "1_Boosts", data.id, purchaseAmount}
         return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
+
+    -- Label แสดงเฉพาะ Total cost เท่านั้น
+    local totalLabel = BoostGroup:AddLabel("Total: 0 Gems")
+
+    BoostGroup:AddDivider()
 
     BoostGroup:AddDropdown("Boost_ListDropdown", {
         Text = "Select Boosts",
@@ -5179,14 +4333,6 @@ if IsLobbyLobby() then
         Default = {},
         Multi = true,
         Callback = function() end
-    })
-
-    BoostGroup:AddDropdown("Boost_CurrencyDropdown", {
-        Text = "Buy From",
-        Values = {"Gems", "Canes"},
-        Default = "Gems",
-        Multi = false,
-        Callback = function(v) selectedCurrency = v end
     })
 
     BoostGroup:AddSlider("Boost_AmountSlider", {
@@ -5220,7 +4366,6 @@ if IsLobbyLobby() then
                         Options.Boost_PurchaseToggle:SetValue(false)
                     end
                 end)
-                Library:Notify("⏳ Waiting for currencies to load...", 2)
                 return
             end
 
@@ -5240,7 +4385,6 @@ if IsLobbyLobby() then
                 end
 
                 if #selectedNames == 0 then
-                    Library:Notify("No boost selected", 2)
                     pcall(function()
                         if Options and Options.Boost_PurchaseToggle then
                             Options.Boost_PurchaseToggle:SetValue(false)
@@ -5249,10 +4393,6 @@ if IsLobbyLobby() then
                     return
                 end
 
-                -- แจ้งรายการที่จะซื้อ
-                Library:Notify("Select: " .. table.concat(selectedNames, ", "), 4)
-
-                -- ดำเนินการซื้อ
                 for boostName, enabled in pairs(purchaseSelection) do
                     if enabled then
                         if not isReady then break end
@@ -5261,11 +4401,6 @@ if IsLobbyLobby() then
                     end
                 end
 
-                -- หลังซื้อเสร็จ: แจ้งเงินคงเหลือ
-                local newGems, newGold = checkCurrencies()
-                Library:Notify(string.format("💰 Gems: %s | Gold: %s", newGems, newGold), 3)
-
-                task.wait(0.3)
                 pcall(function()
                     if Options and Options.Boost_PurchaseToggle then
                         Options.Boost_PurchaseToggle:SetValue(false)
@@ -5277,13 +4412,28 @@ if IsLobbyLobby() then
 
     BoostGroup:AddDivider()
 
-    local ALL_USE_BOOSTS = {
-        "2x Gold Boost [2h]", "2x Gold Boost [1h]", "2x Gold Boost [30m]",
-        "2x Gold Boost [15m]", "2x Gold Boost [5m]",
-        "2x XP Boost [2h]", "2x XP Boost [1h]", "2x XP Boost [30m]",
-        "2x XP Boost [15m]", "2x XP Boost [5m]",
-        "2x Luck Boost [2h]", "2x Luck Boost [1h]", "2x Luck Boost [30m]",
-        "2x Luck Boost [15m]", "2x Luck Boost [5m]"
+    local goldBoosts = {
+        "2x Gold Boost [2h]",
+        "2x Gold Boost [1h]",
+        "2x Gold Boost [30m]",
+        "2x Gold Boost [15m]",
+        "2x Gold Boost [5m]"
+    }
+
+    local luckBoosts = {
+        "2x Luck Boost [2h]",
+        "2x Luck Boost [1h]",
+        "2x Luck Boost [30m]",
+        "2x Luck Boost [15m]",
+        "2x Luck Boost [5m]"
+    }
+
+    local xpBoosts = {
+        "2x XP Boost [2h]",
+        "2x XP Boost [1h]",
+        "2x XP Boost [30m]",
+        "2x XP Boost [15m]",
+        "2x XP Boost [5m]"
     }
 
     local function useBoost(boostName)
@@ -5310,30 +4460,22 @@ if IsLobbyLobby() then
                         Options.Boost_AutoUseToggle:SetValue(false)
                     end
                 end)
-                Library:Notify("⏳ Waiting for currencies to load...", 2)
                 return
             end
 
             task.spawn(function()
-                Library:Notify("Auto Use All Boosts", 3)
-                local startTime = tick()
-                local gemsAmount, goldAmount = checkCurrencies()
-                local totalUsed = 0
-                for _, boostName in ipairs(ALL_USE_BOOSTS) do
+                for i = 1, 5 do
                     if not isReady then break end
-                    for i = 1, 5 do
-                        if not isReady then break end
-                        local success = useBoost(boostName)
-                        if success then totalUsed = totalUsed + 1 end
-                        task.wait(0.005)
-                    end
+                    if goldBoosts[i] then useBoost(goldBoosts[i]) end
+                    task.wait(0.01)
+                    if not isReady then break end
+                    if luckBoosts[i] then useBoost(luckBoosts[i]) end
+                    task.wait(0.01)
+                    if not isReady then break end
+                    if xpBoosts[i] then useBoost(xpBoosts[i]) end
                     task.wait(0.01)
                 end
-                local elapsed = tick() - startTime
-                gemsAmount, goldAmount = checkCurrencies()
-                -- แจ้งเงินคงเหลือหลังใช้บูสต์
-                Library:Notify(string.format("💰 Gems: %s | Gold: %s", gemsAmount, goldAmount), 3)
-                task.wait(0.2)
+
                 pcall(function()
                     if Options and Options.Boost_AutoUseToggle then
                         Options.Boost_AutoUseToggle:SetValue(false)
@@ -5342,6 +4484,37 @@ if IsLobbyLobby() then
             end)
         end
     })
+
+    -- อัปเดต Label แสดงเฉพาะ Total cost (ไม่มีข้อความอื่น)
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            if not (Window and Window.Holder and Window.Holder.Visible) then
+                continue
+            end
+            
+            local selectedBoosts = {}
+            pcall(function()
+                if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
+                    selectedBoosts = Options.Boost_ListDropdown.Value
+                end
+            end)
+            
+            local totalCost = 0
+            for boostName, enabled in pairs(selectedBoosts) do
+                if enabled then
+                    local price = getBoostPrice(boostName)
+                    totalCost = totalCost + (price * purchaseAmount)
+                end
+            end
+            
+            if totalCost == 0 then
+                totalLabel:SetText("Total: 0 Gems")
+            else
+                totalLabel:SetText(string.format("Total: %s Gems", formatNumberWithComma(totalCost)))
+            end
+        end
+    end)
 end
 -- ============================== PRESTIGE ==============================
 if IsLobbyLobby() then
@@ -5652,10 +4825,19 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปร global สำหรับ Farm Timer (จะเริ่มนับเมื่อเห็น STATUS ON จริง ๆ เท่านั้น)
+    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับอัตโนมัติเมื่อเห็น STATUS ON)
     getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
-    getgenv().FarmTimerConfirmed = false  -- เพิ่มตัวแปรเพื่อเช็คว่าได้ตรวจสอบครบ 10 ครั้งแล้ว
+    getgenv().FarmLastOnTime = getgenv().FarmLastOnTime or 0   -- เวลาล่าสุดที่ STATUS ON
+
+    -- ฟังก์ชันรีเซ็ต timer (เมื่อ OFF นานเกินไป)
+    local function resetFarmTimer()
+        if getgenv().FarmTimerStarted then
+            getgenv().FarmTimerStarted = false
+            getgenv().FarmStartTime = nil
+            getgenv().FarmLastOnTime = 0
+        end
+    end
 
     -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
     local function IsActuallyVisible(gui)
@@ -5683,26 +4865,17 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
-    local function getFarmElapsedTime()
-        if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
-            return tick() - getgenv().FarmStartTime
-        else
-            return 0
-        end
-    end
-
     -- ========== ระบบยืนยัน STATUS ON ก่อนเริ่มนับ (เช็ค 10 ครั้งใน 2 วินาที) ==========
     local function waitForStableOn()
         local onCount = 0
         local startTime = tick()
-        local maxDuration = 2  -- 2 วินาที
+        local maxDuration = 2
         local requiredCount = 10
         while tick() - startTime < maxDuration do
             if isObjectivesVisible() then
                 onCount = onCount + 1
             else
-                onCount = 0  -- รีเซ็ตถ้าหาย
+                onCount = 0
             end
             if onCount >= requiredCount then
                 return true
@@ -5712,25 +4885,45 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันเริ่มนับ (จะถูกเรียกเมื่อเปิด Player Stats และตรวจสอบ ON จริง)
+    -- ฟังก์ชันเริ่มนับ (ทำงานอัตโนมัติ ไม่ขึ้นกับ StatsEnabled)
     local function startFarmTimerIfNeeded()
-        if not StatsEnabled then return end
-        if getgenv().FarmTimerStarted then return end  -- เริ่มนับไปแล้ว ไม่ต้องทำอีก
-        
-        -- รอให้ STATUS ON มั่นคง
+        if getgenv().FarmTimerStarted then return end
         if waitForStableOn() then
             getgenv().FarmTimerStarted = true
             getgenv().FarmStartTime = tick()
-            getgenv().FarmTimerConfirmed = true
-            -- ลบ Notify ออก
+            getgenv().FarmLastOnTime = tick()
         end
     end
 
-    -- ลูปพื้นหลังเพื่อเริ่มนับเมื่อเปิด Stats และรอ ON จริง
+    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
+    local function getFarmElapsedTime()
+        if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
+            return tick() - getgenv().FarmStartTime
+        else
+            return 0
+        end
+    end
+
+    -- ========== BACKGROUND TIMER MANAGER (รันตลอดเวลา) ==========
     task.spawn(function()
         while true do
-            task.wait(0.3)
+            -- ตรวจสอบและเริ่มนับถ้ายังไม่ได้เริ่ม
             startFarmTimerIfNeeded()
+
+            -- ตรวจสอบว่า OFF นานเกิน 3 วินาทีหรือไม่ ถ้าใช่ให้รีเซ็ต timer
+            if getgenv().FarmTimerStarted then
+                if not isObjectivesVisible() then
+                    local offDuration = tick() - (getgenv().FarmLastOnTime > 0 and getgenv().FarmLastOnTime or tick())
+                    if offDuration > 3 then
+                        resetFarmTimer()
+                    end
+                else
+                    -- อัปเดตเวลาล่าสุดที่ ON
+                    getgenv().FarmLastOnTime = tick()
+                end
+            end
+
+            task.wait(0.5)
         end
     end)
 
@@ -5915,7 +5108,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 math.floor(sec % 60))
         end
 
-        -- Loop อัปเดต UI Stats และ Timer (ทำงานเฉพาะเมื่อ StatsEnabled=true)
+        -- Loop อัปเดต UI Stats และ Timer (เฉพาะเมื่อ StatsEnabled=true)
         task.spawn(function()
             while StatsEnabled and Gui.Parent do
                 task.wait(0.3)
@@ -6000,12 +5193,13 @@ if IsIngameLobby() and Tabs.AutoFarm then
             StatsEnabled = v
             if v then
                 CreatePlayerStatsHUD()
-                -- เมื่อเปิด PlayerStats ให้เริ่มรอตรวจสอบ ON (ฟังก์ชัน startFarmTimerIfNeeded จะทำงานเองในพื้นหลัง)
+                -- ไม่ต้องเริ่ม timer ที่นี่ เพราะ background loop จัดการอยู่แล้ว
             else
                 if StatsGui then
                     StatsGui:Destroy()
                     StatsGui = nil
                 end
+                -- ไม่ต้องรีเซ็ต timer เมื่อปิด UI เพราะ timer ควรทำงานอิสระ
             end
         end
     })
@@ -6076,7 +5270,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 pcall(function()
                     game:GetService("RunService"):Set3dRenderingEnabled(true)
                     settings().Rendering.QualityLevel = Enum.QualityLevel.Level21
-                    -- ไม่ต้องคืนค่าวัสดุ เพราะเกมจะโหลดใหม่เอง
                 end)
             end
 
@@ -8727,7 +7920,7 @@ if Tabs.Webhook then
         Callback = function(v) webhookMode = v end
     })
     
-    -- ========== เพิ่ม Dropdown สำหรับ Ping Mode ==========
+    -- ========== Dropdown สำหรับเลือก Ping Mode (ใช้ได้กับ Reward Webhook เท่านั้น) ==========
     WebhookGroup:AddDropdown("WebhookPingMode", {
         Text = "Ping Mode (For Special Drops)",
         Values = {"None", "@here", "@everyone"},
