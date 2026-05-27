@@ -4315,13 +4315,8 @@ if IsLobbyLobby() then
         return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
-    -- Label แสดงเฉพาะ Total cost เท่านั้น
-    local totalLabel = BoostGroup:AddLabel("Total: 0 Gems")
-
-    BoostGroup:AddDivider()
-
     BoostGroup:AddDropdown("Boost_ListDropdown", {
-        Text = "Select Boosts",
+        Text = " --- Select Boosts ---",
         Values = ALL_BOOSTS,
         Default = {},
         Multi = true,
@@ -4329,7 +4324,7 @@ if IsLobbyLobby() then
     })
 
     BoostGroup:AddSlider("Boost_AmountSlider", {
-        Text = "Quantity",
+        Text = "Amount",
         Default = 1, Min = 1, Max = 50, Rounding = 0,
         Callback = function(v) purchaseAmount = v end
     })
@@ -4402,8 +4397,6 @@ if IsLobbyLobby() then
             end)
         end
     })
-
-    BoostGroup:AddDivider()
 
     local goldBoosts = {
         "2x Gold Boost [2h]",
@@ -4478,36 +4471,6 @@ if IsLobbyLobby() then
         end
     })
 
-    -- อัปเดต Label แสดงเฉพาะ Total cost (ไม่มีข้อความอื่น)
-    task.spawn(function()
-        while true do
-            task.wait(0.5)
-            if not (Window and Window.Holder and Window.Holder.Visible) then
-                continue
-            end
-            
-            local selectedBoosts = {}
-            pcall(function()
-                if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
-                    selectedBoosts = Options.Boost_ListDropdown.Value
-                end
-            end)
-            
-            local totalCost = 0
-            for boostName, enabled in pairs(selectedBoosts) do
-                if enabled then
-                    local price = getBoostPrice(boostName)
-                    totalCost = totalCost + (price * purchaseAmount)
-                end
-            end
-            
-            if totalCost == 0 then
-                totalLabel:SetText("Total: 0 Gems")
-            else
-                totalLabel:SetText(string.format("Total: %s Gems", formatNumberWithComma(totalCost)))
-            end
-        end
-    end)
 end
 -- ============================== PRESTIGE ==============================
 if IsLobbyLobby() then
@@ -5092,7 +5055,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         local LevelVal = MakeStatRow("Level", 0, 28)
         local GemsVal  = MakeStatRow("Gems", 120, 28)
         local GoldVal  = MakeStatRow("Gold", 0, 52)
-        local CanesVal = MakeStatRow("Canes", 120, 52)
+        -- Canes removed
 
         local function FormatTime(sec)
             return string.format("%02d:%02d:%02d",
@@ -5148,9 +5111,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                             if slotData.Currency.Gems then
                                 GemsVal.Text = FormatNumber(slotData.Currency.Gems)
                             end
-                            if slotData.Currency.Canes then
-                                CanesVal.Text = FormatNumber(slotData.Currency.Canes)
-                            end
+                            -- Canes removed
                         end
                     end
                 end
@@ -5186,13 +5147,11 @@ if IsIngameLobby() and Tabs.AutoFarm then
             StatsEnabled = v
             if v then
                 CreatePlayerStatsHUD()
-                -- ไม่ต้องเริ่ม timer ที่นี่ เพราะ background loop จัดการอยู่แล้ว
             else
                 if StatsGui then
                     StatsGui:Destroy()
                     StatsGui = nil
                 end
-                -- ไม่ต้องรีเซ็ต timer เมื่อปิด UI เพราะ timer ควรทำงานอิสระ
             end
         end
     })
@@ -5345,7 +5304,6 @@ if Tabs.AutoFarm then
         end
     })
 end
-
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
 
@@ -7975,6 +7933,99 @@ if Tabs.Webhook then
         end)
     end)
 end
+
+
+-- ============================== SET DESCRIPTION (INGAME) ==============================
+if IsIngameLobby() and Tabs.Webhook then
+    local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
+
+    -- ฟังก์ชันจัดรูปแบบตัวเลข
+    local function formatNumber(n)
+        if type(n) ~= "number" then return "0" end
+        return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
+    end
+
+    -- ฟังก์ชันดึงเวลาประเทศไทย (GMT+7) อย่างแม่นยำ โดยอ่าน UTC แล้วบวก 7 ชั่วโมง
+    local function getThaiTime()
+        local utcHour = tonumber(os.date("!%H"))  -- ชั่วโมง UTC (0-23)
+        local utcMin  = tonumber(os.date("!%M"))  -- นาที UTC
+        local thaiHour = (utcHour + 7) % 24
+        return string.format("%02d:%02d", thaiHour, utcMin)
+    end
+
+    -- รายการประเภท Description (สามารถเพิ่มในอนาคต)
+    local descriptionTypes = {
+        "Horst Description",
+        -- สามารถเพิ่มรายการอื่นได้ เช่น "Simple Stats", "Compact", etc.
+    }
+
+    local selectedType = descriptionTypes[1]  -- ค่าเริ่มต้น
+
+    -- Dropdown สำหรับเลือกประเภท (single)
+    descGroup:AddDropdown("DescTypeDropdown", {
+        Text = "Description Type",
+        Values = descriptionTypes,
+        Default = selectedType,
+        Multi = false,
+        Callback = function(v)
+            selectedType = v
+        end
+    })
+
+    -- Toggle สำหรับเริ่มทำงาน (ทำงานครั้งเดียวเมื่อเปิด)
+    descGroup:AddToggle("SetDescToggle", {
+        Text = "Apply Description (once, after 10s)",
+        Default = false,
+        Callback = function(v)
+            if not v then return end
+
+            task.spawn(function()
+                -- รอ 10 วินาทีตามที่กำหนด
+                task.wait(10)
+
+                -- ทำงานตามประเภทที่เลือก (ปัจจุบันมีแค่ Horst Description)
+                if selectedType == "Horst Description" then
+                    local success, data = pcall(function()
+                        return GET:InvokeServer("Data", "Copy")
+                    end)
+
+                    if success and data and data.Slots then
+                        local currentSlot = data.Current_Slot or "A"
+                        local slotData = data.Slots[currentSlot]
+
+                        if slotData then
+                            local level = slotData.Progression and slotData.Progression.Level or 0
+                            local prestige = slotData.Progression and slotData.Progression.Prestige or 0
+                            local slot = currentSlot
+                            local gold = slotData.Currency and slotData.Currency.Gold or 0
+                            local gems = slotData.Currency and slotData.Currency.Gems or 0
+                            local thaiTime = getThaiTime()
+
+                            local description = string.format(
+                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🕐 Time: %s",
+                                level, prestige, slot, formatNumber(gold), formatNumber(gems), thaiTime
+                            )
+
+                            if _G and _G.Horst_SetDescription then
+                                _G.Horst_SetDescription(description)
+                            end
+                        end
+                    end
+                end
+
+                -- ปิด toggle อัตโนมัติหลังจากทำงานเสร็จ (ทำงานเพียงครั้งเดียว)
+                pcall(function()
+                    if Options and Options.SetDescToggle then
+                        Options.SetDescToggle:SetValue(false)
+                    end
+                end)
+            end)
+        end
+    })
+end
+
+
+
 -- ============================== MISC (SKIP CUTSCENE) ==============================
 if Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddRightGroupbox("Skip Cutscene")
