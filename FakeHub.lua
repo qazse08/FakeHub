@@ -2325,97 +2325,39 @@ if IsLobbyLobby() then
         end)
     end)
 end
--- ============================== UI SETTINGS ==============================
+-- ============================== UI SETTINGS (SaveManager only, no extra file) ==============================
 local UISettingsTab = Window:AddTab("Settings")
-
 local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
-
--- 🔥 MULTI ACCOUNT SUPPORT
--- ใช้แยกตาม PLACE ID เท่านั้น
--- ทุก account ใช้ร่วมกันได้
-local hideUIFile =
-    FakeHUBFolder
-    .. "/hide_ui_"
-    .. tostring(game.PlaceId)
-    .. ".txt"
-
--- ============================== LOAD HIDE STATE ==============================
-local shouldHideUI = false
-
-pcall(function()
-
-    if isfile(hideUIFile) then
-
-        shouldHideUI =
-            (readfile(hideUIFile) == "true")
-
-    end
-
-end)
 
 -- ============================== SAFE TOGGLE FUNCTIONS ==============================
 local function IsUIVisible()
-
-    return Window
-        and Window.Holder
-        and Window.Holder.Visible
-
+    return Window and Window.Holder and Window.Holder.Visible
 end
 
 local function HideUI()
-
+    -- Behaves exactly like pressing the "End" keybind
     pcall(function()
-
         if IsUIVisible() then
             Library:Toggle()
         end
-
     end)
-
 end
 
-local function ShowUI()
-
-    pcall(function()
-
-        if Window
-            and Window.Holder
-            and not Window.Holder.Visible
-        then
-            Library:Toggle()
-        end
-
-    end)
-
-end
-
--- ============================== AUTO HIDE TOGGLE ==============================
+-- ============================== AUTO HIDE TOGGLE (Saved by SaveManager) ==============================
 MenuGroup:AddToggle("HideUIToggle", {
-
     Text = "Auto Hide UI",
-
-    Default = shouldHideUI,
-
+    Default = false,                       -- will be overridden by SaveManager on load
     Callback = function(v)
-
-        pcall(function()
-
-            -- 🔥 SAVE SHARED FOR ALL ACCOUNTS
-            writefile(
-                hideUIFile,
-                tostring(v)
-            )
-
-        end)
-
+        -- Do NOT hide/show immediately. This setting only affects the next time the script loads.
+        -- The actual hiding is done in the autoload block below.
+        -- SaveManager will save the value automatically, no extra file needed.
+        -- Note: The user can still manually hide using the keybind.
     end
 })
 
 -- ============================== UNLOAD ==============================
 MenuGroup:AddButton("Unload", function()
-
     Library:Unload()
-
 end)
 
 -- ============================== KEYBIND ==============================
@@ -2424,167 +2366,78 @@ MenuGroup:AddLabel("Menu Bind"):AddKeyPicker(
     {
         Default = "End",
         NoUI = true,
-        Text = "Menu Keybind"
+        Text = "Menu Keybind",
+        Callback = function(key)
+            if Library and Options.MenuKeybind then
+                Library.ToggleKeybind = Options.MenuKeybind
+            end
+        end
     }
 )
 
 task.defer(function()
-
     pcall(function()
-
-        if Options
-            and Options.MenuKeybind
-        then
-            Library.ToggleKeybind =
-                Options.MenuKeybind
+        if Options and Options.MenuKeybind and Library then
+            Library.ToggleKeybind = Options.MenuKeybind
         end
-
     end)
-
 end)
 
--- ============================== CONFIG SECTION PATCH ==============================
-local oldBuildConfigSection =
-    SaveManager.BuildConfigSection
-
+-- ============================== CONFIG SECTION PATCH (Delete config) ==============================
+local oldBuildConfigSection = SaveManager.BuildConfigSection
 function SaveManager:BuildConfigSection(tab)
-
     if oldBuildConfigSection then
         oldBuildConfigSection(self, tab)
     end
 
-    local section =
-        tab:AddRightGroupbox("Configuration")
-
+    local section = tab:AddRightGroupbox("Configuration")
     section:AddButton("Delete config", function()
+        if not Options or not Options.SaveManager_ConfigList then return end
+        local name = Options.SaveManager_ConfigList.Value
+        if not name then return end
 
-        if not Options
-            or not Options.SaveManager_ConfigList
-        then
-            return
-        end
-
-        local name =
-            Options.SaveManager_ConfigList.Value
-
-        if not name then
-            return
-        end
-
-        local filePath =
-            self.Folder
-            .. "/settings/"
-            .. name
-            .. ".json"
-
+        local filePath = self.Folder .. "/settings/" .. name .. ".json"
         if isfile(filePath) then
-
             delfile(filePath)
-
-            Options.SaveManager_ConfigList:SetValues(
-                self:RefreshConfigList()
-            )
-
+            Options.SaveManager_ConfigList:SetValues(self:RefreshConfigList())
             Options.SaveManager_ConfigList:SetValue(nil)
-
         end
-
     end)
-
 end
 
-SaveManager:BuildConfigSection(
-    UISettingsTab
-)
+SaveManager:BuildConfigSection(UISettingsTab)
 
 -- ============================== THEME ==============================
 pcall(function()
-
-    if ThemeManager
-        and ThemeManager.BuiltInThemes
-        and ThemeManager.BuiltInThemes["Jester"]
-    then
-
+    if ThemeManager and ThemeManager.BuiltInThemes and ThemeManager.BuiltInThemes["Jester"] then
         ThemeManager:ApplyTheme("Jester")
-
         ThemeManager:SaveDefault("Jester")
-
-    elseif ThemeManager
-        and ThemeManager.ApplyTheme
-    then
-
+    elseif ThemeManager and ThemeManager.ApplyTheme then
         ThemeManager:ApplyTheme("Default")
-
     end
-
-end)
-
--- ============================== FORCE DEFAULT THEME ==============================
-pcall(function()
-
-    if ThemeManager
-        and ThemeManager.BuiltInThemes
-        and ThemeManager.BuiltInThemes["Jester"]
-    then
-
-        ThemeManager:ApplyTheme("Jester")
-
-        ThemeManager:SaveDefault("Jester")
-
-    elseif ThemeManager
-        and ThemeManager.ApplyTheme
-    then
-
-        ThemeManager:ApplyTheme("Default")
-
-    end
-
 end)
 
 -- ============================== AUTOLOAD + AUTO HIDE ==============================
 task.spawn(function()
-
-    -- 🔥 รอระบบ UI โหลดก่อน
     task.wait(0.25)
 
-    -- 🔥 LOAD CONFIG
+    -- Load the config (this will set the value of HideUIToggle, but the callback will not hide because we removed the immediate hide)
     pcall(function()
-
         SaveManager:LoadAutoloadConfig()
-
     end)
 
-    -- 🔥 รอ WINDOW
+    -- Wait until the window actually exists
     for i = 1, 40 do
-
-        if Window
-            and Window.Holder
-        then
-            break
-        end
-
+        if Window and Window.Holder then break end
         task.wait(0.05)
-
     end
+    task.wait(0.15) -- extra delay to ensure everything is ready
 
-    -- 🔥 รอ CONFIG APPLY
-    task.wait(0.15)
-
-    -- ============================== AUTO HIDE ==============================
-    pcall(function()
-
-        if isfile(hideUIFile)
-            and readfile(hideUIFile) == "true"
-        then
-
-            HideUI()
-
-        end
-
-    end)
-
+    -- If the toggle is ON, hide the UI once (this happens only when the script loads, i.e., "next time the UI opens")
+    if Toggles["HideUIToggle"] and Toggles["HideUIToggle"].Value and IsUIVisible() then
+        HideUI()
+    end
 end)
-
 -- ============================== MAIN MENU UI (SELECT START + CLICK JOIN COMMUNITY ONLY) ==============================
 if IsMainmenuLobby() then
     local g = Tabs.MainMenu:AddRightGroupbox("Select Start")
@@ -3854,7 +3707,7 @@ if IsLobbyLobby() then
     })
 
     BladeTab:AddToggle("AutoUpgradeBladeToggle", {
-        Text = "Auto Upgrade Blade (Batch Mode)",
+        Text = "Auto Upgrade Blade",
         Default = false,
         Callback = function(state)
             getgenv().AutoUpgradeBlade = state
@@ -3934,7 +3787,7 @@ if IsLobbyLobby() then
     })
 
     SpearTab:AddToggle("AutoUpgradeSpearToggle", {
-        Text = "Auto Upgrade Thunder Spear (Batch Mode)",
+        Text = "Auto Upgrade Thunder Spear",
         Default = false,
         Callback = function(state)
             getgenv().AutoUpgradeSpear = state
@@ -3974,7 +3827,7 @@ end
 
 -- ============================== UNLOCK SKILLS (SILENT MODE - SINGLE DELAY) ==============================
 if IsLobbyLobby() then
-    local UnlockGroupRight = Tabs.Session:AddRightGroupbox("Unlock Skills")
+    local UnlockGroupLeft = Tabs.Session:AddLeftGroupbox("Unlock Skills")
 
     -- กำหนดข้อมูลของแต่ละสาย
     local branches = {
@@ -4043,7 +3896,7 @@ if IsLobbyLobby() then
 
     -- สร้าง dropdown
     local function createDropdown(category, text)
-        local dropdown = UnlockGroupRight:AddDropdown(category .. "SideDropdown", {
+        local dropdown = UnlockGroupLeft:AddDropdown(category .. "SideDropdown", {
             Text = text,
             Values = {"None", "Left", "Right"},
             Default = "None",
@@ -4061,10 +3914,10 @@ if IsLobbyLobby() then
     local defenseDropdown = createDropdown("Defense", "Defense Side")
 
     -- Label แสดงลำดับ
-    orderLabel = UnlockGroupRight:AddLabel("Order:\n   (none selected)", true)
+    orderLabel = UnlockGroupLeft:AddLabel("Order:\n   (none selected)", true)
 
     -- Slider เดียวสำหรับตั้งค่า Delay
-    UnlockGroupRight:AddSlider("UnlockDelaySlider", {
+    UnlockGroupLeft:AddSlider("UnlockDelaySlider", {
         Text = "Unlock Delay (sec)",
         Default = 0.08,
         Min = 0.01,
@@ -4074,7 +3927,7 @@ if IsLobbyLobby() then
     })
 
     -- ปุ่ม Clear All Selections
-    UnlockGroupRight:AddButton("Clear All Selections", function()
+    UnlockGroupLeft:AddButton("Clear All Selections", function()
         supportDropdown:SetValue("None")
         offenseDropdown:SetValue("None")
         defenseDropdown:SetValue("None")
@@ -4084,7 +3937,7 @@ if IsLobbyLobby() then
         updateOrderLabel()
     end)
 
-    UnlockGroupRight:AddDivider()
+    UnlockGroupLeft:AddDivider()
 
     -- ฟังก์ชัน Unlock ทีละ ID (เงียบ)
     local function unlockSingleId(id, retryCount)
@@ -4132,8 +3985,8 @@ if IsLobbyLobby() then
     end
 
     -- Toggle สำหรับเริ่มปลดล็อค
-    UnlockGroupRight:AddToggle("UnlockSkillsToggle", {
-        Text = "Start Unlock (once, in order)",
+    UnlockGroupLeft:AddToggle("UnlockSkillsToggle", {
+        Text = "Start Unlock Skills Blades",
         Default = false,
         Callback = function(v)
             if not v then return end
@@ -4472,14 +4325,54 @@ if IsLobbyLobby() then
     })
 
 end
--- ============================== PRESTIGE ==============================
+-- ============================== PRESTIGE (MINIMAL UI WITH ABBREVIATED GOLD + SAVE SUPPORT) ==============================
 if IsLobbyLobby() then
     local PrestigeGroup = Tabs.Session:AddRightGroupbox("Prestige")
 
+    -- ตัวแปร global สำหรับโค้ดเดิม (ใช้ Sync กับ Options)
     getgenv().PrestigeEnabled = false
     getgenv().SelectedBoost = "Gold Boost"
+    getgenv().ForceGoldRequirement = false
 
-    -- รายชื่อ Talent ทั้งหมด
+    -- Gold requirements (หน่วยเป็นล้าน)  sync กับ Options
+    getgenv().PrestigeGoldRequirement = {0, 0, 0, 0, 0}
+    
+    -- สร้างฟังก์ชัน sync ค่าเริ่มต้นจาก Options (ที่โหลดโดย SaveManager แล้ว)
+    local function syncFromOptions()
+        if Options then
+            if Options.GoldReq_0to1 and Options.GoldReq_0to1.Value ~= nil then
+                getgenv().PrestigeGoldRequirement[1] = Options.GoldReq_0to1.Value
+            end
+            if Options.GoldReq_1to2 and Options.GoldReq_1to2.Value ~= nil then
+                getgenv().PrestigeGoldRequirement[2] = Options.GoldReq_1to2.Value
+            end
+            if Options.GoldReq_2to3 and Options.GoldReq_2to3.Value ~= nil then
+                getgenv().PrestigeGoldRequirement[3] = Options.GoldReq_2to3.Value
+            end
+            if Options.GoldReq_3to4 and Options.GoldReq_3to4.Value ~= nil then
+                getgenv().PrestigeGoldRequirement[4] = Options.GoldReq_3to4.Value
+            end
+            if Options.GoldReq_4to5 and Options.GoldReq_4to5.Value ~= nil then
+                getgenv().PrestigeGoldRequirement[5] = Options.GoldReq_4to5.Value
+            end
+            if Options.BoostDropdown and Options.BoostDropdown.Value then
+                getgenv().SelectedBoost = Options.BoostDropdown.Value
+            end
+            if Options.ForceGoldToggle ~= nil then
+                getgenv().ForceGoldRequirement = Options.ForceGoldToggle.Value or false
+            end
+            if Options.PrestigeToggle ~= nil then
+                getgenv().PrestigeEnabled = Options.PrestigeToggle.Value or false
+            end
+        end
+    end
+
+    -- เรียก sync ก่อนสร้าง UI (เพื่อให้ค่า default จาก config ถูกนำมาใช้)
+    syncFromOptions()
+
+    -- Max Level per Prestige step
+    local MAX_LEVEL_FOR_PRESTIGE = {100, 125, 150, 175, 200}
+
     local AllTalents = {
         "Crescendo", "Blitzblade", "Swiftshot", "Surgeshot",
         "Stalwart", "Stormcharged",
@@ -4513,15 +4406,113 @@ if IsLobbyLobby() then
     local PrestigeCooldown = 0.3
     local PrestigeRunning = false
 
-    local function doPrestige()
-        if not getgenv().PrestigeEnabled then return end
-        if not getgenv().SelectedBoost then return end
+    -- ========== Helper functions ==========
+    local function getGold()
+        local player = game:GetService("Players").LocalPlayer
+        local gold = 0
+        pcall(function()
+            local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
+            if topbar then
+                local goldLabel = topbar.Gold and topbar.Gold:FindFirstChild("Amount")
+                if goldLabel and goldLabel.Text then
+                    local goldText = goldLabel.Text:gsub("[^%d]", "")
+                    gold = tonumber(goldText) or 0
+                end
+            end
+        end)
+        return gold
+    end
 
+    local function getLevel()
+        local player = game:GetService("Players").LocalPlayer
+        local level = 0
+        pcall(function()
+            local levelLabel = player.PlayerGui.Interface.Gear_Up.HUD.Level.Title
+            if levelLabel and levelLabel.Text then
+                local levelText = levelLabel.Text:match("%d+")
+                level = tonumber(levelText) or 0
+            end
+        end)
+        return level
+    end
+
+    local function getXPPercent()
+        local player = game:GetService("Players").LocalPlayer
+        local percent = 0
+        pcall(function()
+            local xpLabel = player.PlayerGui.Interface.Gear_Up.XP.Percentage
+            if xpLabel and xpLabel.Text then
+                local xpText = xpLabel.Text:match("(%d+)%%")
+                percent = tonumber(xpText) or 0
+            end
+        end)
+        return percent
+    end
+
+    local function fmtGold(goldNum)
+        if goldNum >= 1e9 then
+            return string.format("%.2fB", goldNum / 1e9)
+        elseif goldNum >= 1e6 then
+            return string.format("%.2fM", goldNum / 1e6)
+        else
+            return tostring(goldNum)
+        end
+    end
+
+    -- ========== UI: Sliders with M suffix ==========
+    PrestigeGroup:AddSlider("GoldReq_0to1", { Text="       :: Prestige 0 to 1 ::", Default=getgenv().PrestigeGoldRequirement[1], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[1]=math.floor(v) end })
+    PrestigeGroup:AddSlider("GoldReq_1to2", { Text="       :: Prestige 1 to 2 ::", Default=getgenv().PrestigeGoldRequirement[2], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[2]=math.floor(v) end })
+    PrestigeGroup:AddSlider("GoldReq_2to3", { Text="       :: Prestige 2 to 3 ::", Default=getgenv().PrestigeGoldRequirement[3], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[3]=math.floor(v) end })
+    PrestigeGroup:AddSlider("GoldReq_3to4", { Text="       :: Prestige 3 to 4 ::", Default=getgenv().PrestigeGoldRequirement[4], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[4]=math.floor(v) end })
+    PrestigeGroup:AddSlider("GoldReq_4to5", { Text="       :: Prestige 4 to 5 ::", Default=getgenv().PrestigeGoldRequirement[5], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[5]=math.floor(v) end })
+
+    PrestigeGroup:AddDropdown("BoostDropdown", { Values={"Luck Boost","Exp Boost","Gold Boost"}, Default=getgenv().SelectedBoost, Text="Boost", Callback=function(v) getgenv().SelectedBoost=v end })
+    PrestigeGroup:AddSlider("PrestigeCooldownSlider", { Text="Delay", Default=PrestigeCooldown, Min=0.2, Max=2, Rounding=1, Suffix="s", Callback=function(v) PrestigeCooldown=v end })
+    PrestigeGroup:AddToggle("ForceGoldToggle", { Text="Force Gold", Default=getgenv().ForceGoldRequirement, Callback=function(v) getgenv().ForceGoldRequirement=v end })
+    PrestigeGroup:AddToggle("PrestigeToggle", { Text="Auto Prestige", Default=getgenv().PrestigeEnabled, Callback=function(v) getgenv().PrestigeEnabled=v end })
+
+    -- ========== Condition & Logic ==========
+    local function canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
+        if currentPrestige >= 5 then return false, "max" end
+        local requiredLevel = MAX_LEVEL_FOR_PRESTIGE[currentPrestige + 1]
+        if currentLevel < requiredLevel then return false, "level" end
+        if currentXP < 100 then return false, "xp" end
+        if getgenv().ForceGoldRequirement then
+            local requiredGoldM = getgenv().PrestigeGoldRequirement[currentPrestige + 1] or 0
+            local requiredGold = requiredGoldM * 1000000
+            if currentGold < requiredGold then return false, "gold" end
+        end
+        return true, "ok"
+    end
+
+    local function doPrestige()
+        if not getgenv().PrestigeEnabled then return false end
+
+        local player = game:GetService("Players").LocalPlayer
+        local currentPrestige = player:GetAttribute("Prestige") or 0
+        local currentLevel = getLevel()
+        local currentXP = getXPPercent()
+        local currentGold = getGold()
+
+        local can, reason = canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
+
+        if not can then
+            if reason == "max" then
+                if getgenv().PrestigeEnabled then
+                    getgenv().PrestigeEnabled = false
+                    pcall(function() if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end end)
+                    Library:Notify("Max Prestige (5) reached. Stopped.", 3)
+                end
+            end
+            return false
+        end
+
+        -- Perform prestige
         local talent = getRandomTalent()
         if not talent then
             resetTalentPool()
             talent = getRandomTalent()
-            if not talent then return end
+            if not talent then return false end
         end
 
         local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
@@ -4533,38 +4524,18 @@ if IsLobbyLobby() then
                 Talents = talent
             })
         end)
+        Library:Notify(string.format("Prestige %d→%d ! Rejoin lobby to check.", currentPrestige, currentPrestige+1), 4)
+        return true
     end
 
-    -- UI
-    PrestigeGroup:AddDropdown("BoostDropdown", {
-        Values = {"Luck Boost", "Exp Boost", "Gold Boost"},
-        Default = "Gold Boost",
-        Text = "Boost Type",
-        Callback = function(v) getgenv().SelectedBoost = v end
-    })
-
-    PrestigeGroup:AddSlider("PrestigeCooldownSlider", {
-        Text = "Delay",
-        Default = 0.3,
-        Min = 0.2,
-        Max = 2,
-        Rounding = 1,
-        Suffix = "s",
-        Callback = function(v) PrestigeCooldown = v end
-    })
-
-    PrestigeGroup:AddToggle("PrestigeToggle", {
-        Text = "Auto Prestige",
-        Default = false,
-        Callback = function(v) getgenv().PrestigeEnabled = v end
-    })
-
-    -- Loop
     task.spawn(function()
         while true do
             task.wait(PrestigeCooldown)
             pcall(function()
-                if not getgenv().PrestigeEnabled then return end
+                if not getgenv().PrestigeEnabled then
+                    PrestigeRunning = false
+                    return
+                end
                 if PrestigeRunning then return end
                 PrestigeRunning = true
                 doPrestige()
@@ -4573,7 +4544,7 @@ if IsLobbyLobby() then
         end
     end)
 end
--- ============================== AUTO CLAIMS (FIXED READY STATUS) ==============================
+-- ============================== AUTO CLAIMS (FIXED READY STATUS - NO CURRENCY DISPLAY) ==============================
 if IsLobbyLobby() then
     local AutoClaimGroup = Tabs.Session:AddLeftGroupbox("Auto Claims")
     
@@ -4583,23 +4554,22 @@ if IsLobbyLobby() then
     getgenv().ClaimAchievementRunning = false
     getgenv().ClaimDelay = 0
     
-    -- สร้าง Label สำหรับแสดงสถานะ
+    -- Label สำหรับแสดงสถานะ (ไม่แสดงจำนวน Gold/Gems)
     local statusLabel = AutoClaimGroup:AddLabel("Status: Checking...", true)
     
-    -- ฟังก์ชันตรวจสอบ currencies (ใช้ path ตรง ไม่ต้อง WaitForChild ทุกครั้ง)
+    -- ฟังก์ชันตรวจสอบ currencies
     local function getCurrencyValues()
         local player = game:GetService("Players").LocalPlayer
         local goldAmount = 0
         local gemsAmount = 0
         
-        -- ใช้ path ที่น่าเชื่อถือ
-        local success = pcall(function()
+        pcall(function()
             local topbar = player.PlayerGui.Interface.Topbar.Main.Currencies
             if topbar then
                 local goldLabel = topbar.Gold and topbar.Gold:FindFirstChild("Amount")
                 local gemsLabel = topbar.Gems and topbar.Gems:FindFirstChild("Amount")
                 if goldLabel and goldLabel.Text then
-                    local goldText = goldLabel.Text:gsub("[^%d]", "")  -- ลบ comma และ non-digit
+                    local goldText = goldLabel.Text:gsub("[^%d]", "")
                     goldAmount = tonumber(goldText) or 0
                 end
                 if gemsLabel and gemsLabel.Text then
@@ -4608,27 +4578,22 @@ if IsLobbyLobby() then
                 end
             end
         end)
-        if success then
-            return goldAmount, gemsAmount
-        end
-        return 0, 0
+        return goldAmount, gemsAmount
     end
     
     local function isCurrenciesReady()
         local gold, gems = getCurrencyValues()
-        return (gold > 0 or gems > 0), gold, gems
+        return (gold > 0 or gems > 0)
     end
     
-    -- อัปเดตสถานะแบบ Real-time (ทุก 1 วินาที)
+    -- อัปเดตสถานะ (แสดงแค่ Ready/Not Ready)
     task.spawn(function()
         while true do
             task.wait(1)
             pcall(function()
-                local ready, gold, gems = isCurrenciesReady()
+                local ready = isCurrenciesReady()
                 if ready then
-                    statusLabel:SetText(string.format("Status: Ready (Gold: %s, Gems: %s)", 
-                        tostring(gold):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", ""), 
-                        tostring(gems):reverse():gsub("%d%d%d", "%1,"):reverse():gsub("^,", "")))
+                    statusLabel:SetText("Status: Ready")
                 else
                     statusLabel:SetText("Status: Not Ready (Waiting for Gold/Gems)")
                 end
@@ -4646,7 +4611,6 @@ if IsLobbyLobby() then
     
     -- ฟังก์ชันรอ Currency (ใช้ path เดียวกับที่ใช้ตรวจสอบ)
     local function waitForCurrency()
-        -- รอให้ Window.Holder แสดง
         while not (Window and Window.Holder and Window.Holder.Visible) do
             task.wait(0.1)
         end
@@ -4692,7 +4656,7 @@ if IsLobbyLobby() then
             if v and not getgenv().ClaimQuestRunning then
                 task.spawn(function()
                     task.wait(2)
-                    waitForCurrency()   -- รอ currencies ให้พร้อม
+                    waitForCurrency()
                     getgenv().ClaimQuestRunning = true
                     claimAllQuests()
                 end)
@@ -5284,7 +5248,7 @@ if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
     SafetyGroup:AddLabel(" -- 60s is safe! --")
     SafetyGroup:AddSlider("SafetyTimeSlider", {
-        Text="--- End Missions ---", Default=25, Min=15, Max=60, Rounding=0,
+        Text="--- End Missions ---", Default=60, Min=0, Max=60, Rounding=0,
         Callback=function(val)
             getgenv().SafetyTime = math.floor(val)
         end,
@@ -5361,7 +5325,7 @@ if Tabs.AutoFarm then
     G.HoverHeight = 120
     G.RipperSafety = false
     G.canExecuteRipper = false
-    G.SafetyTime = G.SafetyTime or 25
+    G.SafetyTime = G.SafetyTime or 60
     G.LeaveMinimum = 1
     G.AttackInterval = 0.15
     
@@ -6179,7 +6143,7 @@ local function AttackAllTitans()
 
     local G = getgenv()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
-    local safe = elapsed >= (G.SafetyTime or 25)
+    local safe = elapsed >= (G.SafetyTime or 60)
 
     -- เมื่อถึง Safety Time ให้ฟาร์มแบบไม่สนใจอะไรเลย (ยกเลิก Wave Check, StopAt, Slay Check)
     if safe then
@@ -6214,10 +6178,10 @@ local function AttackAllTitans()
     if currentWave and maxWave and currentWave < maxWave then
         local nearComplete = (currentWave >= maxWave - 2)  -- ใกล้จบ 2 ตัวสุดท้าย
         if nearComplete then
-            if elapsed < (G.SafetyTime or 25) then
+            if elapsed < (G.SafetyTime or 60) then
                 if not waveWaiting then
                     waveWaiting = true
-                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 25), 3)
+                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
                 end
                 return  -- หยุดโจมตีชั่วคราว
             else
@@ -6974,7 +6938,7 @@ task.spawn(function()
             local gameMode = getGameMode()
             if gameMode == "Mission" then
                 local elapsed = (G.FarmStartTime and (tick() - G.FarmStartTime)) or 0
-                local safe = elapsed >= (G.SafetyTime or 25)
+                local safe = elapsed >= (G.SafetyTime or 60)
                 local stopAt = G.StopAtTitansLeft or 1
                 if not safe and #titans <= stopAt then
                     return
@@ -7019,7 +6983,7 @@ local function isBlade()
 end
 
 local function isSafeTimeReached()
-    local safetyTime = G.SafetyTime or 25
+    local safetyTime = G.SafetyTime or 60
     local elapsed = G.FarmStartTime and G.FarmStartTime > 0 and (tick() - G.FarmStartTime) or 0
     return elapsed >= safetyTime
 end
@@ -7999,11 +7963,12 @@ if IsIngameLobby() and Tabs.Webhook then
                             local slot = currentSlot
                             local gold = slotData.Currency and slotData.Currency.Gold or 0
                             local gems = slotData.Currency and slotData.Currency.Gems or 0
+                            local spins = slotData.Total_Spins or 0
                             local thaiTime = getThaiTime()
 
                             local description = string.format(
-                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🕐 Time: %s",
-                                level, prestige, slot, formatNumber(gold), formatNumber(gems), thaiTime
+                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🎲 Spins: %s  🕐 Time: %s",
+                                level, prestige, slot, formatNumber(gold), formatNumber(gems), formatNumber(spins), thaiTime
                             )
 
                             if _G and _G.Horst_SetDescription then
