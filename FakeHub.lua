@@ -1428,7 +1428,7 @@ if IsMainmenuLobby() then
     })
 end
 
--- ============================== TRADE SYSTEM ==============================
+-- ============================== TRADE SYSTEM (UPDATED) ==============================
 if IsLobbyLobby() then
     task.defer(function()
         local Players = game:GetService("Players")
@@ -1436,7 +1436,7 @@ if IsLobbyLobby() then
         local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
         
         local file1, file2 = "FakeHUB/saved_players.txt", "FakeHUB/saved_players_2.txt"
-        
+
         -- ไฟล์ utilities
         local function loadList(f) 
             local t={} 
@@ -1492,87 +1492,225 @@ if IsLobbyLobby() then
         end
         
         -- Trade logic
-        local isTradeOpen = function() return pcall(function() return Player.PlayerGui.Interface.Trading.Prompt.Visible end) and true or false end
+        local function isTradeOpen() 
+            local success, result = pcall(function() 
+                return Player.PlayerGui.Interface.Trading.Prompt.Visible 
+            end)
+            return success and result or false
+        end
+        
         local sendCooldown, acceptCooldown = {}, {}
         local lastSend, lastAccept = 0, 0
-        local function clearCooldownForPlayer(name) sendCooldown[name]=nil; acceptCooldown[name]=nil end
+        
+        local trackedPlayers = {}
+        
+        local function clearCooldownForPlayer(name) 
+            sendCooldown[name]=nil
+            acceptCooldown[name]=nil 
+        end
         
         task.spawn(function()
             while true do
                 task.wait(2)
                 pcall(function()
-                    local current={}
-                    for _,p in ipairs(Players:GetPlayers()) do if p~=Player then current[p.Name]=true end end
-                    for name in pairs(sendCooldown) do if not current[name] then clearCooldownForPlayer(name) end end
+                    local currentPlayers = {}
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= Player then
+                            currentPlayers[p.Name] = true
+                            if not trackedPlayers[p.Name] then
+                                trackedPlayers[p.Name] = true
+                                clearCooldownForPlayer(p.Name)
+                            end
+                        end
+                    end
+                    for name in pairs(trackedPlayers) do
+                        if not currentPlayers[name] then
+                            trackedPlayers[name] = nil
+                        end
+                    end
                 end)
             end
         end)
         
+        -- Send Trade (ใช้รูปแบบ args ที่ถูกต้อง)
         local function sendTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
             local now=tick()
             if sendCooldown[n] and now-sendCooldown[n]<1.5 then return end
             if now-lastSend<0.35 then return end
             lastSend, sendCooldown[n] = now, now
-            pcall(function() POST:FireServer("Invites","Invite",n) end)
+            
+            local args = {"Invites", "Invite", n}
+            pcall(function()
+                POST:FireServer(unpack(args))
+            end)
         end
         
+        -- Accept Trade (ใช้รูปแบบ args ที่ถูกต้อง)
         local function acceptTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
             local now=tick()
             if acceptCooldown[n] and now-acceptCooldown[n]<1 then return end
             if now-lastAccept<0.25 then return end
             lastAccept, acceptCooldown[n] = now, now
-            pcall(function() POST:FireServer("Invites","State",n,"Accept") end)
+            
+            local args = {"Invites", "State", n, "Accept"}
+            pcall(function()
+                POST:FireServer(unpack(args))
+            end)
         end
         
-        local function buildLoop(getCache, isSend)
+        local function buildSendLoop(getCache)
             return function(toggleRef)
                 task.spawn(function()
                     while toggleRef.Enabled do
-                        if isTradeOpen() then task.wait(0.3) continue end
+                        if isTradeOpen() then task.wait(0.3); continue end
                         local targets = filterOnline(toList(getCache()))
-                        for _,n in ipairs(targets) do
-                            if not toggleRef.Enabled or isTradeOpen() then break end
-                            if isSend then sendTrade(n) else acceptTrade(n) end
-                            task.wait(isSend and 0.12 or 0.08)
+                        for _, n in ipairs(targets) do
+                            if not toggleRef.Enabled then break end
+                            if isTradeOpen() then break end
+                            sendTrade(n)
+                            task.wait(0.12)
                         end
                         task.wait(0.3)
                     end
                 end)
             end
         end
+
+        local function buildAcceptLoop(getCache)
+            return function(toggleRef)
+                task.spawn(function()
+                    while toggleRef.Enabled do
+                        if isTradeOpen() then task.wait(0.3); continue end
+                        local targets = filterOnline(toList(getCache()))
+                        for _, n in ipairs(targets) do
+                            if not toggleRef.Enabled then break end
+                            if isTradeOpen() then break end
+                            acceptTrade(n)
+                            task.wait(0.08)
+                        end
+                        task.wait(0.2)
+                    end
+                end)
+            end
+        end
         
         local function addToggles(box, cacheName, getCache)
-            local sendToggle={Enabled=false}
-            local acceptToggle={Enabled=false}
-            box:AddToggle(cacheName.."_Send", {Text="Send Trade", Default=false, Callback=function(v) sendToggle.Enabled=v; if v then buildLoop(getCache,true)(sendToggle) end end})
-            box:AddToggle(cacheName.."_Accept", {Text="Auto Accept", Default=false, Callback=function(v) acceptToggle.Enabled=v; if v then buildLoop(getCache,false)(acceptToggle) end end})
+            local sendToggle = { Enabled = false }
+            local acceptToggle = { Enabled = false }
+            
+            box:AddToggle(cacheName.."_Send", {
+                Text = "Send Trade", 
+                Default = false, 
+                Callback = function(v) 
+                    sendToggle.Enabled = v
+                    if v then buildSendLoop(getCache)(sendToggle) end 
+                end
+            })
+            box:AddToggle(cacheName.."_Accept", {
+                Text = "Auto Accept", 
+                Default = false, 
+                Callback = function(v) 
+                    acceptToggle.Enabled = v
+                    if v then buildAcceptLoop(getCache)(acceptToggle) end 
+                end
+            })
         end
         
         local function buildSavedBox(title, file, cacheName)
-            local State={Cache={}}
+            local State = { Cache = {} }
             local box = Tabs.Trade:AddLeftGroupbox(title)
-            local dd = box:AddDropdown(cacheName.."_Dropdown", {Text="Players", Values=loadList(file), Multi=true, Default={}, Callback=function(v) State.Cache=v end})
-            box:AddInput(cacheName.."_Input", {Text="Add Users", Placeholder="name1, name2", Default="", Callback=function(v) State.Input=v end})
+            local dd = box:AddDropdown(cacheName.."_Dropdown", {
+                Text = "Players", 
+                Values = loadList(file), 
+                Multi = true, 
+                Default = {}, 
+                Callback = function(v) State.Cache = v end
+            })
+            box:AddInput(cacheName.."_Input", {
+                Text = "Add Users", 
+                Placeholder = "name1, name2", 
+                Default = "", 
+                Callback = function(v) State.Input = v end
+            })
             box:AddButton("Save", function()
-                local txt=State.Input or ""
-                if txt~="" then
+                local txt = State.Input or ""
+                if txt ~= "" then
                     addMulti(file, txt)
                     dd:SetValues(loadList(file))
-                    pcall(function() if Options and Options[cacheName.."_Input"] then Options[cacheName.."_Input"]:SetValue("") end end)
-                    State.Input=""
+                    pcall(function() 
+                        if Options and Options[cacheName.."_Input"] then 
+                            Options[cacheName.."_Input"]:SetValue("") 
+                        end 
+                    end)
+                    State.Input = ""
                 end
             end)
-            box:AddButton("Remove", function() for _,n in ipairs(toList(State.Cache)) do removeName(file, n) end dd:SetValues(loadList(file)) end)
-            box:AddButton("Select All", function() local all=selectAllFromFile(file) dd:SetValue(all); State.Cache=all end)
-            box:AddButton("Deselect All", function() dd:SetValue({}); State.Cache={} end)
-            box:AddButton("Refresh", function() dd:SetValues(loadList(file)) end)
+            box:AddButton("Remove", function() 
+                for _, n in ipairs(toList(State.Cache)) do 
+                    removeName(file, n) 
+                end 
+                dd:SetValues(loadList(file)) 
+            end)
+            box:AddButton("Select All", function() 
+                local all = selectAllFromFile(file) 
+                dd:SetValue(all)
+                State.Cache = all 
+            end)
+            box:AddButton("Deselect All", function() 
+                dd:SetValue({})
+                State.Cache = {} 
+            end)
+            box:AddButton("Refresh", function() 
+                dd:SetValues(loadList(file)) 
+            end)
             addToggles(box, cacheName, function() return State.Cache end)
         end
         
+        -- Current Players (Online)
+        local currentState = { Cache = nil }
+        local g1 = Tabs.Trade:AddLeftGroupbox("Current Players")
+        local cd = g1:AddDropdown("Trade_CurrentDropdown", {
+            Text = "Online", 
+            Values = {"No Players"}, 
+            Multi = true, 
+            Default = {}, 
+            Callback = function(v) currentState.Cache = v end
+        })
+        
+        g1:AddButton("Select All Online", function()
+            local allOnline = {}
+            for _, p in ipairs(Players:GetPlayers()) do
+                if p ~= Player then allOnline[p.Name] = true end
+            end
+            cd:SetValue(allOnline)
+            currentState.Cache = allOnline
+        end)
+        
+        g1:AddButton("Deselect All", function()
+            cd:SetValue({})
+            currentState.Cache = {}
+        end)
+        
+        addToggles(g1, "Trade_Current", function() return currentState.Cache end)
+        
         buildSavedBox("Account 1", file1, "Trade_Acc1")
         buildSavedBox("Account 2", file2, "Trade_Acc2")
+        
+        -- Refresh Online Players List
+        task.spawn(function()
+            while true do
+                task.wait(1.5)
+                pcall(function()
+                    local onlineList = {}
+                    for _, p in ipairs(Players:GetPlayers()) do
+                        if p ~= Player then table.insert(onlineList, p.Name) end
+                    end
+                    cd:SetValues(#onlineList > 0 and onlineList or {"No Players"})
+                end)
+            end
+        end)
     end)
 end
 
