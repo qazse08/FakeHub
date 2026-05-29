@@ -226,12 +226,76 @@ end
 
 
 
--- ============================== WEBHOOK NOTIFICATION SECTION (FIXED SPIN DETECTION) ==============================
+-- ============================== WEBHOOK NOTIFICATION SECTION (STABLE DETECTION + REAL-TIME LABEL) ==============================
 if IsMainmenuLobby() then
     Tabs.Webhook = Window:AddTab("Webhook")
 
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
+    -- ========== REAL-TIME FAMILY LABEL (USING SAME STABLE LOGIC AS AUTO SPIN) ==========
+    local currentFamilyLabel = WebhookGroup:AddLabel("Current Family: ---", true)
+
+    -- Helper functions (copied from Auto Spin for consistency)
+    local function getFamilyTitle()
+        local ui = PlayerGui:FindFirstChild("Interface")
+        if not ui then return nil end
+        local custom = ui:FindFirstChild("Customisation")
+        if not custom then return nil end
+        local family = custom:FindFirstChild("Family")
+        if not family then return nil end
+        local fam = family:FindFirstChild("Family")
+        if not fam then return nil end
+        return fam:FindFirstChild("Title")
+    end
+
+    local function isFamilyTitleReady()
+        local title = getFamilyTitle()
+        if not title or not title:IsA("TextLabel") then return false end
+        if not title.Visible then return false end
+        if title.AbsoluteSize.X <= 1 or title.AbsoluteSize.Y <= 1 then return false end
+        if title.Text == "" then return false end
+        local current = title.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function getCurrentFamilyStable()
+        for i = 1, 10 do
+            if isFamilyTitleReady() then
+                local title = getFamilyTitle()
+                if title and title:IsA("TextLabel") then
+                    return title.Text
+                end
+            end
+            task.wait(0.1)
+        end
+        return nil
+    end
+
+    -- Real-time label updater (every 0.5 sec)
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            pcall(function()
+                if isFamilyTabOpen() then
+                    local family = getCurrentFamilyStable()
+                    if family and family ~= "" then
+                        currentFamilyLabel:SetText("Current Family: " .. family)
+                    else
+                        currentFamilyLabel:SetText("Current Family: (loading...)")
+                    end
+                else
+                    currentFamilyLabel:SetText("Current Family: (not in Family tab)")
+                end
+            end)
+        end
+    end)
+
+    -- ========== WEBHOOK LOGIC (ONLY ONCE PER TARGET FAMILY PER ROLL) ==========
     local webhookURL = ""
     local autoNotifyEnabled = false
     local pingMode = "None"
@@ -240,25 +304,11 @@ if IsMainmenuLobby() then
     local LocalPlayer = Players.LocalPlayer
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
-    -- ตัวแปรสถานะ
-    local lastSpinCount = -1          -- เริ่มต้น -1 หมายถึงยังไม่เคยอ่านค่าได้ถูกต้อง
-    local hasRolledBefore = false     -- เคยมีการกด Roll จริงหรือไม่ (spin count ลดลง)
-    local hasSentForCurrentRoll = false
+    -- Status variables
+    local lastSpinCount = -1
+    local hasSentForCurrentRoll = false   -- reset after each roll (spin decrease)
 
-    -- ฟังก์ชันทำสีข้อความตามแรร์ริตี้ (ใช้ ANSI escape codes สำหรับคอนโซล)
-    local function ColorTextByRarity(text, rarity)
-        local colorCodes = {
-            Common = "\27[90m",    -- สีเทา
-            Rare = "\27[94m",      -- สีฟ้า
-            Epic = "\27[95m",      -- สีม่วง
-            Legendary = "\27[93m", -- สีทอง (เหลืองเข้ม)
-            Mythic = "\27[91m",    -- สีแดง
-        }
-        local code = colorCodes[rarity] or "\27[97m"
-        return code .. text .. "\27[0m"
-    end
-
-    -- ตรวจสอบว่าอยู่ในหน้า Family Tab จริงหรือไม่
+    -- Utility functions (same as before, but using stable detection for webhook)
     local function isFamilyTabOpen()
         local success, rollBtn = pcall(function()
             return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll
@@ -275,25 +325,12 @@ if IsMainmenuLobby() then
         return true
     end
 
-    local function GetCurrentFamily()
-        if not isFamilyTabOpen() then return nil end
-        local ok, result = pcall(function()
-            return PlayerGui.Interface.Customisation.Family.Family.Title.Text
-        end)
-        return ok and result or nil
-    end
-
-    local function GetSpinCount()
-        if not isFamilyTabOpen() then return nil end
-        local ok, result = pcall(function()
+    local function GetSpinCountNumber()
+        if not isFamilyTabOpen() then return -1 end
+        local ok, spinStr = pcall(function()
             return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll.Title.Text
         end)
-        return ok and result or nil
-    end
-
-    local function GetSpinCountNumber()
-        local spinStr = GetSpinCount()
-        if not spinStr or spinStr == "" then return -1 end
+        if not ok or not spinStr or spinStr == "" then return -1 end
         local num = tonumber(spinStr:match("%d+"))
         return num or -1
     end
@@ -368,7 +405,6 @@ if IsMainmenuLobby() then
         local userId = player.UserId
         local userName = player.Name
 
-        -- เฉพาะ Username (ไม่มี Display Name)
         local playerField = string.format("**Username:** @%s\n**User ID:** `%d`", userName, userId)
         local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
         local spinsField = string.format("**Remaining:** %s", spinNumber)
@@ -412,13 +448,13 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- MAIN LOOP: ตรวจจับการเปลี่ยนแปลงของ spin count เฉพาะเมื่ออยู่ใน Family Tab และเปิด toggle
+    -- MAIN LOOP: Detect spin count decrease → Roll occurred → Then check current family (stable)
     task.spawn(function()
         while true do
             task.wait(0.3)
             if not autoNotifyEnabled or webhookURL == "" then
                 lastSpinCount = -1
-                hasRolledBefore = false
+                hasSentForCurrentRoll = false
                 task.wait(1)
                 continue
             end
@@ -436,21 +472,20 @@ if IsMainmenuLobby() then
 
             if lastSpinCount == -1 then
                 lastSpinCount = currentSpinNum
-                hasRolledBefore = false
                 task.wait(0.2)
                 continue
             end
 
-            -- ตรวจจับการลดลงของ spin count (เกิดการกด Roll)
+            -- Spin decreased → a roll happened
             if currentSpinNum < lastSpinCount and lastSpinCount > 0 then
-                hasRolledBefore = true
+                -- Reset the sent flag for this new roll
                 hasSentForCurrentRoll = false
 
-                task.wait(0.2) -- รอให้ Family อัปเดต
-
-                local currentFamily = GetCurrentFamily()
+                -- Wait for UI to update and fetch the new family (using stable method)
+                local currentFamily = getCurrentFamilyStable()   -- retries up to 1 second
+                
                 if currentFamily and currentFamily ~= "Unknown" then
-                    -- ตรวจสอบ target family จาก AutoSpinFamilies
+                    -- Get target families from Auto Spin dropdown
                     local targetFamilies = {}
                     if Options and Options.AutoSpinFamilies then
                         for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
@@ -459,6 +494,7 @@ if IsMainmenuLobby() then
                             end
                         end
                     end
+                    
                     local isTarget = false
                     if #targetFamilies > 0 then
                         local lowerFamily = string.lower(currentFamily)
@@ -471,24 +507,24 @@ if IsMainmenuLobby() then
                     end
 
                     if isTarget and not hasSentForCurrentRoll then
-                        -- ส่ง webhook
                         SendTargetWebhook(currentFamily, currentSpinNum)
                         hasSentForCurrentRoll = true
-
-                        -- แสดงผลไฮไลท์สีในคอนโซลตามแรร์ริตี้
+                        -- Console output with color
                         local rarity = GetFamilyRarity(currentFamily)
-                        local coloredText = ColorTextByRarity(string.format("✅ FOUND TARGET FAMILY: %s (%s)", currentFamily, rarity), rarity)
-                        print(coloredText)
+                        local colorCodes = {Common="\27[90m", Rare="\27[94m", Epic="\27[95m", Legendary="\27[93m", Mythic="\27[91m"}
+                        local code = colorCodes[rarity] or "\27[97m"
+                        print(code .. "✅ FOUND TARGET FAMILY: " .. currentFamily .. " (" .. rarity .. ")\27[0m")
                     end
+                else
+                    print("[Webhook] Could not retrieve family name after roll")
                 end
             end
 
-            -- อัปเดต lastSpinCount
             lastSpinCount = currentSpinNum
         end
     end)
 
-    -- UI Components
+    -- ========== UI COMPONENTS ==========
     WebhookGroup:AddInput("Webhook_URL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
@@ -515,7 +551,6 @@ if IsMainmenuLobby() then
             autoNotifyEnabled = v
             if v then
                 lastSpinCount = -1
-                hasRolledBefore = false
                 hasSentForCurrentRoll = false
                 print("[Webhook] Monitoring started.")
             else
