@@ -233,7 +233,7 @@ if IsMainmenuLobby() then
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
     -- ========== REAL-TIME FAMILY LABEL (USING SAME STABLE LOGIC AS AUTO SPIN) ==========
-    local currentFamilyLabel = WebhookGroup:AddLabel("Current Family: ---", true)
+    -- (ลบ label และ updater ออกแล้ว)
 
     -- Helper functions (copied from Auto Spin for consistency)
     local function getFamilyTitle()
@@ -276,24 +276,7 @@ if IsMainmenuLobby() then
         return nil
     end
 
-    -- Real-time label updater (every 0.5 sec)
-    task.spawn(function()
-        while true do
-            task.wait(0.5)
-            pcall(function()
-                if isFamilyTabOpen() then
-                    local family = getCurrentFamilyStable()
-                    if family and family ~= "" then
-                        currentFamilyLabel:SetText("Current Family: " .. family)
-                    else
-                        currentFamilyLabel:SetText("Current Family: (loading...)")
-                    end
-                else
-                    currentFamilyLabel:SetText("Current Family: (not in Family tab)")
-                end
-            end)
-        end
-    end)
+    -- (ลบ Real-time label updater ออกแล้ว)
 
     -- ========== WEBHOOK LOGIC (ONLY ONCE PER TARGET FAMILY PER ROLL) ==========
     local webhookURL = ""
@@ -932,6 +915,19 @@ if IsMainmenuLobby() then
     -- ตัวแปรสำหรับป้องกันการแจ้งเตือนซ้ำตอนรอ 10 วินาที
     local notifiedWaitingForSettings = false
 
+    -- ตัวแปรสำหรับจัดการ Join Community Dialog
+    local dialogCooldownUntil = 0
+    local waitingForDialog = false
+
+    -- ฟังก์ชันตรวจสอบว่า Join Community Dialog ปรากฏอยู่หรือไม่
+    local function IsJoinCommunityDialogVisible()
+        local success, dialog = pcall(function()
+            return game:GetService("CoreGui").RobloxGui.FocusNavigationCoreScriptsWrapper.Dialog
+        end)
+        if not success or not dialog then return false end
+        return dialog.Visible == true
+    end
+
     local function safeSetToggleOff(toggleName)
         pcall(function()
             if Options and Options[toggleName] and Options[toggleName].SetValue then
@@ -1333,7 +1329,7 @@ if IsMainmenuLobby() then
         if _G.UpdateLastSpinTime then _G.UpdateLastSpinTime() end
     end
 
-    -- ========== MAIN AUTO SPIN LOOP (พร้อม Debug Notify แบบไม่มี emoji และแสดง Total Spins) ==========
+    -- ========== MAIN AUTO SPIN LOOP (พร้อมเช็ค Join Community Dialog) ==========
     local function autoSpinLoop()
         if isSpinning then return end
         isSpinning = true
@@ -1347,6 +1343,26 @@ if IsMainmenuLobby() then
         end
 
         while not stopSpin and autoActive do
+            -- ตรวจสอบ Join Community Dialog และ cooldown
+            if IsJoinCommunityDialogVisible() then
+                waitingForDialog = true
+                dialogCooldownUntil = 0
+                task.wait(0.5)
+                continue
+            elseif waitingForDialog then
+                -- dialog เพิ่งหายไป เริ่ม cooldown 3 วินาที
+                waitingForDialog = false
+                dialogCooldownUntil = tick() + 3
+                Library:Notify("Join Community dialog closed, waiting 3 seconds before resuming Auto Spin...", 2)
+            end
+
+            if dialogCooldownUntil > 0 and tick() < dialogCooldownUntil then
+                task.wait(0.2)
+                continue
+            else
+                dialogCooldownUntil = 0
+            end
+
             task.wait(0.05)
             pcall(function()
                 handleWarningPopup()
@@ -1473,7 +1489,6 @@ if IsMainmenuLobby() then
         end
     })
 end
-
 -- ============================== TRADE SYSTEM (UPDATED) ==============================
 if IsLobbyLobby() then
     task.defer(function()
