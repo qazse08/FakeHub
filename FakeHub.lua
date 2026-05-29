@@ -225,10 +225,9 @@ end
 
 
 
-
 -- ============================== WEBHOOK NOTIFICATION SECTION (STABLE DETECTION + REAL-TIME LABEL) ==============================
 if IsMainmenuLobby() then
-    Tabs.Webhook = Window:AddTab("Webhook")
+    Tabs.Webhook = Window:AddTab("Family")
 
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
@@ -899,7 +898,7 @@ if IsMainmenuLobby() then
 end
 -- ============================== AUTO SPIN (MAIN MENU) - FIXED SEQUENTIAL CLICK ==============================
 if IsMainmenuLobby() then
-    local SpinGroup = Tabs.MainMenu:AddLeftGroupbox("Auto Spin")
+    local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
 
     local selectedFamilies = {}
     local isSpinning = false
@@ -2992,6 +2991,184 @@ if IsMainmenuLobby() or IsLobbyLobby() then
         end
     end)
 end
+
+
+-- ============================== CODE REDEEMER (STORE & REDEEM CODES) ==============================
+if IsMainmenuLobby() then
+    local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeemer")
+
+    local codesFile = "FakeHUB/codes.txt"
+    local codeList = {}
+    local selectedCode = ""
+
+    -- ฟังก์ชันบันทึกโค้ดลงไฟล์ (ประกาศก่อน loadCodes)
+    local function saveCodes()
+        writefile(codesFile, table.concat(codeList, "\n"))
+    end
+
+    -- ฟังก์ชันโหลดโค้ดจากไฟล์
+    local function loadCodes()
+        codeList = {}
+        if isfile(codesFile) then
+            local content = readfile(codesFile)
+            for line in string.gmatch(content, "[^\r\n]+") do
+                line = line:gsub("^%s+", ""):gsub("%s+$", "")
+                if line ~= "" then
+                    table.insert(codeList, line)
+                end
+            end
+        end
+        if #codeList == 0 then
+            table.insert(codeList, "LIKES1M250K")
+            table.insert(codeList, "VISITS900M")
+            table.insert(codeList, "FREECODE6")
+            saveCodes()
+        end
+    end
+
+    -- ฟังก์ชันเพิ่มโค้ดใหม่
+    local function addCode(newCode)
+        newCode = newCode:gsub("^%s+", ""):gsub("%s+$", "")
+        if newCode == "" then return false end
+        for _, existing in ipairs(codeList) do
+            if existing == newCode then return false end
+        end
+        table.insert(codeList, newCode)
+        saveCodes()
+        return true
+    end
+
+    -- ฟังก์ชันลบโค้ดที่เลือก
+    local function removeCode(code)
+        for i, existing in ipairs(codeList) do
+            if existing == code then
+                table.remove(codeList, i)
+                saveCodes()
+                return true
+            end
+        end
+        return false
+    end
+
+    -- โหลดโค้ดตอนเริ่ม
+    loadCodes()
+
+    -- Dropdown สำหรับเลือกโค้ด
+    local codeDropdown = CodeGroup:AddDropdown("CodeListDropdown", {
+        Text = "Stored Codes",
+        Values = codeList,
+        Default = codeList[1] or "",
+        Multi = false,
+        Callback = function(v)
+            selectedCode = v
+        end
+    })
+
+    -- ฟังก์ชันอัปเดต dropdown
+    local function refreshDropdown()
+        codeDropdown:SetValues(codeList)
+        if #codeList > 0 then
+            codeDropdown:SetValue(codeList[1])
+            selectedCode = codeList[1]
+        else
+            selectedCode = ""
+        end
+    end
+
+    -- Input สำหรับเพิ่มโค้ดใหม่
+    local newCodeInput = ""
+    CodeGroup:AddInput("NewCodeInput", {
+        Text = "New Code",
+        Placeholder = "Enter code...",
+        Default = "",
+        Numeric = false,
+        Finished = true,
+        Callback = function(v)
+            newCodeInput = v
+        end
+    })
+
+    -- ปุ่ม Store (เพิ่มโค้ด)
+    CodeGroup:AddButton("Store Code", function()
+        if newCodeInput ~= "" then
+            if addCode(newCodeInput) then
+                Library:Notify("Code '" .. newCodeInput .. "' added successfully!", 3)
+                refreshDropdown()
+                newCodeInput = ""
+                -- ป้องกัน Options เป็น nil
+                if Options and Options.NewCodeInput then
+                    Options.NewCodeInput:SetValue("")
+                end
+            else
+                Library:Notify("Code already exists or invalid!", 3)
+            end
+        else
+            Library:Notify("Please enter a code first!", 3)
+        end
+    end)
+
+    -- ปุ่ม Remove (ลบโค้ดที่เลือก)
+    CodeGroup:AddButton("Remove Selected Code", function()
+        if selectedCode and selectedCode ~= "" then
+            if removeCode(selectedCode) then
+                Library:Notify("Code '" .. selectedCode .. "' removed.", 3)
+                refreshDropdown()
+            else
+                Library:Notify("Failed to remove code.", 3)
+            end
+        else
+            Library:Notify("No code selected.", 3)
+        end
+    end)
+
+    CodeGroup:AddDivider()
+
+    -- ฟังก์ชัน Redeem พร้อมแจ้งเตือน
+    local function redeemCode(code)
+        if not code or code == "" then
+            Library:Notify("No code selected!", 3)
+            return
+        end
+
+        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+        local success, result = pcall(function()
+            return GET:InvokeServer("Functions", "Redeem", code)
+        end)
+
+        if not success then
+            Library:Notify("Error: " .. tostring(result), 3)
+            return
+        end
+
+        local message = ""
+        local resultStr = tostring(result)
+
+        if resultStr:find("SUCCESSFUL") then
+            message = "✅ Redeemed successfully! (" .. code .. ")"
+        elseif resultStr:find("USED") then
+            message = "⚠️ Code already used! (" .. code .. ")"
+        elseif resultStr:find("EXPIRED") then
+            message = "❌ Code expired! (" .. code .. ")"
+        elseif resultStr:find("INVALID") then
+            message = "❌ Invalid code! (" .. code .. ")"
+        else
+            message = "Redeem result: " .. resultStr
+        end
+
+        Library:Notify(message, 5)
+        print("[Code Redeemer] " .. message)
+    end
+
+    -- ปุ่ม Redeem (ทำงานทันที)
+    CodeGroup:AddButton("Redeem Selected Code", function()
+        redeemCode(selectedCode)
+    end)
+end
+-- ============================== END CODE REDEEMER ==============================
+
+
+
+
 -- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
 -- หา Remote แบบไดนามิก (Us Suite style)
 local function findMissionRemote()
@@ -8268,3 +8445,223 @@ if IsIngameLobby() then
 
 end
 
+-- ============================== FAST TITAN KILL COUNTER + AUTO KILL (RELIABLE POLLING) ==============================
+if IsIngameLobby() and Tabs.AutoFarm then
+    local KillGroup = Tabs.AutoFarm:AddRightGroupbox("Only Docks : Stall ")
+    
+    getgenv().SessionKills = getgenv().SessionKills or 0
+    local sessionKills = getgenv().SessionKills
+    local killTarget = 30
+    local hasKilled = false
+    local requireSpecificMap = false
+    local currentMap = "Unknown"
+    local currentObjective = "Unknown"
+    local baseStreak = nil          -- ค่าเริ่มต้นของ streak (บันทึกครั้งแรกเมื่อเข้าเงื่อนไข)
+    local baseSet = false
+    local currentStreak = 0
+    
+    -- ฟังก์ชันฆ่าตัวตาย (ตามที่ต้องการ)
+    local function killCharacter()
+        local player = game.Players.LocalPlayer
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.Health = 0
+        end
+    end
+    
+    -- Map condition toggle
+    KillGroup:AddToggle("RequireMapConditionToggle", {
+        Text = "Use Auto Safe Mode: Stall",
+        Default = false,
+        Callback = function(v)
+            requireSpecificMap = v
+        end
+    })
+    
+    -- Auto kill threshold slider
+    KillGroup:AddSlider("AutoKillTargetSlider", {
+        Text = "Auto Kill When Kills Reach",
+        Default = 30,
+        Min = 1,
+        Max = 200,
+        Rounding = 0,
+        Suffix = " kills",
+        Callback = function(v)
+            killTarget = v
+        end
+    })
+    
+    -- หยุดทุกอย่างและทำให้ลอยนิ่ง (ถ้ายังไม่ตาย)
+    local function stopAllAndHover()
+        getgenv().AutoFarmBlade = false
+        getgenv().Farm = false
+        getgenv().AutoThunderSpear = false
+        if CleanupSmoothMovement then CleanupSmoothMovement() end
+        if CurrentEntry then CurrentEntry = nil end
+        
+        local char = game.Players.LocalPlayer.Character
+        if char then
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hrp then
+                hrp.AssemblyLinearVelocity = Vector3.zero
+                hrp.AssemblyAngularVelocity = Vector3.zero
+                local bodyPos = Instance.new("BodyPosition")
+                bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                bodyPos.P = 5000
+                bodyPos.D = 1000
+                bodyPos.Position = hrp.Position
+                bodyPos.Parent = hrp
+                task.delay(0.5, function() if bodyPos and bodyPos.Parent then bodyPos:Destroy() end end)
+            end
+            if hum then
+                hum.PlatformStand = true
+                hum.JumpPower = 0
+                hum.WalkSpeed = 0
+            end
+        end
+        
+        if Options then
+            if Options.AutoFarmBlade then Options.AutoFarmBlade:SetValue(false) end
+            if Options.AutoThunderSpearToggle then Options.AutoThunderSpearToggle:SetValue(false) end
+        end
+    end
+    
+    local function updateSessionKills()
+        if baseStreak == nil then return end
+        local newKills = currentStreak - baseStreak
+        if newKills < 0 then newKills = 0 end
+        if newKills > sessionKills then
+            sessionKills = newKills
+            getgenv().SessionKills = sessionKills
+        end
+        
+        -- กำหนดเป้าหมาย: ถ้าเปิด toggle ให้ใช้ค่าจาก slider, ถ้าปิดให้ใช้ 100 (Hardcoded)
+        local target = requireSpecificMap and killTarget or 100
+        if not hasKilled and sessionKills >= target then
+            hasKilled = true
+            killCharacter()
+            stopAllAndHover()
+        end
+    end
+    
+    local function isConditionActive()
+        return (currentMap == "Docks" and currentObjective == "Stall")
+    end
+    
+    local function pollStreak()
+        local success, data = pcall(function()
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            return GET:InvokeServer("Data", "Copy")
+        end)
+        if success and type(data) == "table" then
+            if data.Map then
+                local newMap = data.Map.Map or "Unknown"
+                local newObj = data.Map.Objective or "Unknown"
+                if newMap ~= currentMap or newObj ~= currentObjective then
+                    currentMap = newMap
+                    currentObjective = newObj
+                end
+            end
+            
+            -- ถ้าไม่อยู่ใน Docks/Stall ให้รีเซ็ตทุกอย่าง (เริ่มนับใหม่เมื่อเข้ารอบหน้า)
+            if not isConditionActive() then
+                if baseSet then
+                    baseSet = false
+                    baseStreak = nil
+                    sessionKills = 0
+                    getgenv().SessionKills = 0
+                end
+                return
+            end
+            
+            -- อยู่ใน Docks/Stall
+            if data.Statistics and data.Statistics.Streak then
+                currentStreak = data.Statistics.Streak.Total or 0
+                if not baseSet then
+                    baseStreak = currentStreak
+                    baseSet = true
+                    sessionKills = 0
+                    getgenv().SessionKills = 0
+                end
+                updateSessionKills()
+            end
+        end
+    end
+    
+    -- เริ่ม loop polling ทุก 0.1 วินาที
+    task.spawn(function()
+        while true do
+            pollStreak()
+            task.wait(0.1)
+        end
+    end)
+    
+    -- Initial fetch
+    pollStreak()
+    
+    -- ========== เพิ่มระบบเช็ค Blades Sets 0/3 ==========
+    task.spawn(function()
+        local lastZeroTime = nil
+        local waitingForKill = false
+        
+        while true do
+            task.wait(0.5)
+            -- ทำงานเฉพาะเมื่อเปิด toggle (requireSpecificMap == true)
+            if not requireSpecificMap then
+                lastZeroTime = nil
+                waitingForKill = false
+                continue
+            end
+            
+            -- ดึงค่า Sets text
+            local setsText = nil
+            local success = pcall(function()
+                local player = game.Players.LocalPlayer
+                local ui = player.PlayerGui:FindFirstChild("Interface")
+                if ui then
+                    local hud = ui:FindFirstChild("HUD")
+                    if hud then
+                        local main = hud:FindFirstChild("Main")
+                        if main then
+                            local top = main:FindFirstChild("Top")
+                            if top then
+                                local seven = top:FindFirstChild("7")
+                                if seven then
+                                    local blades = seven:FindFirstChild("Blades")
+                                    if blades then
+                                        local sets = blades:FindFirstChild("Sets")
+                                        if sets and sets:IsA("TextLabel") then
+                                            setsText = sets.Text
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+            
+            if success and setsText then
+                setsText = setsText:gsub("%s+", "") -- ตัดช่องว่าง
+                if setsText == "0/3" then
+                    if lastZeroTime == nil then
+                        lastZeroTime = tick()
+                        waitingForKill = false
+                    elseif not waitingForKill and (tick() - lastZeroTime) >= 10 then
+                        waitingForKill = true
+                        killCharacter()
+                        -- ไม่ต้องหยุด auto farm เพิ่มเพราะ killCharacter จะทำให้ตัวละครตาย
+                    end
+                else
+                    -- ถ้าไม่ใช่ 0/3 (เช่น 1/3, 2/3, 3/3) ให้รีเซ็ตการนับ
+                    lastZeroTime = nil
+                    waitingForKill = false
+                end
+            else
+                -- ถ้าหา UI ไม่เจอ ให้รีเซ็ต (ป้องกัน error)
+                lastZeroTime = nil
+                waitingForKill = false
+            end
+        end
+    end)
+end
