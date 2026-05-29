@@ -896,7 +896,10 @@ if IsMainmenuLobby() then
         end
     })
 end
--- ============================== AUTO SPIN (MAIN MENU) - FIXED SEQUENTIAL CLICK ==============================
+-- ============================== AUTO SPIN (MAIN MENU) - IMPROVED RESILIENT LOOP ==============================
+-- แก้ไขส่วน autoSpinLoop ให้ทำงานอัตโนมัติเมื่อกลับมาที่หน้าต่างที่ถูกต้อง โดยไม่ต้องปิด/เปิด toggle ใหม่
+-- ไม่แก้ไขฟังก์ชันอื่นที่มีอยู่แล้ว
+
 if IsMainmenuLobby() then
     local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
 
@@ -911,14 +914,10 @@ if IsMainmenuLobby() then
     local GS = game:GetService("GuiService")
     local playerGui = player:WaitForChild("PlayerGui")
 
-    -- ตัวแปรสำหรับป้องกันการแจ้งเตือนซ้ำตอนรอ 10 วินาที
     local notifiedWaitingForSettings = false
-
-    -- ตัวแปรสำหรับจัดการ Join Community Dialog
     local dialogCooldownUntil = 0
     local waitingForDialog = false
 
-    -- ฟังก์ชันตรวจสอบว่า Join Community Dialog ปรากฏอยู่หรือไม่
     local function IsJoinCommunityDialogVisible()
         local success, dialog = pcall(function()
             return game:GetService("CoreGui").RobloxGui.FocusNavigationCoreScriptsWrapper.Dialog
@@ -935,7 +934,6 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ========== ฟังก์ชันหา Rarity สำหรับแสดงผล ==========
     local function GetFamilyRarity(familyName)
         if not familyName then return "Common" end
         local cleanName = familyName:match("^([^%(]+)") or familyName
@@ -964,7 +962,6 @@ if IsMainmenuLobby() then
         return "Common"
     end
 
-    -- ฟังก์ชันจัดรูปแบบ Family ให้สวยงาม (ชื่อหลัก + วงเล็บ rarity) ไม่ให้ซ้อนวงเล็บ
     local function FormatFamilyDisplay(rawFamily)
         if not rawFamily or rawFamily == "" then return "Unknown" end
         local baseName = rawFamily:match("^([^%(]+)") or rawFamily
@@ -974,7 +971,6 @@ if IsMainmenuLobby() then
         return string.format("%s (%s)", baseName, rarity)
     end
 
-    -- ========== UI ELEMENT GETTERS ==========
     local function getInterface() return playerGui:FindFirstChild("Interface") end
 
     local function getCustomBtn()
@@ -1039,7 +1035,6 @@ if IsMainmenuLobby() then
         return fam:FindFirstChild("Title")
     end
 
-    -- ========== UI HELPERS ==========
     local function isGuiVisible(obj)
         if not obj then return false end
         if not obj:IsA("GuiObject") then return false end
@@ -1061,7 +1056,6 @@ if IsMainmenuLobby() then
         return obj
     end
 
-    -- ฟังก์ชันคลิกแบบใช้ SelectedObject + Enter (ไม่มี highlight ค้าง)
     local function ClickButton(button)
         if not autoActive then return false end
         local target = getClickable(button)
@@ -1094,8 +1088,6 @@ if IsMainmenuLobby() then
         return true
     end
 
-    -- ========== ลำดับการเปิด UI ตามที่กำหนด ==========
-    -- 1. กด Customisation
     local function OpenCustomisation()
         local btn = getCustomBtn()
         if btn and isGuiVisible(btn) then
@@ -1104,7 +1096,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- 2. กด Family (ทำ 2 ครั้ง ห่างกัน 0.25 วินาที)
     local function OpenFamilyTab()
         local btn = getFamilyBtn()
         if not btn or not isGuiVisible(btn) then return false end
@@ -1117,7 +1108,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- 3. กด Storage (ถ้ามี)
     local function OpenStorageTab()
         local btn = getStorageBtn()
         if btn and isGuiVisible(btn) then
@@ -1126,7 +1116,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- ฟังก์ชันเตรียม UI ให้พร้อมก่อน Roll (ทำตามลำดับ)
     local function PrepareUI()
         if not autoActive then return false end
 
@@ -1137,12 +1126,11 @@ if IsMainmenuLobby() then
         OpenCustomisation()
         task.wait(0.5)
         
-        -- แจ้งเตือนขณะรอ 10 วินาที (เฉพาะครั้งแรกในรอบการทำงาน)
         if not notifiedWaitingForSettings then
             Library:Notify("Waiting For Settings", 3)
             notifiedWaitingForSettings = true
         end
-        task.wait(10)    -- รอ 10 วินาทีตามที่ผู้ใช้กำหนด
+        task.wait(10)
 
         OpenFamilyTab()
         task.wait(0.25)
@@ -1153,7 +1141,6 @@ if IsMainmenuLobby() then
         return isGuiVisible(getRollBtn())
     end
 
-    -- ========== ฟังก์ชันตรวจสอบและดึง Family อย่างมั่นใจ ==========
     local function isFamilyTitleReady()
         local title = getFamilyTitle()
         if not title or not title:IsA("TextLabel") then return false end
@@ -1190,7 +1177,6 @@ if IsMainmenuLobby() then
         return nil
     end
 
-    -- ========== ฟังก์ชันอื่นๆ ที่จำเป็น ==========
     local FAMILY_LIST = {
         "--- Common ---","Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut",
         "--- Rare ---","Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein",
@@ -1201,7 +1187,6 @@ if IsMainmenuLobby() then
 
     local function isHeader(name) return string.sub(name, 1, 3) == "---" end
 
-    -- ตรวจสอบสล็อต
     local function IsOnScreen(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
         local current = gui
@@ -1239,7 +1224,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- จัดการ Warning popup
     local function handleWarningPopup()
         if not autoActive then return end
         pcall(function()
@@ -1328,7 +1312,7 @@ if IsMainmenuLobby() then
         if _G.UpdateLastSpinTime then _G.UpdateLastSpinTime() end
     end
 
-    -- ========== MAIN AUTO SPIN LOOP (พร้อมเช็ค Join Community Dialog) ==========
+    -- ========== MAIN AUTO SPIN LOOP (ปรับปรุงให้ทำงานต่อเนื่องอัตโนมัติ) ==========
     local function autoSpinLoop()
         if isSpinning then return end
         isSpinning = true
@@ -1341,15 +1325,19 @@ if IsMainmenuLobby() then
             return
         end
 
+        -- ตัวแปรช่วยในการรีเซ็ตสถานะเมื่อกลับมาที่หน้าต่างหลัก
+        local lastUIVisibleTime = tick()
+        local needFullReset = false
+
         while not stopSpin and autoActive do
-            -- ตรวจสอบ Join Community Dialog และ cooldown
+            -- ตรวจสอบ Join Community Dialog และ cooldown (ไม่เปลี่ยนแปลง)
             if IsJoinCommunityDialogVisible() then
                 waitingForDialog = true
                 dialogCooldownUntil = 0
                 task.wait(0.5)
+                needFullReset = false
                 continue
             elseif waitingForDialog then
-                -- dialog เพิ่งหายไป เริ่ม cooldown 3 วินาที
                 waitingForDialog = false
                 dialogCooldownUntil = tick() + 3
                 Library:Notify("Join Community dialog closed, waiting 3 seconds before resuming Auto Spin...", 2)
@@ -1362,6 +1350,30 @@ if IsMainmenuLobby() then
                 dialogCooldownUntil = 0
             end
 
+            -- ตรวจสอบว่า UI หลัก (Interface) ยังมีอยู่และใช้งานได้
+            if not getInterface() then
+                -- ถ้า Interface หายไป (เช่น ออกจากเกมหรือเปลี่ยนหน้า) ให้รอแล้วลองใหม่
+                task.wait(1)
+                continue
+            end
+
+            -- ตรวจจับว่า UI ที่จำเป็นเริ่มมองเห็นอีกครั้งหรือไม่ (เพื่อรีเซ็ต flag การแจ้งเตือน)
+            local rollBtnVisible = isGuiVisible(getRollBtn())
+            if rollBtnVisible then
+                lastUIVisibleTime = tick()
+                if needFullReset then
+                    needFullReset = false
+                    notifiedWaitingForSettings = false  -- ให้แจ้งเตือนใหม่เมื่อเริ่มรอบ
+                end
+            else
+                -- ถ้า Roll button ไม่เห็นนานเกิน 30 วินาที ให้ถือว่าต้องรีเซ็ตสถานะใหม่
+                if tick() - lastUIVisibleTime > 30 then
+                    needFullReset = true
+                end
+                task.wait(0.5)
+                -- ไม่ต้อง continue เพื่อให้ลองเปิด UI ใหม่ผ่าน PrepareUI
+            end
+
             task.wait(0.05)
             pcall(function()
                 handleWarningPopup()
@@ -1371,6 +1383,7 @@ if IsMainmenuLobby() then
                 end
 
                 if not PrepareUI() then
+                    -- ถ้าเปิด UI ไม่สำเร็จ อาจจะยังไม่พร้อม ให้รอแล้วลองใหม่
                     task.wait(0.5)
                     return
                 end
@@ -1434,7 +1447,7 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- ========== UI COMPONENTS ==========
+    -- ========== UI COMPONENTS (ไม่เปลี่ยนแปลง) ==========
     SpinGroup:AddDropdown("AutoSpinFamilies", {
         Text = "Select Families",
         Values = FAMILY_LIST,
@@ -1475,7 +1488,6 @@ if IsMainmenuLobby() then
                     end)
                     return
                 end
-                -- รีเซ็ต flag การแจ้งเตือนเมื่อเริ่ม Auto Spin ใหม่
                 notifiedWaitingForSettings = false
                 autoActive = true
                 stopSpin = false
