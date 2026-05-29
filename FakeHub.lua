@@ -896,42 +896,102 @@ if IsMainmenuLobby() then
         end
     })
 end
--- ============================== AUTO SPIN (MAIN MENU) - IMPROVED RESILIENT LOOP ==============================
--- แก้ไขส่วน autoSpinLoop ให้ทำงานอัตโนมัติเมื่อกลับมาที่หน้าต่างที่ถูกต้อง โดยไม่ต้องปิด/เปิด toggle ใหม่
--- ไม่แก้ไขฟังก์ชันอื่นที่มีอยู่แล้ว
+
+
+
+
+
+-- ============================== AUTO SPIN (MAIN MENU) ==============================
+-- เฉพาะ Slot A เท่านั้น
+-- Auto Spin จะทำงานต่อเนื่องอัตโนมัติเมื่อเปิด toggle จนกว่าจะได้ตระกูลเป้าหมาย หรือสปินหมด
+-- ไม่มีการแจ้งเตือน "Roll failed!" หรือ "No spins left!"
 
 if IsMainmenuLobby() then
     local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
 
     local selectedFamilies = {}
-    local isSpinning = false
-    local stopSpin = false
     local rollDelay = 0.01
     local autoActive = false
+    local lastRolledSpins = nil
 
     local player = game:GetService("Players").LocalPlayer
-    local VIM = game:GetService("VirtualInputManager")
-    local GS = game:GetService("GuiService")
     local playerGui = player:WaitForChild("PlayerGui")
+    local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 
-    local notifiedWaitingForSettings = false
-    local dialogCooldownUntil = 0
-    local waitingForDialog = false
-
-    local function IsJoinCommunityDialogVisible()
-        local success, dialog = pcall(function()
-            return game:GetService("CoreGui").RobloxGui.FocusNavigationCoreScriptsWrapper.Dialog
+    -- Helper: UI Elements
+    local function getSlotLabel()
+        local success, label = pcall(function()
+            return playerGui.Interface.Title_Screen.Slots.A.Details.Label
         end)
-        if not success or not dialog then return false end
-        return dialog.Visible == true
+        if success and label and label:IsA("TextLabel") then
+            return label
+        end
+        return nil
     end
 
-    local function safeSetToggleOff(toggleName)
-        pcall(function()
-            if Options and Options[toggleName] and Options[toggleName].SetValue then
-                Options[toggleName]:SetValue(false)
-            end
+    local function getFamilyTitleLabel()
+        local success, title = pcall(function()
+            return playerGui.Interface.Customisation.Family.Family.Title
         end)
+        if success and title and title:IsA("TextLabel") then
+            return title
+        end
+        return nil
+    end
+
+    local function getCurrentFamilyFromUI()
+        local slotLabel = getSlotLabel()
+        if slotLabel and slotLabel.Visible then
+            local text = slotLabel.Text
+            local family = text:match("^([^,]+)")
+            if family then
+                return family:gsub("%s+$", "")
+            end
+        end
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle and familyTitle.Visible then
+            local text = familyTitle.Text
+            local family = text:match("^([^%(]+)")
+            return family and family:gsub("%s+$", "") or text
+        end
+        return nil
+    end
+
+    local function updateUIFamily(newFamily)
+        local slotLabel = getSlotLabel()
+        if slotLabel then
+            local oldText = slotLabel.Text
+            local lv = oldText:match("Lv%.(%d+)")
+            if lv then
+                slotLabel.Text = string.format("%s, Lv.%s", newFamily, lv)
+            else
+                slotLabel.Text = newFamily
+            end
+        end
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle then
+            familyTitle.Text = newFamily
+        end
+    end
+
+    local function syncUIFamilies()
+        local slotFamily = nil
+        local slotLabel = getSlotLabel()
+        if slotLabel and slotLabel.Visible then
+            local text = slotLabel.Text
+            slotFamily = text:match("^([^,]+)")
+            if slotFamily then slotFamily = slotFamily:gsub("%s+$", "") end
+        end
+        local titleFamily = nil
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle and familyTitle.Visible then
+            local text = familyTitle.Text
+            titleFamily = text:match("^([^%(]+)")
+            if titleFamily then titleFamily = titleFamily:gsub("%s+$", "") end
+        end
+        if slotFamily and titleFamily and slotFamily ~= titleFamily then
+            updateUIFamily(slotFamily)
+        end
     end
 
     local function GetFamilyRarity(familyName)
@@ -971,210 +1031,20 @@ if IsMainmenuLobby() then
         return string.format("%s (%s)", baseName, rarity)
     end
 
-    local function getInterface() return playerGui:FindFirstChild("Interface") end
-
-    local function getCustomBtn()
-        local ts = getInterface() and getInterface():FindFirstChild("Title_Screen")
-        if not ts then return nil end
-        local btns = ts:FindFirstChild("Buttons")
-        if not btns then return nil end
-        return btns:FindFirstChild("Customisation")
-    end
-
-    local function getFamilyBtn()
-        local ui = getInterface()
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        local cats = custom:FindFirstChild("Categories")
-        if not cats then return nil end
-        return cats:FindFirstChild("Family")
-    end
-
-    local function getRollBtn()
-        local ui = getInterface()
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        local family = custom:FindFirstChild("Family")
-        if not family then return nil end
-        local btns2 = family:FindFirstChild("Buttons_2")
-        if not btns2 then return nil end
-        return btns2:FindFirstChild("Roll")
-    end
-
-    local function getStorageBtn()
-        local ui = getInterface()
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        local family = custom:FindFirstChild("Family")
-        if not family then return nil end
-        local btns2 = family:FindFirstChild("Buttons_2")
-        if not btns2 then return nil end
-        return btns2:FindFirstChild("Storage")
-    end
-
-    local function getStorageUI()
-        local ui = getInterface()
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        return custom:FindFirstChild("Storage")
-    end
-
-    local function getFamilyTitle()
-        local ui = getInterface()
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        local family = custom:FindFirstChild("Family")
-        if not family then return nil end
-        local fam = family:FindFirstChild("Family")
-        if not fam then return nil end
-        return fam:FindFirstChild("Title")
-    end
-
-    local function isGuiVisible(obj)
-        if not obj then return false end
-        if not obj:IsA("GuiObject") then return false end
-        if not obj.Visible then return false end
-        if obj.AbsoluteSize.X <= 1 or obj.AbsoluteSize.Y <= 1 then return false end
-        local parent = obj.Parent
-        while parent do
-            if parent:IsA("ScreenGui") and not parent.Enabled then return false end
-            if parent:IsA("GuiObject") and not parent.Visible then return false end
-            parent = parent.Parent
-        end
-        return true
-    end
-
-    local function getClickable(obj)
-        if not obj then return nil end
-        local interact = obj:FindFirstChild("Interact")
-        if interact and interact:IsA("GuiObject") then return interact end
-        return obj
-    end
-
-    local function ClickButton(button)
-        if not autoActive then return false end
-        local target = getClickable(button)
-        if not target or not target.Parent or not isGuiVisible(target) then return false end
-
-        if GS.MenuIsOpen then
-            VIM:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
-            VIM:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-            task.wait(0.1)
-        end
-        if not target.Parent then return false end
-
-        pcall(function()
-            target.Selectable = true
-            target.SelectionImageObject = nil
-        end)
-
-        GS.SelectedObject = target
-        task.wait(0.05)
-        if GS.SelectedObject ~= target or not target.Parent then
-            GS.SelectedObject = nil
-            return false
-        end
-
-        VIM:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        task.wait(0.01)
-        VIM:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        task.wait(0.01)
-        GS.SelectedObject = nil
-        return true
-    end
-
-    local function OpenCustomisation()
-        local btn = getCustomBtn()
-        if btn and isGuiVisible(btn) then
-            return ClickButton(btn)
-        end
-        return false
-    end
-
-    local function OpenFamilyTab()
-        local btn = getFamilyBtn()
-        if not btn or not isGuiVisible(btn) then return false end
-        if not ClickButton(btn) then return false end
-        task.wait(0.25)
-        btn = getFamilyBtn()
-        if btn and isGuiVisible(btn) then
-            return ClickButton(btn)
-        end
-        return false
-    end
-
-    local function OpenStorageTab()
-        local btn = getStorageBtn()
-        if btn and isGuiVisible(btn) then
-            return ClickButton(btn)
-        end
-        return false
-    end
-
-    local function PrepareUI()
-        if not autoActive then return false end
-
-        if isGuiVisible(getRollBtn()) then
-            return true
-        end
-
-        OpenCustomisation()
-        task.wait(0.5)
-        
-        if not notifiedWaitingForSettings then
-            Library:Notify("Waiting For Settings", 3)
-            notifiedWaitingForSettings = true
-        end
-        task.wait(10)
-
-        OpenFamilyTab()
-        task.wait(0.25)
-
-        OpenStorageTab()
-        task.wait(0.2)
-
-        return isGuiVisible(getRollBtn())
-    end
-
-    local function isFamilyTitleReady()
-        local title = getFamilyTitle()
-        if not title or not title:IsA("TextLabel") then return false end
-        if not title.Visible then return false end
-        if title.AbsoluteSize.X <= 1 or title.AbsoluteSize.Y <= 1 then return false end
-        if title.Text == "" then return false end
-        local current = title.Parent
-        while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
-            current = current.Parent
-        end
-        return true
-    end
-
-    local function waitForStableFamilyTitle()
-        for i = 1, 10 do
-            if isFamilyTitleReady() then
+    local function isTargetFamily(name, targetList)
+        if not name or #targetList == 0 then return false end
+        local lower = string.lower(name)
+        for _, t in ipairs(targetList) do
+            if string.find(lower, string.lower(t)) then
                 return true
             end
-            task.wait(0.1)
         end
         return false
     end
 
-    local function getCurrentFamilyStable()
-        if not waitForStableFamilyTitle() then
-            return nil
-        end
-        local title = getFamilyTitle()
-        if title and title:IsA("TextLabel") then
-            return title.Text
-        end
-        return nil
+    local function performRoll()
+        local result = {Event:InvokeServer("Family", "Roll")}
+        return result[1] or 0, result[3] or nil
     end
 
     local FAMILY_LIST = {
@@ -1187,269 +1057,65 @@ if IsMainmenuLobby() then
 
     local function isHeader(name) return string.sub(name, 1, 3) == "---" end
 
-    local function IsOnScreen(gui)
-        if not gui or not gui:IsA("GuiObject") then return false end
-        local current = gui
-        while current and current ~= game do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            current = current.Parent
-        end
-        if gui.AbsoluteSize.X <= 0 or gui.AbsoluteSize.Y <= 0 then return false end
-        if not gui:IsDescendantOf(playerGui) then return false end
-        return true
-    end
-
-    local function getSlotObjects()
-        local slots = {}
-        local ui = getInterface()
-        if not ui then return slots end
-        local ts = ui:FindFirstChild("Title_Screen")
-        if not ts then return slots end
-        local slotsFrame = ts:FindFirstChild("Slots")
-        if not slotsFrame then return slots end
-        for _, slotName in ipairs({"A", "B", "C"}) do
-            local slot = slotsFrame:FindFirstChild(slotName)
-            if slot then
-                local selectBtn = slot:FindFirstChild("Select_" .. slotName)
-                if selectBtn then table.insert(slots, selectBtn) end
-            end
-        end
-        return slots
-    end
-
-    local function isAnySlotOpen()
-        for _, v in ipairs(getSlotObjects()) do
-            if IsOnScreen(v) then return true end
-        end
-        return false
-    end
-
-    local function handleWarningPopup()
-        if not autoActive then return end
-        pcall(function()
-            local warningMain = playerGui:FindFirstChild("Interface")
-            if warningMain then
-                warningMain = warningMain:FindFirstChild("Warning")
-                if warningMain then
-                    warningMain = warningMain:FindFirstChild("Prompt")
-                    if warningMain then
-                        warningMain = warningMain:FindFirstChild("Main")
-                        if warningMain and warningMain.Visible then
-                            local familyTitle = getFamilyTitle()
-                            local currentFamily = familyTitle and familyTitle.Text or ""
-                            local isTarget = false
-                            if currentFamily ~= "" and #selectedFamilies > 0 then
-                                local lower = string.lower(currentFamily)
-                                for _, t in ipairs(selectedFamilies) do
-                                    if string.find(lower, string.lower(t)) then
-                                        isTarget = true
-                                        break
-                                    end
-                                end
-                            end
-                            if not isTarget then
-                                local yesBtn = warningMain:FindFirstChild("Yes")
-                                if yesBtn and isGuiVisible(yesBtn) then
-                                    local confirmed = true
-                                    for i = 1, 10 do
-                                        if not isGuiVisible(yesBtn) then confirmed = false; break end
-                                        local recheckTitle = getFamilyTitle()
-                                        local recheckFamily = recheckTitle and recheckTitle.Text or ""
-                                        if recheckFamily ~= "" and #selectedFamilies > 0 then
-                                            local lower2 = string.lower(recheckFamily)
-                                            local found = false
-                                            for _, t in ipairs(selectedFamilies) do
-                                                if string.find(lower2, string.lower(t)) then
-                                                    found = true
-                                                    break
-                                                end
-                                            end
-                                            if found then confirmed = false; break end
-                                        end
-                                        task.wait(1)
-                                    end
-                                    if confirmed then
-                                        ClickButton(yesBtn)
-                                        task.wait(0.5)
-                                    end
-                                end
-                            end
-                        end
+    -- ========== AUTO SPIN LOOP (ทำงานต่อเนื่องจนกว่าจะเจอเป้าหมายหรือสปินหมด) ==========
+    local spinTask = nil
+    local function startAutoSpin()
+        if spinTask then return end
+        spinTask = task.spawn(function()
+            while autoActive do
+                -- ก่อน roll ให้ sync UI เผื่อค่าตระกูลมีการเปลี่ยนแปลงภายนอก
+                syncUIFamilies()
+                
+                -- ตรวจสอบสปินและสุ่ม
+                local spinsLeft, familyGot = performRoll()
+                
+                if familyGot then
+                    lastRolledSpins = spinsLeft
+                    local display = FormatFamilyDisplay(familyGot)
+                    Library:Notify(string.format("Rolled: %s | Spins left: %d", display, spinsLeft), 2)
+                    updateUIFamily(familyGot)
+                    
+                    if isTargetFamily(familyGot, selectedFamilies) then
+                        Library:Notify(string.format("🎯 TARGET ACHIEVED! %s | Spins left: %d", display, spinsLeft), 10)
+                        break
                     end
+                else
+                    -- roll failed (อาจเป็นเพราะ server lag) ให้รอสั้นๆ แล้วลองใหม่
+                    task.wait(0.1)
+                    continue
                 end
+                
+                if spinsLeft == 0 then
+                    break
+                end
+                
+                task.wait(rollDelay)
             end
+            -- ปิด toggle อัตโนมัติเมื่อจบ loop
+            if Options and Options.AutoSpinToggle then
+                Options.AutoSpinToggle:SetValue(false)
+            end
+            autoActive = false
+            spinTask = nil
         end)
     end
 
-    local function getSpinCount()
-        local rollBtn = getRollBtn()
-        if not rollBtn or not isGuiVisible(rollBtn) then return -1 end
-        if rollBtn.Text and rollBtn.Text ~= "" then
-            local num = tonumber(rollBtn.Text:match("%d+"))
-            if num then return num end
-        end
-        for _, v in ipairs(rollBtn:GetChildren()) do
-            if v:IsA("TextLabel") then
-                local num = tonumber(v.Text:match("%d+"))
-                if num then return num end
-            end
-        end
-        return -1
-    end
+    -- ========== UI COMPONENTS ==========
+    SpinGroup:AddLabel("Slot A (only)")
 
-    local function isTargetFamily(name)
-        if not name or #selectedFamilies == 0 then return false end
-        local baseName = name:match("^([^%(]+)") or name
-        baseName = baseName:gsub("%s+$", "")
-        local lower = string.lower(baseName)
-        for _, t in ipairs(selectedFamilies) do
-            if string.find(lower, string.lower(t)) then return true end
-        end
-        return false
-    end
+    SpinGroup:AddDivider()
 
-    local function updateSpinTime()
-        if _G.UpdateLastSpinTime then _G.UpdateLastSpinTime() end
-    end
+    SpinGroup:AddButton("Check Current Family", function()
+        syncUIFamilies()
+        local family = getCurrentFamilyFromUI() or "Unknown"
+        local spinsText = (lastRolledSpins ~= nil) and tostring(lastRolledSpins) or "?"
+        Library:Notify(string.format("Slot A | Family: %s | Spins left: %s", family, spinsText), 3)
+    end)
 
-    -- ========== MAIN AUTO SPIN LOOP (ปรับปรุงให้ทำงานต่อเนื่องอัตโนมัติ) ==========
-    local function autoSpinLoop()
-        if isSpinning then return end
-        isSpinning = true
-        stopSpin = false
+    SpinGroup:AddDivider()
 
-        if #selectedFamilies == 0 then
-            isSpinning = false
-            safeSetToggleOff("AutoSpinToggle")
-            autoActive = false
-            return
-        end
-
-        -- ตัวแปรช่วยในการรีเซ็ตสถานะเมื่อกลับมาที่หน้าต่างหลัก
-        local lastUIVisibleTime = tick()
-        local needFullReset = false
-
-        while not stopSpin and autoActive do
-            -- ตรวจสอบ Join Community Dialog และ cooldown (ไม่เปลี่ยนแปลง)
-            if IsJoinCommunityDialogVisible() then
-                waitingForDialog = true
-                dialogCooldownUntil = 0
-                task.wait(0.5)
-                needFullReset = false
-                continue
-            elseif waitingForDialog then
-                waitingForDialog = false
-                dialogCooldownUntil = tick() + 3
-                Library:Notify("Join Community dialog closed, waiting 3 seconds before resuming Auto Spin...", 2)
-            end
-
-            if dialogCooldownUntil > 0 and tick() < dialogCooldownUntil then
-                task.wait(0.2)
-                continue
-            else
-                dialogCooldownUntil = 0
-            end
-
-            -- ตรวจสอบว่า UI หลัก (Interface) ยังมีอยู่และใช้งานได้
-            if not getInterface() then
-                -- ถ้า Interface หายไป (เช่น ออกจากเกมหรือเปลี่ยนหน้า) ให้รอแล้วลองใหม่
-                task.wait(1)
-                continue
-            end
-
-            -- ตรวจจับว่า UI ที่จำเป็นเริ่มมองเห็นอีกครั้งหรือไม่ (เพื่อรีเซ็ต flag การแจ้งเตือน)
-            local rollBtnVisible = isGuiVisible(getRollBtn())
-            if rollBtnVisible then
-                lastUIVisibleTime = tick()
-                if needFullReset then
-                    needFullReset = false
-                    notifiedWaitingForSettings = false  -- ให้แจ้งเตือนใหม่เมื่อเริ่มรอบ
-                end
-            else
-                -- ถ้า Roll button ไม่เห็นนานเกิน 30 วินาที ให้ถือว่าต้องรีเซ็ตสถานะใหม่
-                if tick() - lastUIVisibleTime > 30 then
-                    needFullReset = true
-                end
-                task.wait(0.5)
-                -- ไม่ต้อง continue เพื่อให้ลองเปิด UI ใหม่ผ่าน PrepareUI
-            end
-
-            task.wait(0.05)
-            pcall(function()
-                handleWarningPopup()
-                if isAnySlotOpen() then
-                    task.wait(0.5)
-                    return
-                end
-
-                if not PrepareUI() then
-                    -- ถ้าเปิด UI ไม่สำเร็จ อาจจะยังไม่พร้อม ให้รอแล้วลองใหม่
-                    task.wait(0.5)
-                    return
-                end
-
-                local currentRaw = getCurrentFamilyStable()
-                if currentRaw then
-                    local display = FormatFamilyDisplay(currentRaw)
-                    local totalSpins = getSpinCount()
-                    Library:Notify(string.format("Current family: %s | Total Spins: %d", display, totalSpins), 2)
-                    
-                    if isTargetFamily(currentRaw) then
-                        Library:Notify(string.format("Stopping spin : %s | Total Spins: %d", display, totalSpins), 10)
-                        stopSpin = true
-                        return
-                    end
-                else
-                    task.wait(0.5)
-                    return
-                end
-
-                local spins = getSpinCount()
-                if spins == 0 then
-                    Library:Notify("No spins left! Stopping.", 3)
-                    stopSpin = true
-                    return
-                end
-
-                local rb = getRollBtn()
-                if not rb or not isGuiVisible(rb) then return end
-
-                if not ClickButton(rb) then
-                    task.wait(0.01)
-                    return
-                end
-
-                updateSpinTime()
-                task.wait(rollDelay)
-
-                task.wait(0.2)
-                local newRaw = getCurrentFamilyStable()
-                if newRaw then
-                    local newDisplay = FormatFamilyDisplay(newRaw)
-                    local remainingSpins = getSpinCount()
-                    Library:Notify(string.format("Rolled: %s | Spins left: %d", newDisplay, remainingSpins), 3)
-                    
-                    if isTargetFamily(newRaw) then
-                        Library:Notify(string.format("Target achieved! %s | Total Spins: %d", newDisplay, remainingSpins), 10)
-                        stopSpin = true
-                        return
-                    end
-                end
-
-                task.wait(0.001)
-            end)
-        end
-
-        isSpinning = false
-        if autoActive then
-            safeSetToggleOff("AutoSpinToggle")
-            autoActive = false
-        end
-    end
-
-    -- ========== UI COMPONENTS (ไม่เปลี่ยนแปลง) ==========
     SpinGroup:AddDropdown("AutoSpinFamilies", {
-        Text = "Select Families",
+        Text = "Select Target Families",
         Values = FAMILY_LIST,
         Multi = true,
         Default = {},
@@ -1481,6 +1147,7 @@ if IsMainmenuLobby() then
         Callback = function(v)
             if v then
                 if #selectedFamilies == 0 then
+                    Library:Notify("Please select target families first!", 3)
                     pcall(function()
                         if Options and Options.AutoSpinToggle then
                             Options.AutoSpinToggle:SetValue(false)
@@ -1488,18 +1155,36 @@ if IsMainmenuLobby() then
                     end)
                     return
                 end
-                notifiedWaitingForSettings = false
                 autoActive = true
-                stopSpin = false
-                task.spawn(autoSpinLoop)
+                startAutoSpin()
             else
                 autoActive = false
-                stopSpin = true
-                pcall(function() GS.SelectedObject = nil end)
+                if spinTask then
+                    task.cancel(spinTask)
+                    spinTask = nil
+                end
             end
         end
     })
 end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 -- ============================== TRADE SYSTEM (UPDATED) ==============================
 if IsLobbyLobby() then
     task.defer(function()
@@ -8456,40 +8141,52 @@ if IsIngameLobby() then
     })
 
 end
-
 -- ============================== FAST TITAN KILL COUNTER + AUTO KILL (RELIABLE POLLING) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
-    local KillGroup = Tabs.AutoFarm:AddRightGroupbox("Only Docks : Stall ")
-    
+    local KillGroup = Tabs.AutoFarm:AddRightGroupbox("Only Docks : Stall")
+
+    -- ตัวแปรหลัก
     getgenv().SessionKills = getgenv().SessionKills or 0
     local sessionKills = getgenv().SessionKills
     local killTarget = 30
     local hasKilled = false
-    local requireSpecificMap = false
+    local systemEnabled = false          -- toggle หลักเพียงอันเดียว
     local currentMap = "Unknown"
     local currentObjective = "Unknown"
-    local baseStreak = nil          -- ค่าเริ่มต้นของ streak (บันทึกครั้งแรกเมื่อเข้าเงื่อนไข)
+    local baseStreak = nil
     local baseSet = false
     local currentStreak = 0
-    
-    -- ฟังก์ชันฆ่าตัวตาย (ตามที่ต้องการ)
+
+    -- ฟังก์ชันฆ่าตัวตาย
     local function killCharacter()
         local player = game.Players.LocalPlayer
         if player.Character and player.Character:FindFirstChild("Humanoid") then
             player.Character.Humanoid.Health = 0
         end
     end
-    
-    -- Map condition toggle
-    KillGroup:AddToggle("RequireMapConditionToggle", {
-        Text = "Use Auto Safe Mode: Stall",
+
+    -- ========== UI COMPONENTS ==========
+    -- Toggle หลักเพียงอันเดียว เปิด/ปิดระบบทั้งหมด
+    KillGroup:AddToggle("EnableSafeModeToggle", {
+        Text = "Enable Auto Safe Mode (Stall only)",
         Default = false,
         Callback = function(v)
-            requireSpecificMap = v
+            systemEnabled = v
+            if not v then
+                -- รีเซ็ตสถานะทั้งหมดเมื่อปิดระบบ
+                hasKilled = false
+                baseSet = false
+                baseStreak = nil
+                sessionKills = 0
+                getgenv().SessionKills = 0
+                currentStreak = 0
+                currentMap = "Unknown"
+                currentObjective = "Unknown"
+            end
         end
     })
-    
-    -- Auto kill threshold slider
+
+    -- Slider สำหรับตั้งค่า kill threshold
     KillGroup:AddSlider("AutoKillTargetSlider", {
         Text = "Auto Kill When Kills Reach",
         Default = 30,
@@ -8501,15 +8198,18 @@ if IsIngameLobby() and Tabs.AutoFarm then
             killTarget = v
         end
     })
-    
-    -- หยุดทุกอย่างและทำให้ลอยนิ่ง (ถ้ายังไม่ตาย)
+
+    -- หมายเหตุ: ไม่มี toggle สำหรับปิด Blades 0/3 Check แล้ว (ระบบจะไม่ตรวจสอบ blades ตลอด เพื่อความเร็ว)
+
+    -- ========== LOGIC ==========
+    -- หยุดทุกอย่างและทำให้ลอยนิ่ง
     local function stopAllAndHover()
         getgenv().AutoFarmBlade = false
         getgenv().Farm = false
         getgenv().AutoThunderSpear = false
         if CleanupSmoothMovement then CleanupSmoothMovement() end
         if CurrentEntry then CurrentEntry = nil end
-        
+
         local char = game.Players.LocalPlayer.Character
         if char then
             local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -8531,13 +8231,13 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 hum.WalkSpeed = 0
             end
         end
-        
+
         if Options then
             if Options.AutoFarmBlade then Options.AutoFarmBlade:SetValue(false) end
             if Options.AutoThunderSpearToggle then Options.AutoThunderSpearToggle:SetValue(false) end
         end
     end
-    
+
     local function updateSessionKills()
         if baseStreak == nil then return end
         local newKills = currentStreak - baseStreak
@@ -8546,21 +8246,21 @@ if IsIngameLobby() and Tabs.AutoFarm then
             sessionKills = newKills
             getgenv().SessionKills = sessionKills
         end
-        
-        -- กำหนดเป้าหมาย: ถ้าเปิด toggle ให้ใช้ค่าจาก slider, ถ้าปิดให้ใช้ 100 (Hardcoded)
-        local target = requireSpecificMap and killTarget or 100
-        if not hasKilled and sessionKills >= target then
+
+        if not hasKilled and sessionKills >= killTarget then
             hasKilled = true
             killCharacter()
             stopAllAndHover()
         end
     end
-    
+
     local function isConditionActive()
         return (currentMap == "Docks" and currentObjective == "Stall")
     end
-    
+
     local function pollStreak()
+        if not systemEnabled then return end
+
         local success, data = pcall(function()
             local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
             return GET:InvokeServer("Data", "Copy")
@@ -8574,8 +8274,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                     currentObjective = newObj
                 end
             end
-            
-            -- ถ้าไม่อยู่ใน Docks/Stall ให้รีเซ็ตทุกอย่าง (เริ่มนับใหม่เมื่อเข้ารอบหน้า)
+
             if not isConditionActive() then
                 if baseSet then
                     baseSet = false
@@ -8585,8 +8284,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end
                 return
             end
-            
-            -- อยู่ใน Docks/Stall
+
             if data.Statistics and data.Statistics.Streak then
                 currentStreak = data.Statistics.Streak.Total or 0
                 if not baseSet then
@@ -8599,81 +8297,18 @@ if IsIngameLobby() and Tabs.AutoFarm then
             end
         end
     end
-    
-    -- เริ่ม loop polling ทุก 0.1 วินาที
+
+    -- เริ่ม loop polling (ทำงานเมื่อ systemEnabled == true เท่านั้น)
     task.spawn(function()
         while true do
-            pollStreak()
-            task.wait(0.1)
-        end
-    end)
-    
-    -- Initial fetch
-    pollStreak()
-    
-    -- ========== เพิ่มระบบเช็ค Blades Sets 0/3 ==========
-    task.spawn(function()
-        local lastZeroTime = nil
-        local waitingForKill = false
-        
-        while true do
+            if systemEnabled then
+                pollStreak()
+            end
             task.wait(0.5)
-            -- ทำงานเฉพาะเมื่อเปิด toggle (requireSpecificMap == true)
-            if not requireSpecificMap then
-                lastZeroTime = nil
-                waitingForKill = false
-                continue
-            end
-            
-            -- ดึงค่า Sets text
-            local setsText = nil
-            local success = pcall(function()
-                local player = game.Players.LocalPlayer
-                local ui = player.PlayerGui:FindFirstChild("Interface")
-                if ui then
-                    local hud = ui:FindFirstChild("HUD")
-                    if hud then
-                        local main = hud:FindFirstChild("Main")
-                        if main then
-                            local top = main:FindFirstChild("Top")
-                            if top then
-                                local seven = top:FindFirstChild("7")
-                                if seven then
-                                    local blades = seven:FindFirstChild("Blades")
-                                    if blades then
-                                        local sets = blades:FindFirstChild("Sets")
-                                        if sets and sets:IsA("TextLabel") then
-                                            setsText = sets.Text
-                                        end
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end
-            end)
-            
-            if success and setsText then
-                setsText = setsText:gsub("%s+", "") -- ตัดช่องว่าง
-                if setsText == "0/3" then
-                    if lastZeroTime == nil then
-                        lastZeroTime = tick()
-                        waitingForKill = false
-                    elseif not waitingForKill and (tick() - lastZeroTime) >= 10 then
-                        waitingForKill = true
-                        killCharacter()
-                        -- ไม่ต้องหยุด auto farm เพิ่มเพราะ killCharacter จะทำให้ตัวละครตาย
-                    end
-                else
-                    -- ถ้าไม่ใช่ 0/3 (เช่น 1/3, 2/3, 3/3) ให้รีเซ็ตการนับ
-                    lastZeroTime = nil
-                    waitingForKill = false
-                end
-            else
-                -- ถ้าหา UI ไม่เจอ ให้รีเซ็ต (ป้องกัน error)
-                lastZeroTime = nil
-                waitingForKill = false
-            end
         end
     end)
+
+    if systemEnabled then pollStreak() end
+
+    -- ========== ไม่มีระบบเช็ค Blades Sets 0/3 แล้ว (ลบออกเพื่อความเร็ว) ==========
 end
