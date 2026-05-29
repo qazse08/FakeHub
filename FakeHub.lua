@@ -894,6 +894,9 @@ if IsMainmenuLobby() then
     local GS = game:GetService("GuiService")
     local playerGui = player:WaitForChild("PlayerGui")
 
+    -- ตัวแปรสำหรับป้องกันการแจ้งเตือนซ้ำตอนรอ 10 วินาที
+    local notifiedWaitingForSettings = false
+
     local function safeSetToggleOff(toggleName)
         pcall(function()
             if Options and Options[toggleName] and Options[toggleName].SetValue then
@@ -1103,6 +1106,12 @@ if IsMainmenuLobby() then
 
         OpenCustomisation()
         task.wait(0.5)
+        
+        -- แจ้งเตือนขณะรอ 10 วินาที (เฉพาะครั้งแรกในรอบการทำงาน)
+        if not notifiedWaitingForSettings then
+            Library:Notify("Waiting For Settings", 3)
+            notifiedWaitingForSettings = true
+        end
         task.wait(10)    -- รอ 10 วินาทีตามที่ผู้ใช้กำหนด
 
         OpenFamilyTab()
@@ -1416,6 +1425,8 @@ if IsMainmenuLobby() then
                     end)
                     return
                 end
+                -- รีเซ็ต flag การแจ้งเตือนเมื่อเริ่ม Auto Spin ใหม่
+                notifiedWaitingForSettings = false
                 autoActive = true
                 stopSpin = false
                 task.spawn(autoSpinLoop)
@@ -3782,15 +3793,12 @@ if IsLobbyLobby() then
     end
 
     -- ========== ฟังก์ชันตรวจสอบว่า UI การอัปเกรดอยู่ในสถานะ "Ready" ==========
-    -- 🔧 แก้ path ตรงนี้ให้ตรงกับเกมของคุณ
     local function isUpgradeReady()
         local player = game:GetService("Players").LocalPlayer
         local ready = false
         pcall(function()
-            -- ตัวอย่าง path ที่พบบ่อย (แก้ตาม UI จริง)
             local equipment = player.PlayerGui.Interface:FindFirstChild("Equipment")
             if equipment then
-                -- ลองหาปุ่มหรือข้อความ "Ready"
                 local statusLabel = equipment:FindFirstChild("Status") 
                                     or equipment:FindFirstChild("ReadyLabel")
                 if statusLabel and statusLabel:IsA("TextLabel") then
@@ -3798,11 +3806,9 @@ if IsLobbyLobby() then
                         ready = true
                     end
                 else
-                    -- fallback: ถ้าไม่เจอ ให้ถือว่าพร้อมเสมอ (จะได้ทำงาน)
                     ready = true
                 end
             else
-                -- ถ้าไม่มีหน้า Equipment ถือว่าพร้อม (หรือปรับเป็น false ก็ได้)
                 ready = true
             end
         end)
@@ -3814,7 +3820,7 @@ if IsLobbyLobby() then
 
     getgenv().AutoUpgradeBlade = false
     getgenv().UpgradeRunning = false
-    getgenv().BladeUpgradeDelay = 0      -- ใช้ค่าจาก Slider จริง
+    getgenv().BladeUpgradeDelay = 0
 
     local ALL_BLADE_STATS = {
         "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
@@ -3824,12 +3830,9 @@ if IsLobbyLobby() then
     local function batchUpgradeBlade()
         if not GET then return false end
         local args = { "S_Equipment", "Upgrade", ALL_BLADE_STATS }
-        local success, err = pcall(function()
+        local success = pcall(function()
             GET:InvokeServer(unpack(args))
         end)
-        if not success then
-            warn("[Blade] Upgrade error: ", err)
-        end
         return success
     end
 
@@ -3854,36 +3857,23 @@ if IsLobbyLobby() then
                 getgenv().UpgradeRunning = true
 
                 task.spawn(function()
-                    print("[Blade] Auto upgrade started")
                     while getgenv().AutoUpgradeBlade do
                         local ready = isUpgradeReady()
                         local gold = getGoldAmount()
                         local delay = getgenv().BladeUpgradeDelay
 
-                        if ready and gold >= 1000 then   -- เปลี่ยน 1000 เป็นราคาอัปเกรดจริง
-                            local success = batchUpgradeBlade()
-                            if success then
-                                print("[Blade] Upgraded")
-                            else
-                                warn("[Blade] Upgrade failed")
-                            end
+                        if ready and gold >= 1000 then
+                            batchUpgradeBlade()
                             if delay > 0 then
                                 task.wait(delay)
                             else
-                                task.wait()   -- ป้องกัน loop 100%
+                                task.wait()
                             end
                         else
-                            -- รอแล้วลองใหม่
-                            if not ready then
-                                warn("[Blade] Waiting for Ready status...")
-                            elseif gold < 1000 then
-                                warn(string.format("[Blade] Not enough gold (%s)", gold))
-                            end
                             task.wait(2)
                         end
                     end
                     getgenv().UpgradeRunning = false
-                    print("[Blade] Auto upgrade stopped")
                 end)
             end
         end
@@ -3897,19 +3887,22 @@ if IsLobbyLobby() then
     getgenv().SpearUpgradeDelay = 0
 
     local ALL_SPEAR_STATS = {
-        "ODM_Gas", "ODM_Speed", "ODM_Range", "ODM_Control",
-        "Crit_Damage", "ODM_Damage", "Crit_Chance", "Blade_Durability"
+        "Blast_Radius",
+        "TS_Damage",
+        "TS_Gas",
+        "TS_Range",
+        "TS_Control",
+        "Crit_Chance",
+        "Crit_Damage",
+        "TS_Speed"
     }
 
     local function batchUpgradeSpear()
         if not GET then return false end
         local args = { "S_Equipment", "Upgrade", ALL_SPEAR_STATS }
-        local success, err = pcall(function()
+        local success = pcall(function()
             GET:InvokeServer(unpack(args))
         end)
-        if not success then
-            warn("[Spear] Upgrade error: ", err)
-        end
         return success
     end
 
@@ -3947,11 +3940,6 @@ if IsLobbyLobby() then
                                 task.wait()
                             end
                         else
-                            if not ready then
-                                warn("[Spear] Waiting for Ready...")
-                            elseif gold < 1000 then
-                                warn(string.format("[Spear] Not enough gold (%s)", gold))
-                            end
                             task.wait(2)
                         end
                     end
@@ -4463,35 +4451,38 @@ if IsLobbyLobby() then
     })
 
 end
--- ============================== PRESTIGE (MINIMAL UI WITH ABBREVIATED GOLD + SAVE SUPPORT) ==============================
+-- ============================== PRESTIGE (PER-STEP GOLD REQUIREMENTS WITH CUSTOM MIN/MAX, FORCE ONLY CURRENT STEP) ==============================
 if IsLobbyLobby() then
     local PrestigeGroup = Tabs.Session:AddRightGroupbox("Prestige")
 
-    -- ตัวแปร global สำหรับโค้ดเดิม (ใช้ Sync กับ Options)
+    -- ตัวแปร global
     getgenv().PrestigeEnabled = false
     getgenv().SelectedBoost = "Gold Boost"
     getgenv().ForceGoldRequirement = false
 
-    -- Gold requirements (หน่วยเป็นล้าน)  sync กับ Options
-    getgenv().PrestigeGoldRequirement = {0, 0, 0, 0, 0}
+    -- ค่าเริ่มต้น Gold requirements (หน่วยเป็นล้าน) ตามที่กำหนด: max ของแต่ละขั้น
+    local DEFAULT_GOLD_REQUIREMENTS_M = {200, 400, 600, 800, 1000}
+    getgenv().PrestigeGoldRequirement = {200, 400, 600, 800, 1000}
     
-    -- สร้างฟังก์ชัน sync ค่าเริ่มต้นจาก Options (ที่โหลดโดย SaveManager แล้ว)
+    -- กำหนดช่วง min/max สำหรับแต่ละ slider (max = ค่า requirement, min = 0)
+    local SLIDER_RANGES = {
+        {min = 0,   max = 200},   -- 0 → 1
+        {min = 0,   max = 400},   -- 1 → 2
+        {min = 0,   max = 600},   -- 2 → 3
+        {min = 0,   max = 800},   -- 3 → 4
+        {min = 0,   max = 1000},  -- 4 → 5
+    }
+    
+    -- สร้างฟังก์ชัน sync ค่าเริ่มต้นจาก Options
     local function syncFromOptions()
         if Options then
-            if Options.GoldReq_0to1 and Options.GoldReq_0to1.Value ~= nil then
-                getgenv().PrestigeGoldRequirement[1] = Options.GoldReq_0to1.Value
-            end
-            if Options.GoldReq_1to2 and Options.GoldReq_1to2.Value ~= nil then
-                getgenv().PrestigeGoldRequirement[2] = Options.GoldReq_1to2.Value
-            end
-            if Options.GoldReq_2to3 and Options.GoldReq_2to3.Value ~= nil then
-                getgenv().PrestigeGoldRequirement[3] = Options.GoldReq_2to3.Value
-            end
-            if Options.GoldReq_3to4 and Options.GoldReq_3to4.Value ~= nil then
-                getgenv().PrestigeGoldRequirement[4] = Options.GoldReq_3to4.Value
-            end
-            if Options.GoldReq_4to5 and Options.GoldReq_4to5.Value ~= nil then
-                getgenv().PrestigeGoldRequirement[5] = Options.GoldReq_4to5.Value
+            for i = 1, 5 do
+                local optName = "GoldReq_"..(i-1).."to"..i
+                if Options[optName] and Options[optName].Value ~= nil then
+                    getgenv().PrestigeGoldRequirement[i] = Options[optName].Value
+                else
+                    getgenv().PrestigeGoldRequirement[i] = DEFAULT_GOLD_REQUIREMENTS_M[i]
+                end
             end
             if Options.BoostDropdown and Options.BoostDropdown.Value then
                 getgenv().SelectedBoost = Options.BoostDropdown.Value
@@ -4505,12 +4496,12 @@ if IsLobbyLobby() then
         end
     end
 
-    -- เรียก sync ก่อนสร้าง UI (เพื่อให้ค่า default จาก config ถูกนำมาใช้)
     syncFromOptions()
 
     -- Max Level per Prestige step
     local MAX_LEVEL_FOR_PRESTIGE = {100, 125, 150, 175, 200}
 
+    -- Talents list
     local AllTalents = {
         "Crescendo", "Blitzblade", "Swiftshot", "Surgeshot",
         "Stalwart", "Stormcharged",
@@ -4543,6 +4534,10 @@ if IsLobbyLobby() then
 
     local PrestigeCooldown = 0.3
     local PrestigeRunning = false
+
+    -- ตัวแปรสำหรับจำกัดการแจ้งเตือน gold (แสดงครั้งเดียวต่อ step และต่อสถานะ gold พอ/ไม่พอ)
+    local lastGoldNotifyStep = -1
+    local lastGoldNotifyStatus = nil
 
     -- ========== Helper functions ==========
     local function getGold()
@@ -4587,27 +4582,88 @@ if IsLobbyLobby() then
         return percent
     end
 
-    local function fmtGold(goldNum)
-        if goldNum >= 1e9 then
-            return string.format("%.2fB", goldNum / 1e9)
-        elseif goldNum >= 1e6 then
-            return string.format("%.2fM", goldNum / 1e6)
-        else
-            return tostring(goldNum)
-        end
-    end
+    -- ========== UI: Sliders แต่ละตัวมี min/max และ default = ค่า max ตามขั้น ==========
+    PrestigeGroup:AddSlider("GoldReq_0to1", { 
+        Text = "       0 → 1  (200M)", 
+        Default = getgenv().PrestigeGoldRequirement[1], 
+        Min = SLIDER_RANGES[1].min, 
+        Max = SLIDER_RANGES[1].max, 
+        Rounding = 0, 
+        Suffix = "M", 
+        Callback = function(v) getgenv().PrestigeGoldRequirement[1] = math.floor(v) end 
+    })
+    PrestigeGroup:AddSlider("GoldReq_1to2", { 
+        Text = "       1 → 2  (400M)", 
+        Default = getgenv().PrestigeGoldRequirement[2], 
+        Min = SLIDER_RANGES[2].min, 
+        Max = SLIDER_RANGES[2].max, 
+        Rounding = 0, 
+        Suffix = "M", 
+        Callback = function(v) getgenv().PrestigeGoldRequirement[2] = math.floor(v) end 
+    })
+    PrestigeGroup:AddSlider("GoldReq_2to3", { 
+        Text = "       2 → 3  (600M)", 
+        Default = getgenv().PrestigeGoldRequirement[3], 
+        Min = SLIDER_RANGES[3].min, 
+        Max = SLIDER_RANGES[3].max, 
+        Rounding = 0, 
+        Suffix = "M", 
+        Callback = function(v) getgenv().PrestigeGoldRequirement[3] = math.floor(v) end 
+    })
+    PrestigeGroup:AddSlider("GoldReq_3to4", { 
+        Text = "       3 → 4  (800M)", 
+        Default = getgenv().PrestigeGoldRequirement[4], 
+        Min = SLIDER_RANGES[4].min, 
+        Max = SLIDER_RANGES[4].max, 
+        Rounding = 0, 
+        Suffix = "M", 
+        Callback = function(v) getgenv().PrestigeGoldRequirement[4] = math.floor(v) end 
+    })
+    PrestigeGroup:AddSlider("GoldReq_4to5", { 
+        Text = "       4 → 5  (1000M)", 
+        Default = getgenv().PrestigeGoldRequirement[5], 
+        Min = SLIDER_RANGES[5].min, 
+        Max = SLIDER_RANGES[5].max, 
+        Rounding = 0, 
+        Suffix = "M", 
+        Callback = function(v) getgenv().PrestigeGoldRequirement[5] = math.floor(v) end 
+    })
 
-    -- ========== UI: Sliders with M suffix ==========
-    PrestigeGroup:AddSlider("GoldReq_0to1", { Text="       :: Prestige 0 to 1 ::", Default=getgenv().PrestigeGoldRequirement[1], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[1]=math.floor(v) end })
-    PrestigeGroup:AddSlider("GoldReq_1to2", { Text="       :: Prestige 1 to 2 ::", Default=getgenv().PrestigeGoldRequirement[2], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[2]=math.floor(v) end })
-    PrestigeGroup:AddSlider("GoldReq_2to3", { Text="       :: Prestige 2 to 3 ::", Default=getgenv().PrestigeGoldRequirement[3], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[3]=math.floor(v) end })
-    PrestigeGroup:AddSlider("GoldReq_3to4", { Text="       :: Prestige 3 to 4 ::", Default=getgenv().PrestigeGoldRequirement[4], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[4]=math.floor(v) end })
-    PrestigeGroup:AddSlider("GoldReq_4to5", { Text="       :: Prestige 4 to 5 ::", Default=getgenv().PrestigeGoldRequirement[5], Min=0, Max=500, Rounding=0, Suffix="M", Callback=function(v) getgenv().PrestigeGoldRequirement[5]=math.floor(v) end })
-
-    PrestigeGroup:AddDropdown("BoostDropdown", { Values={"Luck Boost","Exp Boost","Gold Boost"}, Default=getgenv().SelectedBoost, Text="Boost", Callback=function(v) getgenv().SelectedBoost=v end })
-    PrestigeGroup:AddSlider("PrestigeCooldownSlider", { Text="Delay", Default=PrestigeCooldown, Min=0.2, Max=2, Rounding=1, Suffix="s", Callback=function(v) PrestigeCooldown=v end })
-    PrestigeGroup:AddToggle("ForceGoldToggle", { Text="Force Gold", Default=getgenv().ForceGoldRequirement, Callback=function(v) getgenv().ForceGoldRequirement=v end })
-    PrestigeGroup:AddToggle("PrestigeToggle", { Text="Auto Prestige", Default=getgenv().PrestigeEnabled, Callback=function(v) getgenv().PrestigeEnabled=v end })
+    PrestigeGroup:AddDropdown("BoostDropdown", { 
+        Values = {"Luck Boost","Exp Boost","Gold Boost"}, 
+        Default = getgenv().SelectedBoost, 
+        Text = "Boost", 
+        Callback = function(v) getgenv().SelectedBoost = v end 
+    })
+    PrestigeGroup:AddSlider("PrestigeCooldownSlider", { 
+        Text = "Delay", 
+        Default = PrestigeCooldown, 
+        Min = 0.2, 
+        Max = 2, 
+        Rounding = 1, 
+        Suffix = "s", 
+        Callback = function(v) PrestigeCooldown = v end 
+    })
+    PrestigeGroup:AddToggle("ForceGoldToggle", { 
+        Text = "Force Gold Requirement", 
+        Default = getgenv().ForceGoldRequirement, 
+        Callback = function(v) 
+            getgenv().ForceGoldRequirement = v
+            lastGoldNotifyStep = -1
+            lastGoldNotifyStatus = nil
+        end 
+    })
+    PrestigeGroup:AddToggle("PrestigeToggle", { 
+        Text = "Auto Prestige", 
+        Default = getgenv().PrestigeEnabled, 
+        Callback = function(v) 
+            getgenv().PrestigeEnabled = v
+            if not v then
+                lastGoldNotifyStep = -1
+                lastGoldNotifyStatus = nil
+            end
+        end 
+    })
 
     -- ========== Condition & Logic ==========
     local function canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
@@ -4615,10 +4671,26 @@ if IsLobbyLobby() then
         local requiredLevel = MAX_LEVEL_FOR_PRESTIGE[currentPrestige + 1]
         if currentLevel < requiredLevel then return false, "level" end
         if currentXP < 100 then return false, "xp" end
+        
         if getgenv().ForceGoldRequirement then
             local requiredGoldM = getgenv().PrestigeGoldRequirement[currentPrestige + 1] or 0
             local requiredGold = requiredGoldM * 1000000
-            if currentGold < requiredGold then return false, "gold" end
+            if currentGold < requiredGold then
+                if lastGoldNotifyStep ~= currentPrestige or lastGoldNotifyStatus ~= false then
+                    lastGoldNotifyStep = currentPrestige
+                    lastGoldNotifyStatus = false
+                    local needM = requiredGoldM
+                    local currentM = math.floor(currentGold / 1000000)
+                    Library:Notify(string.format("💰 Gold not enough for Prestige %d→%d: need %dM, have %dM", currentPrestige, currentPrestige+1, needM, currentM), 3)
+                end
+                return false, "gold"
+            else
+                if lastGoldNotifyStep ~= currentPrestige or lastGoldNotifyStatus ~= true then
+                    lastGoldNotifyStep = currentPrestige
+                    lastGoldNotifyStatus = true
+                    Library:Notify(string.format("✅ Gold requirement met for Prestige %d→%d", currentPrestige, currentPrestige+1), 3)
+                end
+            end
         end
         return true, "ok"
     end
@@ -4639,13 +4711,11 @@ if IsLobbyLobby() then
                 if getgenv().PrestigeEnabled then
                     getgenv().PrestigeEnabled = false
                     pcall(function() if Options and Options.PrestigeToggle then Options.PrestigeToggle:SetValue(false) end end)
-                    Library:Notify("Max Prestige (5) reached. Stopped.", 3)
                 end
             end
             return false
         end
 
-        -- Perform prestige
         local talent = getRandomTalent()
         if not talent then
             resetTalentPool()
@@ -4662,7 +4732,9 @@ if IsLobbyLobby() then
                 Talents = talent
             })
         end)
-        Library:Notify(string.format("Prestige %d→%d ! Rejoin lobby to check.", currentPrestige, currentPrestige+1), 4)
+        -- ไม่แสดง notify ความสำเร็จ
+        lastGoldNotifyStep = -1
+        lastGoldNotifyStatus = nil
         return true
     end
 
@@ -5461,8 +5533,6 @@ if Tabs.AutoFarm then
     G.FarmMode = nil
     G.HoverSpeed = 120
     G.HoverHeight = 120
-    G.RipperSafety = false
-    G.canExecuteRipper = false
     G.SafetyTime = G.SafetyTime or 60
     G.LeaveMinimum = 1
     G.AttackInterval = 0.15
@@ -5633,14 +5703,7 @@ if Tabs.AutoFarm then
         end
     })
     
-    BladeTab:AddToggle("RipperSafetyToggle", {
-        Text="Ripper Safe (No Physics Bug)", Default=false,
-        Callback=function(v)
-            if v then task.wait(1) end
-            G.RipperSafety = v
-            if not v then G.canExecuteRipper = false end
-        end
-    })
+
 
     local SpearTab = AutoFarmTabbox:AddTab("Thunder Spear")
     
@@ -6245,11 +6308,10 @@ if Player.Character then OnSpawn(Player.Character) end
 Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
--- เปลี่ยนช่วงเวลาโจมตีเป็น 2 วินาที
 local FARM_ATTACK_INTERVAL = 0.15
 local LastAttackTime = 0
 
--- ==================== เพิ่มระบบ Wave Safety ====================
+-- ==================== Wave Safety ====================
 local waveWaiting = false
 local lastDefendText = ""
 local function getWaveProgress()
@@ -6274,7 +6336,6 @@ local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
     
-    -- หยุดโจมตีหากกำลัง reload หรือ refill
     if getgenv().IsReloading or getgenv().IsRefilling then
         return
     end
@@ -6283,7 +6344,6 @@ local function AttackAllTitans()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 60)
 
-    -- เมื่อถึง Safety Time ให้ฟาร์มแบบไม่สนใจอะไรเลย (ยกเลิก Wave Check, StopAt, Slay Check)
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
         for _, entry in ipairs(ActiveTitans) do
@@ -6295,10 +6355,7 @@ local function AttackAllTitans()
         return
     end
 
-    -- ****************** เพิ่มเงื่อนไข Shiganshina Breach ******************
     if isShiganshinaBreachMission and not protectHQCompleted then
-        -- ระหว่างที่ยังไม่จบ Protect_HQ (หรือยังไม่ปรากฏ) ให้ข้าม Slay และ Wave safety ทั้งหมด
-        -- โจมตีปกติด้วย dmg 2500
         SafeFire(POST, "Attacks", "Slash", true)
         for _, entry in ipairs(ActiveTitans) do
             local nape = entry.nape
@@ -6308,20 +6365,17 @@ local function AttackAllTitans()
         end
         return
     end
-    -- ***************************************************************
 
-    -- ยังไม่ถึง Safety Time → ใช้ระบบตรวจสอบปกติ
-    -- ========== Wave Safety Check ==========
     local currentWave, maxWave, defendText = getWaveProgress()
     if currentWave and maxWave and currentWave < maxWave then
-        local nearComplete = (currentWave >= maxWave - 2)  -- ใกล้จบ 2 ตัวสุดท้าย
+        local nearComplete = (currentWave >= maxWave - 2)
         if nearComplete then
             if elapsed < (G.SafetyTime or 60) then
                 if not waveWaiting then
                     waveWaiting = true
                     Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
                 end
-                return  -- หยุดโจมตีชั่วคราว
+                return
             else
                 if waveWaiting then
                     waveWaiting = false
@@ -6380,7 +6434,6 @@ local function FarmUpdate()
         
         if not G.Farm or isDead then return end
         
-        -- หยุดฟาร์มหากกำลัง reload หรือ refill
         if getgenv().IsReloading or getgenv().IsRefilling then
             return
         end
@@ -6459,7 +6512,6 @@ local function FarmUpdate()
     end)
 end
 
--- ========== สร้างลูปหลัก ==========
 local function CreateFarmLoop()
     if FarmConn then FarmConn:Disconnect() end
     FarmConn = RunService.Heartbeat:Connect(FarmUpdate)
@@ -6467,7 +6519,6 @@ end
 
 CreateFarmLoop()
 
--- ========== ตรวจสอบ Toggle AutoFarmBlade แบบ realtime ==========
 task.spawn(function()
     while true do
         task.wait(0.1)
@@ -6477,7 +6528,7 @@ task.spawn(function()
                 G.Farm = true
                 G.FarmStartTime = tick()
                 CurrentEntry = nil
-                LastAttackTime = tick() -- รีเซ็ตเวลาโจมตีเมื่อเริ่มฟาร์มใหม่
+                LastAttackTime = tick()
             end
         else
             if G.Farm then
@@ -6489,7 +6540,6 @@ task.spawn(function()
     end
 end)
 
--- ========== รักษาลูป ==========
 task.spawn(function()
     while task.wait(2) do
         if not FarmConn or not FarmConn.Connected then
@@ -6497,6 +6547,7 @@ task.spawn(function()
         end
     end
 end)
+
 --// =====================================================
 --// GLOBAL TOGGLE
 --// =====================================================
@@ -6524,7 +6575,6 @@ local Settings = {
         ConfirmCountRequired = 5,
     },
     Refill = {
-        DelayBeforeFire = 5,   -- รอ 5 วินาทีก่อนยิง
         Cooldown = 2,
     }
 }
@@ -6598,7 +6648,6 @@ local LastBladeReload = 0
 local LastRefillFire = 0
 local BladeEmptyConfirmCounter = 0
 local IsReloadingRapid = false
-local RefillPendingTime = 0
 
 --// =====================================================
 --// CHECK REAL BLADES
@@ -6638,15 +6687,84 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
+--// FIND REFILL OBJECT (DYNAMIC, BASED ON USER'S EXAMPLE)
+--// =====================================================
+local function FindRefillObject()
+    -- วิธีที่ 1: ใช้ path เดิมที่ผู้ใช้ให้ (Climbable._Walls.Gate:GetChildren()[50].Refill)
+    local success, refill = pcall(function()
+        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+        if gate then
+            local children = gate:GetChildren()
+            for i, child in ipairs(children) do
+                local ref = child:FindFirstChild("Refill")
+                if ref then return ref end
+            end
+        end
+        return nil
+    end)
+    if success and refill then return refill end
+
+    -- วิธีที่ 2: หา GasTanks แล้วหา Refill
+    success, refill = pcall(function()
+        local gasTanks = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:FindFirstChild("GasTanks")
+        if gasTanks then
+            return gasTanks:FindFirstChild("Refill")
+        end
+        return nil
+    end)
+    if success and refill then return refill end
+
+    -- วิธีที่ 3: ค้นหาทั่ว workspace ที่มีชื่อ "Refill"
+    success, refill = pcall(function()
+        return workspace:FindFirstChild("Refill", true)
+    end)
+    if success and refill then return refill end
+
+    return nil
+end
+
+--// =====================================================
+--// REFILL BLADE SETS (ใช้ POST Remote) - ตั้ง flag refilling
+--// =====================================================
+local function FireRefill()
+    if not getgenv().AutoReloadBlade then return end
+    local now = tick()
+    if now - LastRefillFire < Settings.Refill.Cooldown then return end
+    
+    LastRefillFire = now
+    getgenv().IsRefilling = true
+    
+    local refillObj = FindRefillObject()
+    if refillObj then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", refillObj)
+        end)
+    else
+        -- fallback: ใช้ path ตามที่ผู้ใช้ให้โดยตรง
+        pcall(function()
+            local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+            if gate then
+                local children = gate:GetChildren()
+                if children[50] and children[50]:FindFirstChild("Refill") then
+                    POST:FireServer("Attacks", "Reload", children[50].Refill)
+                end
+            end
+        end)
+    end
+    
+    task.wait(0.5)
+    getgenv().IsRefilling = false
+end
+
+--// =====================================================
 --// RAPID RELOAD (กด R ซ้ำๆ) - ตั้ง flag reloading
 --// =====================================================
-
 local function RapidReloadBlades()
     if not getgenv().AutoReloadBlade then return end
     if IsReloadingRapid then return end
     
     IsReloadingRapid = true
-    getgenv().IsReloading = true  -- หยุดการโจมตี
+    getgenv().IsReloading = true
     
     task.spawn(function()
         while getgenv().AutoReloadBlade and AreBladesEmpty() do
@@ -6657,42 +6775,14 @@ local function RapidReloadBlades()
             end
             task.wait(0.08)
         end
-        -- เสร็จสิ้นการ reload
         getgenv().IsReloading = false
         IsReloadingRapid = false
     end)
 end
 
 --// =====================================================
---// REFILL BLADE SETS (ใช้ POST Remote) - ตั้ง flag refilling
+--// MAIN LOOP (ปรับ: เมื่อ Sets = 0/3 ให้ refill ทันที)
 --// =====================================================
-
-local function FireRefill()
-    if not getgenv().AutoReloadBlade then return end
-    local now = tick()
-    if now - LastRefillFire < Settings.Refill.Cooldown then return end
-    
-    LastRefillFire = now
-    getgenv().IsRefilling = true  -- หยุดการโจมตี
-    
-    pcall(function()
-        local args = {
-            "Attacks",
-            "Reload",
-            workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill")
-        }
-        POST:FireServer(unpack(args))
-    end)
-    
-    -- รอให้การ refill เสร็จสมบูรณ์ (ให้เวลาเล็กน้อย)
-    task.wait(0.5)
-    getgenv().IsRefilling = false
-end
-
---// =====================================================
---// MAIN LOOP
---// =====================================================
-
 task.spawn(function()
     while true do
         if getgenv().AutoReloadBlade then
@@ -6704,38 +6794,66 @@ task.spawn(function()
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
 
-                -- Blade หมด: rapid reload
-                if bladesEmpty then
-                    BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
-                    if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
-                        RapidReloadBlades()
+                -- ถ้า Sets = 0/3 (Blade Sets หมด) ให้ refill ทันที (ไม่ต้องรอ 5 วินาที)
+                if text == "0/3" then
+                    FireRefill()
+                else
+                    -- ถ้า blades จริงๆ หมด แต่ Sets ยังไม่หมด (อาจเป็น bug หรือ blades ขาด) ให้ reload
+                    if bladesEmpty then
+                        BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
+                        if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
+                            RapidReloadBlades()
+                            BladeEmptyConfirmCounter = 0
+                        end
+                    else
                         BladeEmptyConfirmCounter = 0
                     end
-                else
-                    BladeEmptyConfirmCounter = 0
-                end
-
-                -- Blade Sets = 0/3: รอ 5 วินาที แล้วยิง refill
-                if text == "0/3" then
-                    if RefillPendingTime == 0 then
-                        RefillPendingTime = tick()
-                    elseif tick() - RefillPendingTime >= Settings.Refill.DelayBeforeFire then
-                        FireRefill()
-                        RefillPendingTime = 0
-                    end
-                else
-                    RefillPendingTime = 0
                 end
             end
         else
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
-            RefillPendingTime = 0
-            -- รีเซ็ต flags เมื่อปิด toggle
             getgenv().IsReloading = false
             getgenv().IsRefilling = false
         end
         task.wait(Settings.CheckDelay)
+    end
+end)
+
+-- ========== WATCHDOG ป้องกันการค้าง reload/refill (เพิ่มโดยไม่แตะของเก่า) ==========
+task.spawn(function()
+    local STUCK_TIMEOUT = 5
+    while true do
+        task.wait(0.5)
+        pcall(function()
+            if getgenv().AutoReloadBlade then
+                local now = tick()
+                if getgenv().IsReloading then
+                    if not _G.ReloadStartTime then _G.ReloadStartTime = now end
+                    if now - _G.ReloadStartTime > STUCK_TIMEOUT then
+                        getgenv().IsReloading = false
+                        if IsReloadingRapid then IsReloadingRapid = false end
+                        BladeEmptyConfirmCounter = 0
+                        PressR()
+                        _G.ReloadStartTime = nil
+                    end
+                else
+                    _G.ReloadStartTime = nil
+                end
+                if getgenv().IsRefilling then
+                    if not _G.RefillStartTime then _G.RefillStartTime = now end
+                    if now - _G.RefillStartTime > STUCK_TIMEOUT then
+                        getgenv().IsRefilling = false
+                        _G.RefillStartTime = nil
+                    end
+                else
+                    _G.RefillStartTime = nil
+                end
+            else
+                _G.ReloadStartTime = nil
+                _G.RefillStartTime = nil
+            end
+        end)
     end
 end)
 
@@ -6788,7 +6906,7 @@ task.spawn(function()
     local BodyPosition = nil
     local BodyGyro = nil
 
-    local CurrentFirePower = 8
+    local CurrentFirePower = 0
     local EXPLODE_RADIUS = 35
     local BURST_SHOTS = 3
     local AOE_EXPLOSIONS_PER_TARGET = 6
@@ -7089,247 +7207,7 @@ task.spawn(function()
 end)
 
 
--- ============================== RIPPER AUTO ==============================
-if getgenv().RipperLoaded then return end
-getgenv().RipperLoaded = true
 
-local player = game:GetService("Players").LocalPlayer
-local titansFolder = workspace:WaitForChild("Titans")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-
-local G = getgenv()
-G.RipperSafety = false
-G.canExecuteRipper = false
-G.RipperActive = false
-G.FarmStartTime = tick()
-
-local SKILL_ICONS = {
-    ["rbxassetid://15215073606"] = true,
-    ["rbxassetid://15215081865"] = true,
-}
-
-if not SafeInvoke then
-    function SafeInvoke(...)
-        return pcall(function() end), nil
-    end
-end
-
-local function isBlade()
-    local weapon = G.GetDetectedWeapon and G.GetDetectedWeapon() or "Unknown"
-    return weapon == "Blade"
-end
-
-local function isSafeTimeReached()
-    local safetyTime = G.SafetyTime or 60
-    local elapsed = G.FarmStartTime and G.FarmStartTime > 0 and (tick() - G.FarmStartTime) or 0
-    return elapsed >= safetyTime
-end
-
-local function getHotbarSlots()
-    return player.PlayerGui:FindFirstChild("Interface")
-       and player.PlayerGui.Interface:FindFirstChild("HUD")
-       and player.PlayerGui.Interface.HUD:FindFirstChild("Main")
-       and player.PlayerGui.Interface.HUD.Main:FindFirstChild("Top")
-       and player.PlayerGui.Interface.HUD.Main.Top:FindFirstChild("7")
-       and player.PlayerGui.Interface.HUD.Main.Top["7"]:FindFirstChild("Hotbar")
-end
-
-local function getSkillIconImage(slotNumber)
-    local hotbar = getHotbarSlots()
-    if not hotbar then return nil end
-    
-    local slot = hotbar:FindFirstChild("Skill_" .. slotNumber)
-    if not slot then return nil end
-    
-    local inner = slot:FindFirstChild("Inner")
-    if not inner then return nil end
-    
-    local icon = inner:FindFirstChild("Icon")
-    if icon and icon:IsA("ImageLabel") and icon.Visible and icon.Image ~= "" then
-        return icon.Image
-    end
-    
-    return nil
-end
-
-local function isTargetSkill(slotNumber)
-    local iconImage = getSkillIconImage(slotNumber)
-    return iconImage and SKILL_ICONS[iconImage]
-end
-
-local function getTargetSkillSlots()
-    local targetSlots = {}
-    for slot = 1, 5 do
-        if isTargetSkill(slot) then
-            table.insert(targetSlots, slot)
-        end
-    end
-    return targetSlots
-end
-
-local function getCooldown(slotNumber)
-    local ok, num = pcall(function()
-        local label = player.PlayerGui
-            :WaitForChild("Interface",2):WaitForChild("HUD",2):WaitForChild("Main",2)
-            :WaitForChild("Top",2):WaitForChild("7",2)
-            :WaitForChild("Hotbar",2):WaitForChild("Skill_"..slotNumber,2)
-            :WaitForChild("Cooldown",2):WaitForChild("Label",2)
-        return tonumber(string.match(label.Text, "%d+%.?%d*"))
-    end)
-    return (ok and num) or 0
-end
-
-local function fireSkill(slotNumber)
-    local args = {"S_Skills", "Usage", slotNumber}
-    return pcall(function()
-        GET:InvokeServer(unpack(args))
-    end)
-end
-
-local function getNape(titan)
-    local hitboxes = titan:FindFirstChild("Hitboxes")
-    if not hitboxes then return end
-    local hit = hitboxes:FindFirstChild("Hit")
-    if not hit then return end
-    local nape = hit:FindFirstChild("Nape")
-    if nape and nape:IsA("BasePart") then return nape end
-end
-
-local function jitter(pos)
-    return pos + Vector3.new(
-        math.random(-2,2),
-        math.random(-2,2),
-        math.random(-2,2)
-    )
-end
-
-local function runRipperOnce(slotNumber)
-    if not G.canExecuteRipper then return false end
-
-    local char = player.Character
-    if not char then return false end
-
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    local lockedPos = root.Position
-    local lockedCF = root.CFrame
-
-    if not fireSkill(slotNumber) then return false end
-
-    local napes = {}
-    for _, titan in ipairs(titansFolder:GetChildren()) do
-        if titan:IsA("Model") and titan.Name ~= "Attack_Titan" then
-            local n = getNape(titan)
-            if n then
-                table.insert(napes, n)
-            end
-        end
-    end
-
-    for _, n in ipairs(napes) do
-        n.CanCollide = false
-        n.Anchored = true
-        n.Size = Vector3.new(150,150,150)
-        n.Transparency = 1
-        n.Position = lockedPos
-    end
-
-    for i = 1,20 do
-        if root and root.Parent then
-            root.CFrame = lockedCF
-            root.AssemblyLinearVelocity = Vector3.zero
-            root.AssemblyAngularVelocity = Vector3.zero
-        end
-        for _, n in ipairs(napes) do
-            if n and n.Parent then
-                n.Position = jitter(lockedPos)
-            end
-        end
-        task.wait(0.003)
-    end
-
-    for _, titan in ipairs(titansFolder:GetChildren()) do
-        if titan:IsA("Model") and titan.Name ~= "Attack_Titan" then
-            local n = getNape(titan)
-            local fake = titan:FindFirstChild("Fake")
-            local head = fake and fake:FindFirstChild("Head")
-            if n and head then
-                n.Position = head.Position - Vector3.new(2,5,0)
-                n.Transparency = 1
-                n.CanCollide = false
-                n.Anchored = true
-            end
-        end
-    end
-
-    return true
-end
-
-local function getReadySlots()
-    local readySlots = {}
-    local targetSlots = getTargetSkillSlots()
-    
-    for _, slot in ipairs(targetSlots) do
-        local cd = getCooldown(slot)
-        if cd == 0 or cd == 90 then
-            table.insert(readySlots, slot)
-        end
-    end
-    return readySlots
-end
-
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-
-        pcall(function()
-            if not G.RipperSafety then
-                G.canExecuteRipper = false
-                G.RipperActive = false
-                return
-            end
-
-            if not isBlade() then
-                G.canExecuteRipper = false
-                G.RipperActive = false
-                return
-            end
-
-            if not isSafeTimeReached() then 
-                G.canExecuteRipper = false
-                G.RipperActive = false
-                return 
-            end
-
-            local readySlots = getReadySlots()
-            
-            if #readySlots == 0 then 
-                G.canExecuteRipper = false
-                G.RipperActive = false
-                return 
-            end
-
-            G.RipperActive = true
-            G.canExecuteRipper = true
-
-            for _, slot in ipairs(readySlots) do
-                if not G.RipperSafety then break end
-                if not isBlade() then break end
-                if not isSafeTimeReached() then break end
-                
-                runRipperOnce(slot)
-                task.wait(0.15)
-            end
-
-            G.canExecuteRipper = false
-            G.RipperActive = false
-
-            task.wait(1)
-        end)
-    end
-end)
 -- ============================== AUTO RETRY (SILENT MODE) ==============================
 if Tabs.AutoFarm then
     task.spawn(function()
@@ -7452,6 +7330,7 @@ if Tabs.AutoFarm then
         end
     end)
 end
+
 
 -- ============================== WEBHOOK TAB ==============================
 if Tabs.Webhook then
@@ -8047,23 +7926,21 @@ if IsIngameLobby() and Tabs.Webhook then
         return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
     end
 
-    -- ฟังก์ชันดึงเวลาประเทศไทย (GMT+7) อย่างแม่นยำ โดยอ่าน UTC แล้วบวก 7 ชั่วโมง
+    -- ฟังก์ชันดึงเวลาประเทศไทย (GMT+7)
     local function getThaiTime()
-        local utcHour = tonumber(os.date("!%H"))  -- ชั่วโมง UTC (0-23)
-        local utcMin  = tonumber(os.date("!%M"))  -- นาที UTC
+        local utcHour = tonumber(os.date("!%H"))
+        local utcMin  = tonumber(os.date("!%M"))
         local thaiHour = (utcHour + 7) % 24
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- รายการประเภท Description (สามารถเพิ่มในอนาคต)
+    -- รายการประเภท Description
     local descriptionTypes = {
         "Horst Description",
-        -- สามารถเพิ่มรายการอื่นได้ เช่น "Simple Stats", "Compact", etc.
     }
 
-    local selectedType = descriptionTypes[1]  -- ค่าเริ่มต้น
+    local selectedType = descriptionTypes[1]
 
-    -- Dropdown สำหรับเลือกประเภท (single)
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = descriptionTypes,
@@ -8074,7 +7951,6 @@ if IsIngameLobby() and Tabs.Webhook then
         end
     })
 
-    -- Toggle สำหรับเริ่มทำงาน (ทำงานครั้งเดียวเมื่อเปิด)
     descGroup:AddToggle("SetDescToggle", {
         Text = "Apply Description (once, after 10s)",
         Default = false,
@@ -8082,10 +7958,8 @@ if IsIngameLobby() and Tabs.Webhook then
             if not v then return end
 
             task.spawn(function()
-                -- รอ 10 วินาทีตามที่กำหนด
-                task.wait(10)
+                task.wait(1)
 
-                -- ทำงานตามประเภทที่เลือก (ปัจจุบันมีแค่ Horst Description)
                 if selectedType == "Horst Description" then
                     local success, data = pcall(function()
                         return GET:InvokeServer("Data", "Copy")
@@ -8101,7 +7975,8 @@ if IsIngameLobby() and Tabs.Webhook then
                             local slot = currentSlot
                             local gold = slotData.Currency and slotData.Currency.Gold or 0
                             local gems = slotData.Currency and slotData.Currency.Gems or 0
-                            local spins = slotData.Total_Spins or 0
+                            -- 🔥 ใช้ data.Spins แทน slotData.Total_Spins
+                            local spins = data.Spins or 0
                             local thaiTime = getThaiTime()
 
                             local description = string.format(
@@ -8116,7 +7991,6 @@ if IsIngameLobby() and Tabs.Webhook then
                     end
                 end
 
-                -- ปิด toggle อัตโนมัติหลังจากทำงานเสร็จ (ทำงานเพียงครั้งเดียว)
                 pcall(function()
                     if Options and Options.SetDescToggle then
                         Options.SetDescToggle:SetValue(false)
@@ -8343,3 +8217,4 @@ if IsIngameLobby() then
     })
 
 end
+
