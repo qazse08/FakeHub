@@ -224,122 +224,37 @@ end
 
 
 
-
--- ============================== WEBHOOK NOTIFICATION SECTION (STABLE DETECTION + REAL-TIME LABEL) ==============================
+-- ============================== SHARED SPIN STATE ==============================
 if IsMainmenuLobby() then
+    -- สร้าง shared state ถ้ายังไม่มี
+    if not getgenv().SpinState then
+        getgenv().SpinState = {
+            storedSpins = 0,
+            hasRolled = false
+        }
+    end
+
+    -- ============================== WEBHOOK NOTIFICATION SECTION ==============================
     Tabs.Webhook = Window:AddTab("Family")
 
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
-    -- ========== REAL-TIME FAMILY LABEL (USING SAME STABLE LOGIC AS AUTO SPIN) ==========
-    -- (ลบ label และ updater ออกแล้ว)
-
-    -- Helper functions (copied from Auto Spin for consistency)
-    local function getFamilyTitle()
-        local ui = PlayerGui:FindFirstChild("Interface")
-        if not ui then return nil end
-        local custom = ui:FindFirstChild("Customisation")
-        if not custom then return nil end
-        local family = custom:FindFirstChild("Family")
-        if not family then return nil end
-        local fam = family:FindFirstChild("Family")
-        if not fam then return nil end
-        return fam:FindFirstChild("Title")
-    end
-
-    local function isFamilyTitleReady()
-        local title = getFamilyTitle()
-        if not title or not title:IsA("TextLabel") then return false end
-        if not title.Visible then return false end
-        if title.AbsoluteSize.X <= 1 or title.AbsoluteSize.Y <= 1 then return false end
-        if title.Text == "" then return false end
-        local current = title.Parent
-        while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
-            current = current.Parent
-        end
-        return true
-    end
-
-    local function getCurrentFamilyStable()
-        for i = 1, 10 do
-            if isFamilyTitleReady() then
-                local title = getFamilyTitle()
-                if title and title:IsA("TextLabel") then
-                    return title.Text
-                end
+    -- ========== อ่าน Family จาก Slot A โดยตรง ==========
+    local function getCurrentFamilyFromSlotA()
+        local success, label = pcall(function()
+            return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
+        end)
+        if success and label and label:IsA("TextLabel") and label.Visible then
+            local text = label.Text
+            local family = text:match("^([^,]+)")
+            if family then
+                return family:gsub("%s+$", "")
             end
-            task.wait(0.1)
         end
         return nil
     end
 
-    -- (ลบ Real-time label updater ออกแล้ว)
-
-    -- ========== WEBHOOK LOGIC (ONLY ONCE PER TARGET FAMILY PER ROLL) ==========
-    local webhookURL = ""
-    local autoNotifyEnabled = false
-    local pingMode = "None"
-
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-
-    -- Status variables
-    local lastSpinCount = -1
-    local hasSentForCurrentRoll = false   -- reset after each roll (spin decrease)
-
-    -- Utility functions (same as before, but using stable detection for webhook)
-    local function isFamilyTabOpen()
-        local success, rollBtn = pcall(function()
-            return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll
-        end)
-        if not success or not rollBtn then return false end
-        local visible = rollBtn.Visible
-        if not visible then return false end
-        local parent = rollBtn.Parent
-        while parent and parent ~= PlayerGui do
-            if parent:IsA("GuiObject") and not parent.Visible then return false end
-            if parent:IsA("ScreenGui") and not parent.Enabled then return false end
-            parent = parent.Parent
-        end
-        return true
-    end
-
-    local function GetSpinCountNumber()
-        if not isFamilyTabOpen() then return -1 end
-        local ok, spinStr = pcall(function()
-            return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll.Title.Text
-        end)
-        if not ok or not spinStr or spinStr == "" then return -1 end
-        local num = tonumber(spinStr:match("%d+"))
-        return num or -1
-    end
-
-    local function GetStoredFamilies()
-        local data = {}
-        local count = 0
-        if not isFamilyTabOpen() then return data, count end
-        local ok, familiesFolder = pcall(function()
-            return PlayerGui.Interface.Customisation.Storage.Main.Families
-        end)
-        if not ok or not familiesFolder then return data, count end
-        for _, v in ipairs(familiesFolder:GetChildren()) do
-            pcall(function()
-                local inner = v:FindFirstChild("Inner")
-                if inner then
-                    local title = inner:FindFirstChild("Title")
-                    if title and title:IsA("TextLabel") and title.Text and title.Text ~= "" then
-                        table.insert(data, title.Text)
-                        count = count + 1
-                    end
-                end
-            end)
-        end
-        return data, count
-    end
-
+    -- ========== ฟังก์ชันหา Rarity ==========
     local function GetFamilyRarity(familyName)
         if not familyName then return "Common" end
         local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
@@ -347,22 +262,11 @@ if IsMainmenuLobby() then
         local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
         local legendaryList = {"Yeager","Ackerman","Reiss"}
         local mythicList = {"Fritz","Helos"}
-        
-        for _, name in ipairs(commonList) do
-            if familyName:find(name) then return "Common" end
-        end
-        for _, name in ipairs(rareList) do
-            if familyName:find(name) then return "Rare" end
-        end
-        for _, name in ipairs(epicList) do
-            if familyName:find(name) then return "Epic" end
-        end
-        for _, name in ipairs(legendaryList) do
-            if familyName:find(name) then return "Legendary" end
-        end
-        for _, name in ipairs(mythicList) do
-            if familyName:find(name) then return "Mythic" end
-        end
+        for _, name in ipairs(commonList) do if familyName:find(name) then return "Common" end end
+        for _, name in ipairs(rareList) do if familyName:find(name) then return "Rare" end end
+        for _, name in ipairs(epicList) do if familyName:find(name) then return "Epic" end end
+        for _, name in ipairs(legendaryList) do if familyName:find(name) then return "Legendary" end end
+        for _, name in ipairs(mythicList) do if familyName:find(name) then return "Mythic" end end
         return "Common"
     end
 
@@ -374,9 +278,12 @@ if IsMainmenuLobby() then
         else return 0x95a5a6 end
     end
 
-    local function SendTargetWebhook(currentFamily, spinNumber)
+    -- ========== ส่ง Webhook ==========
+    local function SendTargetWebhook(currentFamily)
+        local webhookURL = getgenv().WebhookURL or webhookURL
         if webhookURL == "" then return false end
-        local familyList, familyCount = GetStoredFamilies()
+
+        local pingMode = getgenv().WebhookPingMode or pingMode
         local rarity = GetFamilyRarity(currentFamily)
         local color = GetColorByRarity(rarity)
         local content = nil
@@ -384,41 +291,22 @@ if IsMainmenuLobby() then
         elseif pingMode == "Here" then content = "@here" end
 
         local player = game:GetService("Players").LocalPlayer
-        local userId = player.UserId
         local userName = player.Name
 
-        local playerField = string.format("**Username:** @%s\n**User ID:** `%d`", userName, userId)
-        local familyField = string.format("**Name:** %s\n**Rarity:** %s", currentFamily, rarity)
-        local spinsField = string.format("**Remaining:** %s", spinNumber)
-
-        local storedDisplay = ""
-        if familyCount > 0 then
-            local maxDisplay = 15
-            local displayList = {}
-            for i = 1, math.min(#familyList, maxDisplay) do
-                table.insert(displayList, string.format("• %s", familyList[i]))
-            end
-            if #familyList > maxDisplay then
-                table.insert(displayList, string.format("• ... and %d more", #familyList - maxDisplay))
-            end
-            storedDisplay = table.concat(displayList, "\n")
-        else
-            storedDisplay = "• No stored families"
-        end
+        -- ใช้ SpinState แทนการดึงจาก Customisation UI
+        local spinState = getgenv().SpinState
+        local spinNumber = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "?"
 
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
             embeds = {{
                 title = "🎯 TARGET FAMILY FOUND: " .. currentFamily,
                 color = color,
-                thumbnail = { url = string.format("https://www.roblox.com/headshot-thumbnail/image?userId=%d&width=420&height=420&format=png", userId) },
                 fields = {
-                    { name = "━━━━━━━━━ 👤 PLAYER ━━━━━━━━━", value = playerField, inline = false },
-                    { name = "━━━━━━━━━ 🏷️ FAMILY ━━━━━━━━━", value = familyField, inline = true },
-                    { name = "━━━━━━━━━ 🎲 SPINS ━━━━━━━━━", value = spinsField, inline = true },
-                    { name = "━━━━━━━━━ 📦 STORED (" .. familyCount .. ") ━━━━━━━━━", value = storedDisplay, inline = false }
+                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Family : @" .. userName, inline = false },
+                    { name = "━━━━━━━━━  SPINS ━━━━━━━━━", value = "Remaining: " .. spinNumber, inline = false }
                 },
-                footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                footer = { text = "Rarity: " .. rarity },
                 timestamp = DateTime.now():ToIsoDate()
             }}
         })
@@ -430,88 +318,75 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- MAIN LOOP: Detect spin count decrease → Roll occurred → Then check current family (stable)
+    -- ========== ตัวแปรควบคุม ==========
+    local autoNotifyEnabled = false
+    local lastSentFamily = nil
+
+    -- ========== MAIN LOOP: ตรวจสอบ Family ใน Slot A ทุก 0.5 วินาที ==========
     task.spawn(function()
         while true do
-            task.wait(0.3)
-            if not autoNotifyEnabled or webhookURL == "" then
-                lastSpinCount = -1
-                hasSentForCurrentRoll = false
-                task.wait(1)
+            task.wait(0.5)
+
+            if not autoNotifyEnabled then
+                lastSentFamily = nil
                 continue
             end
 
-            if not isFamilyTabOpen() then
-                task.wait(0.5)
-                continue
-            end
-
-            local currentSpinNum = GetSpinCountNumber()
-            if currentSpinNum == -1 then
-                task.wait(0.5)
-                continue
-            end
-
-            if lastSpinCount == -1 then
-                lastSpinCount = currentSpinNum
-                task.wait(0.2)
-                continue
-            end
-
-            -- Spin decreased → a roll happened
-            if currentSpinNum < lastSpinCount and lastSpinCount > 0 then
-                -- Reset the sent flag for this new roll
-                hasSentForCurrentRoll = false
-
-                -- Wait for UI to update and fetch the new family (using stable method)
-                local currentFamily = getCurrentFamilyStable()   -- retries up to 1 second
-                
-                if currentFamily and currentFamily ~= "Unknown" then
-                    -- Get target families from Auto Spin dropdown
-                    local targetFamilies = {}
-                    if Options and Options.AutoSpinFamilies then
-                        for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
-                            if enabled and not string.match(name, "^%-%-%-") then
-                                table.insert(targetFamilies, string.lower(name))
-                            end
-                        end
+            -- อ่าน target families จาก Auto Spin dropdown (ใช้ร่วมกัน)
+            local targetFamilies = {}
+            if Options and Options.AutoSpinFamilies then
+                for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
+                    if enabled and not string.match(name, "^%-%-%-") then
+                        table.insert(targetFamilies, string.lower(name))
                     end
-                    
-                    local isTarget = false
-                    if #targetFamilies > 0 then
-                        local lowerFamily = string.lower(currentFamily)
-                        for _, target in ipairs(targetFamilies) do
-                            if string.find(lowerFamily, target) then
-                                isTarget = true
-                                break
-                            end
-                        end
-                    end
+                end
+            end
+            if #targetFamilies == 0 then
+                lastSentFamily = nil
+                continue
+            end
 
-                    if isTarget and not hasSentForCurrentRoll then
-                        SendTargetWebhook(currentFamily, currentSpinNum)
-                        hasSentForCurrentRoll = true
-                        -- Console output with color
-                        local rarity = GetFamilyRarity(currentFamily)
-                        local colorCodes = {Common="\27[90m", Rare="\27[94m", Epic="\27[95m", Legendary="\27[93m", Mythic="\27[91m"}
-                        local code = colorCodes[rarity] or "\27[97m"
-                        print(code .. "✅ FOUND TARGET FAMILY: " .. currentFamily .. " (" .. rarity .. ")\27[0m")
-                    end
-                else
-                    print("[Webhook] Could not retrieve family name after roll")
+            local currentFamily = getCurrentFamilyFromSlotA()
+            if not currentFamily then
+                lastSentFamily = nil
+                continue
+            end
+
+            local lowerFamily = string.lower(currentFamily)
+            local isTarget = false
+            for _, target in ipairs(targetFamilies) do
+                if string.find(lowerFamily, target) then
+                    isTarget = true
+                    break
                 end
             end
 
-            lastSpinCount = currentSpinNum
+            if isTarget then
+                if lastSentFamily ~= currentFamily then
+                    lastSentFamily = currentFamily
+                    SendTargetWebhook(currentFamily)
+                    local rarity = GetFamilyRarity(currentFamily)
+                    local colorCodes = {Common="\27[90m", Rare="\27[94m", Epic="\27[95m", Legendary="\27[93m", Mythic="\27[91m"}
+                    local code = colorCodes[rarity] or "\27[97m"
+                    print(code .. "TARGET FAMILY DETECTED: " .. currentFamily .. " (" .. rarity .. ")\27[0m")
+                end
+            else
+                if lastSentFamily ~= nil then
+                    lastSentFamily = nil
+                end
+            end
         end
     end)
 
     -- ========== UI COMPONENTS ==========
+    local webhookURL = ""
+    local pingMode = "None"
+
     WebhookGroup:AddInput("Webhook_URL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
         Placeholder = "https://discord.com/api/webhooks/...",
-        Callback = function(v) webhookURL = v end
+        Callback = function(v) webhookURL = v; getgenv().WebhookURL = v end
     })
 
     WebhookGroup:AddDropdown("Webhook_PingMode", {
@@ -519,11 +394,11 @@ if IsMainmenuLobby() then
         Values = {"None", "Everyone", "Here"},
         Default = "None",
         Multi = false,
-        Callback = function(v) pingMode = v end
+        Callback = function(v) pingMode = v; getgenv().WebhookPingMode = v end
     })
 
     WebhookGroup:AddButton("Test Send", function()
-        SendTargetWebhook("Test Family (Fake)", "?")
+        SendTargetWebhook("Test Family (Fake)")
     end)
 
     WebhookGroup:AddToggle("AutoNotifyToggle", {
@@ -532,126 +407,354 @@ if IsMainmenuLobby() then
         Callback = function(v)
             autoNotifyEnabled = v
             if v then
-                lastSpinCount = -1
-                hasSentForCurrentRoll = false
-                print("[Webhook] Monitoring started.")
+                lastSentFamily = nil
+                print("[Webhook] Monitoring started (checking Slot A). Will send when family changes to target.")
             else
                 print("[Webhook] Monitoring stopped.")
             end
         end
     })
-end
--- ============================== END WEBHOOK SECTION ==============================
 
--- ============================== POPUP REAL-TIME FAMILY DISPLAY (SMOOTH XENON NEON) ==============================
+    -- ============================== AUTO SPIN (MAIN MENU) - ใช้ SPIN STATE ร่วมกับ Webhook ==============================
+    local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
+
+    local selectedFamilies = {}
+    local rollDelay = 0.01
+    local autoActive = false
+    local spinTask = nil
+
+    local player = game:GetService("Players").LocalPlayer
+    local playerGui = player:WaitForChild("PlayerGui")
+    local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+
+    -- ดึงสปินจาก Remote (ใช้เฉพาะตอน Roll เท่านั้น)
+    local function getRealSpinCount()
+        local success, data = pcall(function()
+            return Event:InvokeServer("Data", "Copy")
+        end)
+        if success and data then
+            return data.Spins or 0
+        end
+        return 0
+    end
+
+    -- Helper: UI Elements
+    local function getSlotLabel()
+        local success, label = pcall(function()
+            return playerGui.Interface.Title_Screen.Slots.A.Details.Label
+        end)
+        if success and label and label:IsA("TextLabel") then return label end
+        return nil
+    end
+
+    local function getFamilyTitleLabel()
+        local success, title = pcall(function()
+            return playerGui.Interface.Customisation.Family.Family.Title
+        end)
+        if success and title and title:IsA("TextLabel") then return title end
+        return nil
+    end
+
+    local function getCurrentFamilyFromUI()
+        local slotLabel = getSlotLabel()
+        if slotLabel and slotLabel.Visible then
+            local text = slotLabel.Text
+            local family = text:match("^([^,]+)")
+            if family then return family:gsub("%s+$", "") end
+        end
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle and familyTitle.Visible then
+            local text = familyTitle.Text
+            local family = text:match("^([^%(]+)")
+            if family then return family:gsub("%s+$", "") end
+        end
+        return nil
+    end
+
+    local function updateUIFamily(newFamily)
+        local slotLabel = getSlotLabel()
+        if slotLabel then
+            local oldText = slotLabel.Text
+            local lv = oldText:match("Lv%.(%d+)")
+            if lv then
+                slotLabel.Text = string.format("%s, Lv.%s", newFamily, lv)
+            else
+                slotLabel.Text = newFamily
+            end
+        end
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle then
+            familyTitle.Text = newFamily
+        end
+    end
+
+    local function syncUIFamilies()
+        local slotFamily = nil
+        local slotLabel = getSlotLabel()
+        if slotLabel and slotLabel.Visible then
+            local text = slotLabel.Text
+            slotFamily = text:match("^([^,]+)")
+            if slotFamily then slotFamily = slotFamily:gsub("%s+$", "") end
+        end
+        local titleFamily = nil
+        local familyTitle = getFamilyTitleLabel()
+        if familyTitle and familyTitle.Visible then
+            local text = familyTitle.Text
+            titleFamily = text:match("^([^%(]+)")
+            if titleFamily then titleFamily = titleFamily:gsub("%s+$", "") end
+        end
+        if slotFamily and titleFamily and slotFamily ~= titleFamily then
+            updateUIFamily(slotFamily)
+        end
+    end
+
+    local function isCurrentFamilyTarget()
+        local currentFamily = getCurrentFamilyFromUI()
+        if not currentFamily or #selectedFamilies == 0 then return false end
+        local lower = string.lower(currentFamily)
+        for _, target in ipairs(selectedFamilies) do
+            if string.find(lower, string.lower(target)) then return true end
+        end
+        return false
+    end
+
+    local function GetFamilyRarity(familyName)
+        if not familyName then return "Common" end
+        local cleanName = familyName:match("^([^%(]+)") or familyName
+        cleanName = cleanName:gsub("%s+$", "")
+        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
+        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
+        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
+        local legendaryList = {"Yeager","Ackerman","Reiss"}
+        local mythicList = {"Fritz","Helos"}
+        for _, name in ipairs(commonList) do if cleanName:find(name) then return "Common" end end
+        for _, name in ipairs(rareList) do if cleanName:find(name) then return "Rare" end end
+        for _, name in ipairs(epicList) do if cleanName:find(name) then return "Epic" end end
+        for _, name in ipairs(legendaryList) do if cleanName:find(name) then return "Legendary" end end
+        for _, name in ipairs(mythicList) do if cleanName:find(name) then return "Mythic" end end
+        return "Common"
+    end
+
+    local function FormatFamilyDisplay(rawFamily)
+        if not rawFamily or rawFamily == "" then return "Unknown" end
+        local baseName = rawFamily:match("^([^%(]+)") or rawFamily
+        baseName = baseName:gsub("%s+$", "")
+        baseName = baseName:gsub("[()]", "")
+        local rarity = GetFamilyRarity(rawFamily)
+        return string.format("%s (%s)", baseName, rarity)
+    end
+
+    local function isTargetFamily(name, targetList)
+        if not name or #targetList == 0 then return false end
+        local lower = string.lower(name)
+        for _, t in ipairs(targetList) do
+            if string.find(lower, string.lower(t)) then return true end
+        end
+        return false
+    end
+
+    local function performRoll()
+        local result = {Event:InvokeServer("Family", "Roll")}
+        local spinsLeft = result[1] or 0
+        local familyGot = result[3] or nil
+        if familyGot then
+            -- อัปเดต shared spin state
+            local spinState = getgenv().SpinState
+            if not spinState then
+                getgenv().SpinState = { storedSpins = 0, hasRolled = false }
+                spinState = getgenv().SpinState
+            end
+            spinState.storedSpins = spinsLeft
+            spinState.hasRolled = true
+        end
+        return spinsLeft, familyGot
+    end
+
+    local FAMILY_LIST = {
+        "--- Common ---","Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut",
+        "--- Rare ---","Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein",
+        "--- Epic ---","Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert",
+        "--- Legendary ---","Yeager","Ackerman","Reiss",
+        "--- Mythic ---","Fritz","Helos",
+    }
+    local function isHeader(name) return string.sub(name, 1, 3) == "---" end
+
+    -- ========== AUTO SPIN LOOP ==========
+    local function startAutoSpin()
+        if spinTask then return end
+        spinTask = task.spawn(function()
+            while autoActive do
+                syncUIFamilies()
+                if isCurrentFamilyTarget() then
+                    local currentFamily = getCurrentFamilyFromUI()
+                    local display = FormatFamilyDisplay(currentFamily)
+                    Library:Notify(string.format("Already have target: %s! Stopping.", display), 5)
+                    break
+                end
+
+                local spinsLeft, familyGot = performRoll()
+                if familyGot then
+                    local display = FormatFamilyDisplay(familyGot)
+                    Library:Notify(string.format("Rolled: %s | Spins left: %d", display, spinsLeft), 2)
+                    updateUIFamily(familyGot)
+                    if isTargetFamily(familyGot, selectedFamilies) then
+                        Library:Notify(string.format("TARGET Found! %s | Spins left: %d", display, spinsLeft), 10)
+                        break
+                    end
+                else
+                    task.wait(0.1)
+                    continue
+                end
+                if spinsLeft == 0 then break end
+                task.wait(rollDelay)
+            end
+            if Options and Options.AutoSpinToggle then
+                Options.AutoSpinToggle:SetValue(false)
+            end
+            autoActive = false
+            spinTask = nil
+        end)
+    end
+
+    -- ========== UI COMPONENTS ==========
+    SpinGroup:AddLabel("Slot A (only)")
+    SpinGroup:AddDivider()
+
+    SpinGroup:AddButton("Check Current Family", function()
+        syncUIFamilies()
+        local family = getCurrentFamilyFromUI() or "Unknown"
+        local spinState = getgenv().SpinState
+        local spinsText = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "??"
+        Library:Notify(string.format("Slot A | Family: %s | Spins left: %s", family, spinsText), 3)
+    end)
+
+    SpinGroup:AddDivider()
+    SpinGroup:AddDropdown("AutoSpinFamilies", {
+        Text = "Select Target Families",
+        Values = FAMILY_LIST,
+        Multi = true,
+        Default = {},
+        Callback = function(v)
+            selectedFamilies = {}
+            for k, val in pairs(v) do
+                if val and not isHeader(k) then table.insert(selectedFamilies, k) end
+            end
+        end
+    })
+    SpinGroup:AddDivider()
+    SpinGroup:AddSlider("AutoSpinDelaySlider", {
+        Text = "Roll Delay",
+        Default = 0.01,
+        Min = 0.001,
+        Max = 1,
+        Rounding = 3,
+        Suffix = "s",
+        Callback = function(v) rollDelay = v end
+    })
+    SpinGroup:AddToggle("AutoSpinToggle", {
+        Text = "Auto Spin",
+        Default = false,
+        Callback = function(v)
+            if v then
+                if #selectedFamilies == 0 then
+                    Library:Notify("Please select target families first!", 3)
+                    pcall(function()
+                        if Options and Options.AutoSpinToggle then Options.AutoSpinToggle:SetValue(false) end
+                    end)
+                    return
+                end
+                syncUIFamilies()
+                if isCurrentFamilyTarget() then
+                    local currentFamily = getCurrentFamilyFromUI()
+                    local display = FormatFamilyDisplay(currentFamily)
+                    Library:Notify(string.format("⚠️ Slot A already has target family: %s! Cannot Roll.", display), 5)
+                    pcall(function()
+                        if Options and Options.AutoSpinToggle then Options.AutoSpinToggle:SetValue(false) end
+                    end)
+                    return
+                end
+                local spinState = getgenv().SpinState
+                if not spinState or not spinState.hasRolled then
+                    Library:Notify("Auto Spin started (spins will appear after first roll)", 2)
+                else
+                    Library:Notify(string.format("Auto Spin started | Last known spins: %d", spinState.storedSpins), 2)
+                end
+                autoActive = true
+                startAutoSpin()
+            else
+                autoActive = false
+                if spinTask then task.cancel(spinTask); spinTask = nil end
+            end
+        end
+    })
+end
+
+
+
+
+
+
+
+
+
+
+
+
+-- ============================== POPUP REAL-TIME FAMILY DISPLAY (ใช้ Slot A + SpinState) ==============================
 if IsMainmenuLobby() then
     while not Tabs.Webhook do task.wait(0.1) end
 
-    local PopupGroup = Tabs.Webhook:AddLeftGroupbox("Show Familiy")
+    local PopupGroup = Tabs.Webhook:AddLeftGroupbox("Show Family")
     local popupEnabled = false
     local popupGui = nil
     local updateConnection = nil
     local glowConnection = nil
-    local isInCustomisationPage = false
-    local currentScale = 1.0  -- ขนาดเริ่มต้น 100%
+    local currentScale = 1.0
 
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
     local RunService = game:GetService("RunService")
 
-    -- ฟังก์ชันตรวจสอบว่า GUI Visible จริง
-    local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then return false end
-        if not gui.Visible then return false end
-        local current = gui.Parent
-        while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
-            current = current.Parent
-        end
-        return true
-    end
-
-    -- ฟังก์ชันตรวจสอบว่าอยู่ในหน้า Customisation (Family Tab) หรือไม่
-    local function IsInCustomisationPage()
-        local interface = PlayerGui:FindFirstChild("Interface")
-        if not interface then return false end
-        
-        local custom = interface:FindFirstChild("Customisation")
-        if not custom or not IsActuallyVisible(custom) then return false end
-        
-        local family = custom:FindFirstChild("Family")
-        if not family or not IsActuallyVisible(family) then return false end
-        
-        local fam = family:FindFirstChild("Family")
-        if not fam then return false end
-        local title = fam:FindFirstChild("Title")
-        if not title or not IsActuallyVisible(title) then return false end
-        
-        return true
-    end
-
-    -- ดึงชื่อ Family ปัจจุบัน
-    local function GetCurrentFamilyPopup()
-        local ok, result = pcall(function()
-            return PlayerGui.Interface.Customisation.Family.Family.Title.Text
+    -- ใช้ฟังก์ชัน getCurrentFamilyFromSlotA() ที่ประกาศไว้ใน Webhook section แล้ว
+    -- ถ้าไม่มีให้สร้าง fallback
+    local getSlotAFamily = getCurrentFamilyFromSlotA or function()
+        local success, label = pcall(function()
+            return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
         end)
-        return ok and result or "Unknown"
+        if success and label and label:IsA("TextLabel") and label.Visible then
+            local text = label.Text
+            local family = text:match("^([^,]+)")
+            if family then return family:gsub("%s+$", "") end
+        end
+        return nil
     end
 
-    -- ดึงจำนวน Spins จาก Roll Button
-    local function GetTotalSpins()
-        local ok, result = pcall(function()
-            return PlayerGui.Interface.Customisation.Family.Buttons_2.Roll.Title.Text
-        end)
-        if ok and result then
-            local num = tonumber(result:match("%d+"))
-            return num or 0
-        end
-        return 0
-    end
-
-    -- ฟังก์ชันหา Rarity
-    local function GetFamilyRarityPopup(familyName)
-        if not familyName or familyName == "Unknown" then return "Common" end
-        local clean = familyName:match("^([^%(]+)") or familyName
-        clean = clean:gsub("%s+$", "")
-        local lower = string.lower(clean)
-        
-        local rarityMap = {
-            Common = {"reeves","blouse","inocenio","munsell","boyega","ral","bozado","pikale","hume","iglehaut"},
-            Rare = {"braus","kruger","azumabito","smith","grice","springer","kirstein"},
-            Epic = {"galliard","zoe","leonhart","tybur","ksaver","braun","finger","arlert"},
-            Legendary = {"yeager","ackerman","reiss"},
-            Mythic = {"fritz","helos"}
-        }
-        for rarity, list in pairs(rarityMap) do
-            for _, name in ipairs(list) do
-                if lower == name then return rarity end
-            end
-        end
+    -- ฟังก์ชันหา Rarity (ใช้ของเดิม หรือสร้างใหม่)
+    local function GetRarity(familyName)
+        if not familyName then return "Common" end
+        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
+        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
+        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
+        local legendaryList = {"Yeager","Ackerman","Reiss"}
+        local mythicList = {"Fritz","Helos"}
+        for _, name in ipairs(commonList) do if familyName:find(name) then return "Common" end end
+        for _, name in ipairs(rareList) do if familyName:find(name) then return "Rare" end end
+        for _, name in ipairs(epicList) do if familyName:find(name) then return "Epic" end end
+        for _, name in ipairs(legendaryList) do if familyName:find(name) then return "Legendary" end end
+        for _, name in ipairs(mythicList) do if familyName:find(name) then return "Mythic" end end
         return "Common"
     end
 
-    -- สีหลักตาม Rarity
     local function GetBaseColor(rarity)
-        if rarity == "Common" then
-            return Color3.fromHex("#C0C0C0")
-        elseif rarity == "Rare" then
-            return Color3.fromHex("#00E5FF")
-        elseif rarity == "Epic" then
-            return Color3.fromHex("#CC33FF")
-        elseif rarity == "Legendary" then
-            return Color3.fromHex("#FFD700")
-        elseif rarity == "Mythic" then
-            return Color3.fromHex("#FF3366")
-        else
-            return Color3.fromHex("#FFFFFF")
-        end
+        if rarity == "Common" then return Color3.fromHex("#C0C0C0")
+        elseif rarity == "Rare" then return Color3.fromHex("#00E5FF")
+        elseif rarity == "Epic" then return Color3.fromHex("#CC33FF")
+        elseif rarity == "Legendary" then return Color3.fromHex("#FFD700")
+        elseif rarity == "Mythic" then return Color3.fromHex("#FF3366")
+        else return Color3.fromHex("#FFFFFF") end
     end
 
-    -- สีสว่าง (สำหรับเรืองแสง)
     local function getBrightColor(baseColor)
         return Color3.new(
             math.min(baseColor.R + 0.35, 1),
@@ -660,40 +763,42 @@ if IsMainmenuLobby() then
         )
     end
 
+    -- ดึงจำนวนสปินจาก SpinState (ซิงค์กับ Webhook/Auto Spin)
+    local function GetTotalSpins()
+        local spinState = getgenv().SpinState
+        if spinState and spinState.hasRolled then
+            return tostring(spinState.storedSpins)
+        else
+            return "?"
+        end
+    end
+
     -- อัปเดตขนาด UI
     local function UpdateUIScale()
         if popupGui then
             local scaleObj = popupGui:FindFirstChild("UIScale")
-            if scaleObj then
-                scaleObj.Scale = currentScale
-            end
+            if scaleObj then scaleObj.Scale = currentScale end
         end
     end
 
-    -- เอฟเฟกต์ Smooth Pulse
+    -- เอฟเฟกต์ Pulse
     local function StartSmoothPulse(innerBorder, outerGlow, baseColor)
         if glowConnection then glowConnection:Disconnect() end
-        
         local brightColor = getBrightColor(baseColor)
         local time = 0
         local pulseSpeed = 1.2
-        
         glowConnection = RunService.RenderStepped:Connect(function(deltaTime)
             if not popupEnabled or not popupGui then return end
-            
             time = time + deltaTime * pulseSpeed
             local intensity = (math.sin(time) + 1) / 2
-            
             local currentColor = Color3.new(
                 baseColor.R + (brightColor.R - baseColor.R) * intensity,
                 baseColor.G + (brightColor.G - baseColor.G) * intensity,
                 baseColor.B + (brightColor.B - baseColor.B) * intensity
             )
-            
             local thickness = 2 + intensity * 1.5
             local glowThickness = 5 + intensity * 3
             local glowTransparency = 0.55 - intensity * 0.25
-            
             innerBorder.Color = currentColor
             outerGlow.Color = currentColor
             outerGlow.Thickness = glowThickness
@@ -715,14 +820,14 @@ if IsMainmenuLobby() then
         screenGui.Parent = LocalPlayer.PlayerGui
         popupGui = screenGui
 
-        -- UIScale สำหรับปรับขนาด
         local uiScale = Instance.new("UIScale")
         uiScale.Scale = currentScale
         uiScale.Parent = screenGui
 
+        -- เพิ่มความสูงจาก 100 เป็น 130 เพื่อให้มีพื้นที่ว่างเพียงพอ
         local mainFrame = Instance.new("Frame")
-        mainFrame.Size = UDim2.new(0, 300, 0, 100)
-        mainFrame.Position = UDim2.new(0.5, -150, 0.5, -50)
+        mainFrame.Size = UDim2.new(0, 300, 0, 130)
+        mainFrame.Position = UDim2.new(0.5, -150, 0.5, -65)
         mainFrame.BackgroundColor3 = Color3.fromHex("#050505")
         mainFrame.BackgroundTransparency = 0.08
         mainFrame.BorderSizePixel = 0
@@ -784,7 +889,7 @@ if IsMainmenuLobby() then
         titleLabel.Parent = mainFrame
 
         local familyLabel = Instance.new("TextLabel")
-        familyLabel.Size = UDim2.new(1, -50, 0, 42)
+        familyLabel.Size = UDim2.new(1, -50, 0, 46)
         familyLabel.Position = UDim2.new(0, 12, 0, 32)
         familyLabel.BackgroundTransparency = 1
         familyLabel.Text = "Loading..."
@@ -796,21 +901,22 @@ if IsMainmenuLobby() then
         familyLabel.TextWrapped = true
         familyLabel.Parent = mainFrame
 
-        -- เพิ่ม Label แสดง Total Spins
+        -- ปรับ spinLabel ใช้ absolute position แทน bottom anchor
         local spinLabel = Instance.new("TextLabel")
-        spinLabel.Size = UDim2.new(1, -40, 0, 20)
-        spinLabel.Position = UDim2.new(0, 12, 1, -42)   -- เหนือ footerLabel เล็กน้อย
+        spinLabel.Size = UDim2.new(1, -40, 0, 18)
+        spinLabel.Position = UDim2.new(0, 12, 0, 86)
         spinLabel.BackgroundTransparency = 1
-        spinLabel.Text = "Total Spins: 0"
+        spinLabel.Text = "Total Spins: ?"
         spinLabel.Font = Enum.Font.GothamMedium
-        spinLabel.TextSize = 12
+        spinLabel.TextSize = 11
         spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
         spinLabel.TextXAlignment = Enum.TextXAlignment.Left
         spinLabel.Parent = mainFrame
 
+        -- ปรับ footerLabel เป็น absolute position
         local footerLabel = Instance.new("TextLabel")
-        footerLabel.Size = UDim2.new(1, -40, 0, 16)
-        footerLabel.Position = UDim2.new(0, 12, 1, -20)
+        footerLabel.Size = UDim2.new(1, -40, 0, 14)
+        footerLabel.Position = UDim2.new(0, 12, 0, 110)
         footerLabel.BackgroundTransparency = 1
         footerLabel.Text = "FAKEHUB"
         footerLabel.Font = Enum.Font.GothamMedium
@@ -821,23 +927,12 @@ if IsMainmenuLobby() then
 
         local currentRarity = nil
         local currentBaseColor = nil
-        
+
         local function UpdateDisplay()
             if not popupGui or not popupEnabled then return end
-            
-            if not IsInCustomisationPage() then
-                if familyLabel.Text ~= "Not in Family page" then
-                    familyLabel.Text = "Not in Family page"
-                    familyLabel.TextColor3 = Color3.fromHex("#888888")
-                    titleLabel.TextColor3 = Color3.fromHex("#888888")
-                    closeBtn.BackgroundColor3 = Color3.fromHex("#888888")
-                    spinLabel.Text = "Total Spins: -"
-                end
-                return
-            end
-            
-            local family = GetCurrentFamilyPopup()
-            local rarity = GetFamilyRarityPopup(family)
+
+            local family = getSlotAFamily() or "Unknown"
+            local rarity = GetRarity(family)
             local baseColor = GetBaseColor(rarity)
             local spins = GetTotalSpins()
 
@@ -846,8 +941,8 @@ if IsMainmenuLobby() then
             titleLabel.TextColor3 = baseColor
             closeBtn.BackgroundColor3 = baseColor
             closeBtn.TextColor3 = (rarity == "Legendary" or rarity == "Mythic") and Color3.fromHex("#111111") or Color3.new(1,1,1)
-            spinLabel.Text = "Total Spins: " .. tostring(spins)
-            
+            spinLabel.Text = "Total Spins: " .. spins
+
             if currentRarity ~= rarity then
                 currentRarity = rarity
                 currentBaseColor = baseColor
@@ -857,15 +952,13 @@ if IsMainmenuLobby() then
 
         if updateConnection then updateConnection:Disconnect() end
         updateConnection = RunService.Heartbeat:Connect(function()
-            if popupEnabled and popupGui then
-                UpdateDisplay()
-            end
+            if popupEnabled and popupGui then UpdateDisplay() end
         end)
 
         UpdateDisplay()
     end
 
-    -- Slider สำหรับปรับขนาด UI (ปรับได้ 10% - 200%)
+    -- UI Components
     PopupGroup:AddSlider("PopupUIScale", {
         Text = "UI Scale (%)",
         Default = 100,
@@ -886,296 +979,14 @@ if IsMainmenuLobby() then
             popupEnabled = v
             if v then
                 CreatePopupUI()
-                -- ลบ Notify ออก
             else
                 if updateConnection then updateConnection:Disconnect() end
                 if glowConnection then glowConnection:Disconnect() end
                 if popupGui then popupGui:Destroy() end
-                -- ลบ Notify ออก
             end
         end
     })
 end
-
-
-
-
-
--- ============================== AUTO SPIN (MAIN MENU) ==============================
--- เฉพาะ Slot A เท่านั้น
--- Auto Spin จะทำงานต่อเนื่องอัตโนมัติเมื่อเปิด toggle จนกว่าจะได้ตระกูลเป้าหมาย หรือสปินหมด
--- ไม่มีการแจ้งเตือน "Roll failed!" หรือ "No spins left!"
-
-if IsMainmenuLobby() then
-    local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
-
-    local selectedFamilies = {}
-    local rollDelay = 0.01
-    local autoActive = false
-    local lastRolledSpins = nil
-
-    local player = game:GetService("Players").LocalPlayer
-    local playerGui = player:WaitForChild("PlayerGui")
-    local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
-
-    -- Helper: UI Elements
-    local function getSlotLabel()
-        local success, label = pcall(function()
-            return playerGui.Interface.Title_Screen.Slots.A.Details.Label
-        end)
-        if success and label and label:IsA("TextLabel") then
-            return label
-        end
-        return nil
-    end
-
-    local function getFamilyTitleLabel()
-        local success, title = pcall(function()
-            return playerGui.Interface.Customisation.Family.Family.Title
-        end)
-        if success and title and title:IsA("TextLabel") then
-            return title
-        end
-        return nil
-    end
-
-    local function getCurrentFamilyFromUI()
-        local slotLabel = getSlotLabel()
-        if slotLabel and slotLabel.Visible then
-            local text = slotLabel.Text
-            local family = text:match("^([^,]+)")
-            if family then
-                return family:gsub("%s+$", "")
-            end
-        end
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle and familyTitle.Visible then
-            local text = familyTitle.Text
-            local family = text:match("^([^%(]+)")
-            return family and family:gsub("%s+$", "") or text
-        end
-        return nil
-    end
-
-    local function updateUIFamily(newFamily)
-        local slotLabel = getSlotLabel()
-        if slotLabel then
-            local oldText = slotLabel.Text
-            local lv = oldText:match("Lv%.(%d+)")
-            if lv then
-                slotLabel.Text = string.format("%s, Lv.%s", newFamily, lv)
-            else
-                slotLabel.Text = newFamily
-            end
-        end
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle then
-            familyTitle.Text = newFamily
-        end
-    end
-
-    local function syncUIFamilies()
-        local slotFamily = nil
-        local slotLabel = getSlotLabel()
-        if slotLabel and slotLabel.Visible then
-            local text = slotLabel.Text
-            slotFamily = text:match("^([^,]+)")
-            if slotFamily then slotFamily = slotFamily:gsub("%s+$", "") end
-        end
-        local titleFamily = nil
-        local familyTitle = getFamilyTitleLabel()
-        if familyTitle and familyTitle.Visible then
-            local text = familyTitle.Text
-            titleFamily = text:match("^([^%(]+)")
-            if titleFamily then titleFamily = titleFamily:gsub("%s+$", "") end
-        end
-        if slotFamily and titleFamily and slotFamily ~= titleFamily then
-            updateUIFamily(slotFamily)
-        end
-    end
-
-    local function GetFamilyRarity(familyName)
-        if not familyName then return "Common" end
-        local cleanName = familyName:match("^([^%(]+)") or familyName
-        cleanName = cleanName:gsub("%s+$", "")
-        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
-        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
-        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
-        local legendaryList = {"Yeager","Ackerman","Reiss"}
-        local mythicList = {"Fritz","Helos"}
-        
-        for _, name in ipairs(commonList) do
-            if cleanName:find(name) then return "Common" end
-        end
-        for _, name in ipairs(rareList) do
-            if cleanName:find(name) then return "Rare" end
-        end
-        for _, name in ipairs(epicList) do
-            if cleanName:find(name) then return "Epic" end
-        end
-        for _, name in ipairs(legendaryList) do
-            if cleanName:find(name) then return "Legendary" end
-        end
-        for _, name in ipairs(mythicList) do
-            if cleanName:find(name) then return "Mythic" end
-        end
-        return "Common"
-    end
-
-    local function FormatFamilyDisplay(rawFamily)
-        if not rawFamily or rawFamily == "" then return "Unknown" end
-        local baseName = rawFamily:match("^([^%(]+)") or rawFamily
-        baseName = baseName:gsub("%s+$", "")
-        baseName = baseName:gsub("[()]", "")
-        local rarity = GetFamilyRarity(rawFamily)
-        return string.format("%s (%s)", baseName, rarity)
-    end
-
-    local function isTargetFamily(name, targetList)
-        if not name or #targetList == 0 then return false end
-        local lower = string.lower(name)
-        for _, t in ipairs(targetList) do
-            if string.find(lower, string.lower(t)) then
-                return true
-            end
-        end
-        return false
-    end
-
-    local function performRoll()
-        local result = {Event:InvokeServer("Family", "Roll")}
-        return result[1] or 0, result[3] or nil
-    end
-
-    local FAMILY_LIST = {
-        "--- Common ---","Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut",
-        "--- Rare ---","Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein",
-        "--- Epic ---","Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert",
-        "--- Legendary ---","Yeager","Ackerman","Reiss",
-        "--- Mythic ---","Fritz","Helos",
-    }
-
-    local function isHeader(name) return string.sub(name, 1, 3) == "---" end
-
-    -- ========== AUTO SPIN LOOP (ทำงานต่อเนื่องจนกว่าจะเจอเป้าหมายหรือสปินหมด) ==========
-    local spinTask = nil
-    local function startAutoSpin()
-        if spinTask then return end
-        spinTask = task.spawn(function()
-            while autoActive do
-                -- ก่อน roll ให้ sync UI เผื่อค่าตระกูลมีการเปลี่ยนแปลงภายนอก
-                syncUIFamilies()
-                
-                -- ตรวจสอบสปินและสุ่ม
-                local spinsLeft, familyGot = performRoll()
-                
-                if familyGot then
-                    lastRolledSpins = spinsLeft
-                    local display = FormatFamilyDisplay(familyGot)
-                    Library:Notify(string.format("Rolled: %s | Spins left: %d", display, spinsLeft), 2)
-                    updateUIFamily(familyGot)
-                    
-                    if isTargetFamily(familyGot, selectedFamilies) then
-                        Library:Notify(string.format("🎯 TARGET ACHIEVED! %s | Spins left: %d", display, spinsLeft), 10)
-                        break
-                    end
-                else
-                    -- roll failed (อาจเป็นเพราะ server lag) ให้รอสั้นๆ แล้วลองใหม่
-                    task.wait(0.1)
-                    continue
-                end
-                
-                if spinsLeft == 0 then
-                    break
-                end
-                
-                task.wait(rollDelay)
-            end
-            -- ปิด toggle อัตโนมัติเมื่อจบ loop
-            if Options and Options.AutoSpinToggle then
-                Options.AutoSpinToggle:SetValue(false)
-            end
-            autoActive = false
-            spinTask = nil
-        end)
-    end
-
-    -- ========== UI COMPONENTS ==========
-    SpinGroup:AddLabel("Slot A (only)")
-
-    SpinGroup:AddDivider()
-
-    SpinGroup:AddButton("Check Current Family", function()
-        syncUIFamilies()
-        local family = getCurrentFamilyFromUI() or "Unknown"
-        local spinsText = (lastRolledSpins ~= nil) and tostring(lastRolledSpins) or "?"
-        Library:Notify(string.format("Slot A | Family: %s | Spins left: %s", family, spinsText), 3)
-    end)
-
-    SpinGroup:AddDivider()
-
-    SpinGroup:AddDropdown("AutoSpinFamilies", {
-        Text = "Select Target Families",
-        Values = FAMILY_LIST,
-        Multi = true,
-        Default = {},
-        Callback = function(v)
-            selectedFamilies = {}
-            for k, val in pairs(v) do
-                if val and not isHeader(k) then
-                    table.insert(selectedFamilies, k)
-                end
-            end
-        end
-    })
-
-    SpinGroup:AddDivider()
-
-    SpinGroup:AddSlider("AutoSpinDelaySlider", {
-        Text = "Roll Delay",
-        Default = 0.01,
-        Min = 0.001,
-        Max = 1,
-        Rounding = 3,
-        Suffix = "s",
-        Callback = function(v) rollDelay = v end
-    })
-
-    SpinGroup:AddToggle("AutoSpinToggle", {
-        Text = "Auto Spin",
-        Default = false,
-        Callback = function(v)
-            if v then
-                if #selectedFamilies == 0 then
-                    Library:Notify("Please select target families first!", 3)
-                    pcall(function()
-                        if Options and Options.AutoSpinToggle then
-                            Options.AutoSpinToggle:SetValue(false)
-                        end
-                    end)
-                    return
-                end
-                autoActive = true
-                startAutoSpin()
-            else
-                autoActive = false
-                if spinTask then
-                    task.cancel(spinTask)
-                    spinTask = nil
-                end
-            end
-        end
-    })
-end
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2692,13 +2503,15 @@ end
 
 -- ============================== CODE REDEEMER (STORE & REDEEM CODES) ==============================
 if IsMainmenuLobby() then
-    local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeemer")
+    local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeem")
 
     local codesFile = "FakeHUB/codes.txt"
     local codeList = {}
     local selectedCode = ""
+    local autoRedeemActive = false
+    local autoRedeemTask = nil
 
-    -- ฟังก์ชันบันทึกโค้ดลงไฟล์ (ประกาศก่อน loadCodes)
+    -- ฟังก์ชันบันทึกโค้ดลงไฟล์
     local function saveCodes()
         writefile(codesFile, table.concat(codeList, "\n"))
     end
@@ -2715,12 +2528,7 @@ if IsMainmenuLobby() then
                 end
             end
         end
-        if #codeList == 0 then
-            table.insert(codeList, "LIKES1M250K")
-            table.insert(codeList, "VISITS900M")
-            table.insert(codeList, "FREECODE6")
-            saveCodes()
-        end
+        -- ไม่เพิ่มโค้ด Default อีกต่อไป
     end
 
     -- ฟังก์ชันเพิ่มโค้ดใหม่
@@ -2777,7 +2585,6 @@ if IsMainmenuLobby() then
     CodeGroup:AddInput("NewCodeInput", {
         Text = "New Code",
         Placeholder = "Enter code...",
-        Default = "",
         Numeric = false,
         Finished = true,
         Callback = function(v)
@@ -2792,7 +2599,6 @@ if IsMainmenuLobby() then
                 Library:Notify("Code '" .. newCodeInput .. "' added successfully!", 3)
                 refreshDropdown()
                 newCodeInput = ""
-                -- ป้องกัน Options เป็น nil
                 if Options and Options.NewCodeInput then
                     Options.NewCodeInput:SetValue("")
                 end
@@ -2820,11 +2626,10 @@ if IsMainmenuLobby() then
 
     CodeGroup:AddDivider()
 
-    -- ฟังก์ชัน Redeem พร้อมแจ้งเตือน
+    -- ฟังก์ชัน Redeem พร้อมแจ้งเตือน (คืนค่า success/failed)
     local function redeemCode(code)
         if not code or code == "" then
-            Library:Notify("No code selected!", 3)
-            return
+            return false, "No code selected!"
         end
 
         local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
@@ -2833,36 +2638,91 @@ if IsMainmenuLobby() then
         end)
 
         if not success then
-            Library:Notify("Error: " .. tostring(result), 3)
-            return
+            return false, tostring(result)
         end
 
-        local message = ""
         local resultStr = tostring(result)
 
         if resultStr:find("SUCCESSFUL") then
-            message = "✅ Redeemed successfully! (" .. code .. ")"
+            return true, "✅ Redeemed successfully! (" .. code .. ")"
         elseif resultStr:find("USED") then
-            message = "⚠️ Code already used! (" .. code .. ")"
+            return false, "⚠️ Code already used! (" .. code .. ")"
         elseif resultStr:find("EXPIRED") then
-            message = "❌ Code expired! (" .. code .. ")"
+            return false, "❌ Code expired! (" .. code .. ")"
         elseif resultStr:find("INVALID") then
-            message = "❌ Invalid code! (" .. code .. ")"
+            return false, "❌ Invalid code! (" .. code .. ")"
         else
-            message = "Redeem result: " .. resultStr
+            return false, "Redeem result: " .. resultStr
         end
-
-        Library:Notify(message, 5)
-        print("[Code Redeemer] " .. message)
     end
 
-    -- ปุ่ม Redeem (ทำงานทันที)
-    CodeGroup:AddButton("Redeem Selected Code", function()
-        redeemCode(selectedCode)
-    end)
+    -- Auto Redeem Loop
+    local function startAutoRedeem()
+        if autoRedeemTask then return end
+        
+        autoRedeemTask = task.spawn(function()
+            while autoRedeemActive do
+                if not selectedCode or selectedCode == "" then
+                    Library:Notify("No code selected! Stopping Auto Redeem.", 3)
+                    break
+                end
+                
+                local success, message = redeemCode(selectedCode)
+                Library:Notify(message, 5)
+                print("[Code Redeemer] " .. message)
+                
+                -- หยุดทันทีไม่ว่าจะสำเร็จหรือล้มเหลว
+                break
+            end
+            
+            -- ปิด Toggle อัตโนมัติ
+            autoRedeemActive = false
+            if Options and Options.AutoRedeemToggle then
+                Options.AutoRedeemToggle:SetValue(false)
+            end
+            autoRedeemTask = nil
+        end)
+    end
+
+    -- ปุ่ม Redeem (เปลี่ยนเป็น Toggle)
+    CodeGroup:AddToggle("AutoRedeemToggle", {
+        Text = "Auto Redeem Selected Code",
+        Default = false,
+        Callback = function(v)
+            if v then
+                if not selectedCode or selectedCode == "" then
+                    Library:Notify("No code selected! Please select a code first.", 3)
+                    pcall(function()
+                        if Options and Options.AutoRedeemToggle then
+                            Options.AutoRedeemToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                if #codeList == 0 then
+                    Library:Notify("No codes in list! Please add a code first.", 3)
+                    pcall(function()
+                        if Options and Options.AutoRedeemToggle then
+                            Options.AutoRedeemToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                autoRedeemActive = true
+                startAutoRedeem()
+                Library:Notify("Auto Redeem started for code: " .. selectedCode, 3)
+            else
+                autoRedeemActive = false
+                if autoRedeemTask then
+                    task.cancel(autoRedeemTask)
+                    autoRedeemTask = nil
+                end
+                Library:Notify("Auto Redeem stopped.", 2)
+            end
+        end
+    })
 end
 -- ============================== END CODE REDEEMER ==============================
-
 
 
 
@@ -2979,7 +2839,7 @@ if Tabs.Lobby then
         ["Outskirts"] = {"Skirmish","Escort","Random"},
         ["Giant Forest"] = {"Skirmish","Guard","Random"},
         ["Utgard"] = {"Skirmish","Defend","Random"},
-        ["Loading Docks"] = {"Skirmish","Stall","Random"},
+        ["Docks"] = {"Skirmish","Stall","Random"},
         ["Stohess"] = {"Skirmish","Random"}
     }
 
@@ -3244,7 +3104,7 @@ if Tabs.Lobby then
     end
 
     MissionTab:AddDropdown("MissionDropdown", {
-        Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Loading Docks","Stohess"},
+        Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Docks","Stohess"},
         Default = State_Mission.Name,
         Text = "Mission",
         Callback = function(val)
@@ -4656,25 +4516,29 @@ if IsLobbyLobby() then
                 Talents = talent
             })
         end)
-        -- ไม่แสดง notify ความสำเร็จ
         lastGoldNotifyStep = -1
         lastGoldNotifyStatus = nil
         return true
     end
 
+    -- Main loop ที่ทำงานเฉพาะเมื่อเปิด toggle เท่านั้น
     task.spawn(function()
         while true do
-            task.wait(PrestigeCooldown)
-            pcall(function()
-                if not getgenv().PrestigeEnabled then
-                    PrestigeRunning = false
-                    return
-                end
-                if PrestigeRunning then return end
-                PrestigeRunning = true
-                doPrestige()
+            -- ห้ามทำงานเด็ดขาดถ้าไม่ได้เปิด toggle
+            if not getgenv().PrestigeEnabled then
                 PrestigeRunning = false
-            end)
+                task.wait(1)  -- รอแล้ววนเช็คใหม่
+                continue
+            end
+            
+            -- ถ้าเปิด toggle และไม่ติด flag running ให้ทำงาน
+            if not PrestigeRunning then
+                PrestigeRunning = true
+                pcall(doPrestige)
+                PrestigeRunning = false
+            end
+            
+            task.wait(PrestigeCooldown)
         end
     end)
 end
@@ -6614,7 +6478,6 @@ end
 --// FIND REFILL OBJECT (DYNAMIC, BASED ON USER'S EXAMPLE)
 --// =====================================================
 local function FindRefillObject()
-    -- วิธีที่ 1: ใช้ path เดิมที่ผู้ใช้ให้ (Climbable._Walls.Gate:GetChildren()[50].Refill)
     local success, refill = pcall(function()
         local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
         if gate then
@@ -6628,7 +6491,6 @@ local function FindRefillObject()
     end)
     if success and refill then return refill end
 
-    -- วิธีที่ 2: หา GasTanks แล้วหา Refill
     success, refill = pcall(function()
         local gasTanks = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:FindFirstChild("GasTanks")
         if gasTanks then
@@ -6638,7 +6500,6 @@ local function FindRefillObject()
     end)
     if success and refill then return refill end
 
-    -- วิธีที่ 3: ค้นหาทั่ว workspace ที่มีชื่อ "Refill"
     success, refill = pcall(function()
         return workspace:FindFirstChild("Refill", true)
     end)
@@ -6664,7 +6525,6 @@ local function FireRefill()
             POST:FireServer("Attacks", "Reload", refillObj)
         end)
     else
-        -- fallback: ใช้ path ตามที่ผู้ใช้ให้โดยตรง
         pcall(function()
             local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
             if gate then
@@ -6718,11 +6578,9 @@ task.spawn(function()
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
 
-                -- ถ้า Sets = 0/3 (Blade Sets หมด) ให้ refill ทันที (ไม่ต้องรอ 5 วินาที)
                 if text == "0/3" then
                     FireRefill()
                 else
-                    -- ถ้า blades จริงๆ หมด แต่ Sets ยังไม่หมด (อาจเป็น bug หรือ blades ขาด) ให้ reload
                     if bladesEmpty then
                         BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                         if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
@@ -6744,7 +6602,7 @@ task.spawn(function()
     end
 end)
 
--- ========== WATCHDOG ป้องกันการค้าง reload/refill (เพิ่มโดยไม่แตะของเก่า) ==========
+-- ========== WATCHDOG ป้องกันการค้าง reload/refill ==========
 task.spawn(function()
     local STUCK_TIMEOUT = 5
     while true do
@@ -6781,6 +6639,66 @@ task.spawn(function()
     end
 end)
 
+--// =====================================================
+--// SILENT HQ REFILL CHECKER (every 2 seconds, no prints)
+--// =====================================================
+task.spawn(function()
+    local hqFired = false
+
+    local function checkAllBladesTransparentSilent()
+        local charFolder = workspace:FindFirstChild("Characters")
+        if not charFolder then return false end
+        local character = charFolder:FindFirstChild(LocalPlayer.Name)
+        if not character then return false end
+        local rig = character:FindFirstChild("Rig_" .. LocalPlayer.Name)
+        if not rig then return false end
+        local leftHand = rig:FindFirstChild("LeftHand")
+        local rightHand = rig:FindFirstChild("RightHand")
+        if not leftHand or not rightHand then return false end
+
+        for i = 1, 7 do
+            local bladeL = leftHand:FindFirstChild("Blade_" .. i)
+            if bladeL and bladeL:IsA("BasePart") and bladeL.Transparency ~= 1 then
+                return false
+            end
+            local bladeR = rightHand:FindFirstChild("Blade_" .. i)
+            if bladeR and bladeR:IsA("BasePart") and bladeR.Transparency ~= 1 then
+                return false
+            end
+        end
+        return true
+    end
+
+    local function getCurrentAmountSilent()
+        local success, text = pcall(function()
+            return tostring(Sets.Text)
+        end)
+        if not success then return -1 end
+        text = text:gsub("%s+", "")
+        return tonumber(string.match(text, "^(%d+)")) or -1
+    end
+
+    while true do
+        task.wait(2)
+
+        if getgenv().AutoReloadBlade then
+            local bladesAllClear = checkAllBladesTransparentSilent()
+            local amountZero = (getCurrentAmountSilent() == 0)
+
+            if bladesAllClear and amountZero and not hqFired then
+                pcall(function()
+                    local refill = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+                    POST:FireServer("Attacks", "Reload", refill)
+                end)
+                hqFired = true
+            elseif not (bladesAllClear and amountZero) then
+                hqFired = false
+            end
+        else
+            hqFired = false
+        end
+    end
+end)
 
 -- ============================== THUNDER SPEAR CORE LOGIC ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
@@ -8150,30 +8068,44 @@ if IsIngameLobby() and Tabs.AutoFarm then
     local sessionKills = getgenv().SessionKills
     local killTarget = 30
     local hasKilled = false
-    local systemEnabled = false          -- toggle หลักเพียงอันเดียว
+    local systemEnabled = false
     local currentMap = "Unknown"
     local currentObjective = "Unknown"
     local baseStreak = nil
     local baseSet = false
     local currentStreak = 0
+    
+    -- ตัวแปรป้องกันการโจมตีซ้ำและลดการเรียก Remote บ่อยเกินไป
+    local lastKillAttempt = 0
+    local KILL_COOLDOWN = 3
+    local lastPollTime = 0
+    local POLL_INTERVAL = 0.5
+    local lastMapCheck = 0
+    local MAP_CHECK_INTERVAL = 1
 
-    -- ฟังก์ชันฆ่าตัวตาย
+    -- ฟังก์ชันฆ่าตัวตาย (ปลอดภัย)
     local function killCharacter()
-        local player = game.Players.LocalPlayer
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Character.Humanoid.Health = 0
-        end
+        local success = pcall(function()
+            local player = game.Players.LocalPlayer
+            if player and player.Character then
+                local humanoid = player.Character:FindFirstChild("Humanoid")
+                if humanoid and humanoid.Health > 0 then
+                    humanoid.Health = 0
+                    return true
+                end
+            end
+            return false
+        end)
+        return success
     end
 
     -- ========== UI COMPONENTS ==========
-    -- Toggle หลักเพียงอันเดียว เปิด/ปิดระบบทั้งหมด
     KillGroup:AddToggle("EnableSafeModeToggle", {
-        Text = "Enable Auto Safe Mode (Stall only)",
+        Text = "Auto Safe Mode (Stall only)",
         Default = false,
         Callback = function(v)
             systemEnabled = v
             if not v then
-                -- รีเซ็ตสถานะทั้งหมดเมื่อปิดระบบ
                 hasKilled = false
                 baseSet = false
                 baseStreak = nil
@@ -8182,11 +8114,11 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 currentStreak = 0
                 currentMap = "Unknown"
                 currentObjective = "Unknown"
+                lastKillAttempt = 0
             end
         end
     })
 
-    -- Slider สำหรับตั้งค่า kill threshold
     KillGroup:AddSlider("AutoKillTargetSlider", {
         Text = "Auto Kill When Kills Reach",
         Default = 30,
@@ -8199,58 +8131,71 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     })
 
-    -- หมายเหตุ: ไม่มี toggle สำหรับปิด Blades 0/3 Check แล้ว (ระบบจะไม่ตรวจสอบ blades ตลอด เพื่อความเร็ว)
-
     -- ========== LOGIC ==========
-    -- หยุดทุกอย่างและทำให้ลอยนิ่ง
     local function stopAllAndHover()
-        getgenv().AutoFarmBlade = false
-        getgenv().Farm = false
-        getgenv().AutoThunderSpear = false
-        if CleanupSmoothMovement then CleanupSmoothMovement() end
-        if CurrentEntry then CurrentEntry = nil end
+        pcall(function()
+            getgenv().AutoFarmBlade = false
+            getgenv().Farm = false
+            getgenv().AutoThunderSpear = false
+            if CleanupSmoothMovement then CleanupSmoothMovement() end
+            if CurrentEntry then CurrentEntry = nil end
 
-        local char = game.Players.LocalPlayer.Character
-        if char then
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hrp then
-                hrp.AssemblyLinearVelocity = Vector3.zero
-                hrp.AssemblyAngularVelocity = Vector3.zero
-                local bodyPos = Instance.new("BodyPosition")
-                bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-                bodyPos.P = 5000
-                bodyPos.D = 1000
-                bodyPos.Position = hrp.Position
-                bodyPos.Parent = hrp
-                task.delay(0.5, function() if bodyPos and bodyPos.Parent then bodyPos:Destroy() end end)
+            local char = game.Players.LocalPlayer.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hrp then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    local bodyPos = Instance.new("BodyPosition")
+                    bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+                    bodyPos.P = 5000
+                    bodyPos.D = 1000
+                    bodyPos.Position = hrp.Position
+                    bodyPos.Parent = hrp
+                    task.delay(0.5, function() 
+                        if bodyPos and bodyPos.Parent then 
+                            bodyPos:Destroy() 
+                        end 
+                    end)
+                end
+                if hum then
+                    hum.PlatformStand = true
+                    hum.JumpPower = 0
+                    hum.WalkSpeed = 0
+                end
             end
-            if hum then
-                hum.PlatformStand = true
-                hum.JumpPower = 0
-                hum.WalkSpeed = 0
-            end
-        end
 
-        if Options then
-            if Options.AutoFarmBlade then Options.AutoFarmBlade:SetValue(false) end
-            if Options.AutoThunderSpearToggle then Options.AutoThunderSpearToggle:SetValue(false) end
-        end
+            if Options then
+                if Options.AutoFarmBlade then Options.AutoFarmBlade:SetValue(false) end
+                if Options.AutoThunderSpearToggle then Options.AutoThunderSpearToggle:SetValue(false) end
+            end
+        end)
     end
 
     local function updateSessionKills()
-        if baseStreak == nil then return end
+        if baseStreak == nil then 
+            return 
+        end
+        
         local newKills = currentStreak - baseStreak
         if newKills < 0 then newKills = 0 end
+        
         if newKills > sessionKills then
             sessionKills = newKills
             getgenv().SessionKills = sessionKills
         end
 
-        if not hasKilled and sessionKills >= killTarget then
+        local now = tick()
+        if not hasKilled and sessionKills >= killTarget and (now - lastKillAttempt) >= KILL_COOLDOWN then
             hasKilled = true
-            killCharacter()
-            stopAllAndHover()
+            lastKillAttempt = now
+            local killed = killCharacter()
+            if killed then
+                stopAllAndHover()
+            else
+                hasKilled = false
+            end
         end
     end
 
@@ -8259,56 +8204,75 @@ if IsIngameLobby() and Tabs.AutoFarm then
     end
 
     local function pollStreak()
-        if not systemEnabled then return end
+        if not systemEnabled then 
+            return 
+        end
+        
+        local now = tick()
+        if now - lastPollTime < POLL_INTERVAL then
+            return
+        end
+        lastPollTime = now
 
         local success, data = pcall(function()
             local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
             return GET:InvokeServer("Data", "Copy")
         end)
+        
         if success and type(data) == "table" then
-            if data.Map then
-                local newMap = data.Map.Map or "Unknown"
-                local newObj = data.Map.Objective or "Unknown"
-                if newMap ~= currentMap or newObj ~= currentObjective then
-                    currentMap = newMap
-                    currentObjective = newObj
+            -- อัปเดตข้อมูลแผนที่ (ใช้ interval แยกเพื่อลดการเช็ค)
+            if now - lastMapCheck >= MAP_CHECK_INTERVAL then
+                lastMapCheck = now
+                if data.Map then
+                    local newMap = data.Map.Map or "Unknown"
+                    local newObj = data.Map.Objective or "Unknown"
+                    if newMap ~= currentMap or newObj ~= currentObjective then
+                        currentMap = newMap
+                        currentObjective = newObj
+                    end
                 end
             end
 
+            -- ถ้าเงื่อนไขไม่เข้า ให้รีเซ็ต base
             if not isConditionActive() then
                 if baseSet then
                     baseSet = false
                     baseStreak = nil
                     sessionKills = 0
                     getgenv().SessionKills = 0
+                    hasKilled = false
                 end
                 return
             end
 
+            -- เงื่อนไขเข้าแล้ว ดึงค่า Streak
             if data.Statistics and data.Statistics.Streak then
                 currentStreak = data.Statistics.Streak.Total or 0
-                if not baseSet then
+                
+                if not baseSet and currentStreak > 0 then
                     baseStreak = currentStreak
                     baseSet = true
                     sessionKills = 0
                     getgenv().SessionKills = 0
+                    hasKilled = false
                 end
                 updateSessionKills()
             end
         end
     end
 
-    -- เริ่ม loop polling (ทำงานเมื่อ systemEnabled == true เท่านั้น)
+    -- เริ่ม loop polling ใช้ task.wait แทน heartbeat เพื่อลดภาระ
     task.spawn(function()
         while true do
             if systemEnabled then
                 pollStreak()
             end
-            task.wait(0.5)
+            task.wait(POLL_INTERVAL)
         end
     end)
 
-    if systemEnabled then pollStreak() end
+    if systemEnabled then 
+        pollStreak() 
+    end
 
-    -- ========== ไม่มีระบบเช็ค Blades Sets 0/3 แล้ว (ลบออกเพื่อความเร็ว) ==========
 end
