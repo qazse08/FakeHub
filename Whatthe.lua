@@ -300,7 +300,7 @@ if IsMainmenuLobby() then
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
             embeds = {{
-                title = "🎯 TARGET FAMILY FOUND: " .. currentFamily,
+                title = "TARGET FAMILY FOUND: " .. currentFamily,
                 color = color,
                 fields = {
                     { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Family : @" .. userName, inline = false },
@@ -553,10 +553,11 @@ if IsMainmenuLobby() then
         return false
     end
 
+    -- แก้ไขการอ่านค่า spins ให้ตรงกับรูปแบบที่ server ส่งกลับมา
     local function performRoll()
         local result = {Event:InvokeServer("Family", "Roll")}
-        local spinsLeft = result[1] or 0
-        local familyGot = result[3] or nil
+        local spinsLeft = result[2] or 0   -- ค่า spins ที่เหลืออยู่ (index 2)
+        local familyGot = result[3] or nil -- ชื่อตระกูลที่สุ่มได้ (index 3)
         if familyGot then
             -- อัปเดต shared spin state
             local spinState = getgenv().SpinState
@@ -688,9 +689,6 @@ if IsMainmenuLobby() then
         end
     })
 end
-
-
-
 
 
 
@@ -5256,10 +5254,10 @@ if Tabs.AutoFarm then
     getgenv().StopAtTitansLeft = getgenv().StopAtTitansLeft or 10
     
     SafetyGroup:AddSlider("StopAtTitansLeftSlider", {
-        Text="⚠️ Stop attacking when ≤ X titans left (before safe time)",
+        Text="Stop attacking when .. titans Left",
         Default = getgenv().StopAtTitansLeft,
         Min = 10,
-        Max = 15,
+        Max = 25,
         Rounding = 0,
         Callback = function(val)
             getgenv().StopAtTitansLeft = math.floor(val)
@@ -5916,6 +5914,10 @@ local LastScan = 0
 local SCAN_RATE = 0.1
 local NapeCache = setmetatable({}, {__mode = "k"})
 
+-- ตัวแปรสำหรับเก็บตำแหน่งไททันล่าสุด (เพื่อลอยไม่ตกพื้น)
+local LastTitanPosition = nil
+local LastTitanHoverHeight = 120
+
 local function IsTitanAlive(t)
     local h = t:FindFirstChildWhichIsA("Humanoid")
     return h and h.Health > 10
@@ -5960,6 +5962,8 @@ local function ScanTitans()
                 local isBoss = BOSS_NAMES[t.Name] or false
                 if t.Name == "Attack_Titan" then attackFound = true end
                 table.insert(ActiveTitans, {titan = t, nape = nape, isBoss = isBoss, titanName = t.Name})
+                -- อัปเดตตำแหน่งไททันล่าสุด
+                LastTitanPosition = nape.Position
             end
         end
     end
@@ -6059,6 +6063,28 @@ local function MoveStableTeleport(hrp, targetPos)
     hrp.AssemblyLinearVelocity = Vector3.zero
     hrp.AssemblyAngularVelocity = Vector3.zero
     CleanupSmoothMovement()
+end
+
+-- ฟังก์ชันลอยอยู่กับที่ (ใช้เมื่อไม่มีไททัน)
+local function HoverInPlace(hrp)
+    if not hrp then return end
+    NoclipOn()
+    CleanupSmoothMovement()
+    
+    local targetY = IdleHoverY
+    -- ถ้ามีตำแหน่งไททันล่าสุด ให้ลอยที่ความสูงเท่าเดิม
+    if LastTitanPosition then
+        targetY = LastTitanPosition.Y + LastTitanHoverHeight
+    end
+    
+    local currentY = hrp.Position.Y
+    if math.abs(currentY - targetY) > 2 then
+        hrp.AssemblyLinearVelocity = Vector3.new(0, (targetY - currentY) * 5, 0)
+    else
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(hrp.Position.X, targetY, hrp.Position.Z)
+    end
+    hrp.AssemblyAngularVelocity = Vector3.zero
 end
 
 local CurrentEntry = nil
@@ -6259,14 +6285,15 @@ local function FarmUpdate()
 
         ScanTitans()
 
+        -- ถ้าไม่มีไททัน ให้ลอยอยู่กับที่ (ใช้ตำแหน่งไททันล่าสุด)
         if #ActiveTitans == 0 then
             CurrentEntry = nil
-            NoclipOn()
-            CleanupSmoothMovement()
-            local dy = IdleHoverY - hrp.Position.Y
-            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
+            HoverInPlace(hrp)
             return
         end
+
+        -- อัปเดตความสูงล่าสุดจาก G.HoverHeight
+        LastTitanHoverHeight = G.HoverHeight or 120
 
         if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
             CurrentEntry = GetBestTarget(hrp.Position)
@@ -6279,6 +6306,9 @@ local function FarmUpdate()
             CurrentEntry = nil
             return
         end
+        
+        -- อัปเดตตำแหน่งไททันล่าสุด (ใช้สำหรับลอยเมื่อไม่มีไททัน)
+        LastTitanPosition = nape.Position
 
         local ty = nape.Position.Y + (G.HoverHeight or 120)
         local tp = Vector3.new(nape.Position.X, ty, nape.Position.Z)
@@ -6357,9 +6387,9 @@ local LocalPlayer = Players.LocalPlayer
 --// =====================================================
 
 local Settings = {
-    CheckDelay = 0.03,
+    CheckDelay = 1,
     BladeReload = {
-        Cooldown = 0.5,
+        Cooldown = 1.5,
         ConfirmCountRequired = 5,
     },
     Refill = {
@@ -6700,354 +6730,273 @@ task.spawn(function()
     end
 end)
 
--- ============================== THUNDER SPEAR CORE LOGIC ==============================
+-- ============================== THUNDER SPEAR CORE (ใช้ logic เดียวกับ BLADE ทุกประการ - แก้ไม่หยุดฟาร์ม) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
-local TitansFolder = workspace:WaitForChild("Titans")
+-- ตัวแปร Thunder Spear
+local SpearCurrentEntry = nil
+local LastSpearAttackTime = 0
+local SPEAR_ATTACK_INTERVAL = 0.3
+local CurrentFirePower = 8
+local EXPLODE_RADIUS = 0.13
 
--- ฟังก์ชันตรวจสอบ Objectives สำหรับ Thunder Spear
-local function isObjectivesActiveForSpear()
-    local player = game:GetService("Players").LocalPlayer
-    local playerGui = player:FindFirstChild("PlayerGui")
-    if not playerGui then return false end
-    
-    local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then return false end
-        if not gui.Visible then return false end
-        local current = gui.Parent
-        while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
-            current = current.Parent
-        end
-        return true
-    end
-    
-    for _, v in ipairs(playerGui:GetDescendants()) do
-        if v.Name == "Objectives" then
-            if IsActuallyVisible(v) then
-                return true
+getgenv().SpearFarm = getgenv().SpearFarm or false
+
+-- หา Refill object อัตโนมัติ (พยายามทุกวิถีทาง)
+local function FindRefillObject()
+    local paths = {
+        "Climbable._Walls.Gate.GasTanks.Refill",
+        "Climbable._Walls.Gate:GetChildren()[50].Refill",
+        "Unclimbable.Props.HQ.GasTanks.Refill"
+    }
+    for _, path in ipairs(paths) do
+        local success, obj = pcall(function()
+            if path:find(":GetChildren") then
+                local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+                if gate then
+                    local children = gate:GetChildren()
+                    if children[50] then return children[50]:FindFirstChild("Refill") end
+                end
+                return nil
+            else
+                local parts = {}
+                for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
+                local obj = workspace
+                for _, p in ipairs(parts) do obj = obj and obj:FindFirstChild(p) if not obj then break end end
+                return obj
             end
-        end
+        end)
+        if success and obj then return obj end
     end
-    return false
+    local success, refill = pcall(function() return workspace:FindFirstChild("Refill", true) end)
+    if success and refill then return refill end
+    return nil
 end
 
-task.spawn(function()
-    task.wait(1)
-
-    local player = game:GetService("Players").LocalPlayer
-    local RunService = game:GetService("RunService")
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-    local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-
-    local CurrentTarget = nil
-    local LastRefill = 0
-    local LastUpdate = 0
-    local HasTeleported = false
-    local BodyPosition = nil
-    local BodyGyro = nil
-
-    local CurrentFirePower = 0
-    local EXPLODE_RADIUS = 35
-    local BURST_SHOTS = 3
-    local AOE_EXPLOSIONS_PER_TARGET = 6
-
-    local function getGameMode()
-        local success, data = pcall(function()
-            return GET:InvokeServer("Data", "Copy")
-        end)
-        if success and data then
-            if data.Map and data.Map.Type then
-                return data.Map.Type
-            elseif data.Raid then
-                return "Raid"
-            elseif data.Waves then
-                return "Waves"
-            end
-        end
-        local success2, state = pcall(function()
-            return player.PlayerGui.Interface.Rewards.Main.Info.State.Text
-        end)
-        if success2 and state then
-            if state:find("MISSION") then return "Mission"
-            elseif state:find("RAID") then return "Raid"
-            elseif state:find("WAVE") then return "Waves"
-            end
-        end
-        return "Mission"
+local function ReloadSpears()
+    local refill = FindRefillObject()
+    if refill then
+        pcall(function() POST:FireServer("Attacks", "Reload", refill) end)
     end
+    CurrentFirePower = 8
+end
 
-    local NapeCache = {}
-    local function GetNape(titan)
-        if not titan or not titan.Parent then return nil end
-        if NapeCache[titan] then return NapeCache[titan] end
-        local hitboxes = titan:FindFirstChild("Hitboxes")
-        if not hitboxes then return nil end
-        local hit = hitboxes:FindFirstChild("Hit")
-        if not hit then return nil end
-        local nape = hit:FindFirstChild("Nape")
-        if nape and nape:IsA("BasePart") then
-            NapeCache[titan] = nape
-            return nape
-        end
-        return nil
+local function FireSpear()
+    if CurrentFirePower <= 0 then
+        ReloadSpears()
+        task.wait(0.2)
+        if CurrentFirePower == 0 then return end
     end
-
-    local CachedTitans = {}
-    local LastTitanUpdate = 0
-    local TITAN_CACHE_TIME = 0.02
-    local function GetAliveTitans()
-        local now = tick()
-        if now - LastTitanUpdate < TITAN_CACHE_TIME then return CachedTitans end
-        LastTitanUpdate = now
-        CachedTitans = {}
-        for _, titan in ipairs(TitansFolder:GetChildren()) do
-            local hum = titan:FindFirstChildOfClass("Humanoid")
-            if hum and hum.Health > 10 then
-                CachedTitans[#CachedTitans+1] = titan
-            end
-        end
-        return CachedTitans
-    end
-
-    local function GetNearestTitan(titans, hrp)
-        local nearest, shortest = nil, math.huge
-        local hrpPos = hrp.Position
-        for _, titan in ipairs(titans) do
-            local nape = GetNape(titan)
-            if nape then
-                local dist = (hrpPos - nape.Position).Magnitude
-                if dist < shortest then shortest = dist; nearest = titan end
-            end
-        end
-        return nearest
-    end
-
-    local CachedCharParts = {}
-    local CachedCharRef = nil
-    local function ForceNoclip()
-        local char = player.Character
-        if not char then return end
-        if char ~= CachedCharRef then
-            CachedCharRef = char
-            CachedCharParts = {}
-            for _, v in ipairs(char:GetDescendants()) do
-                if v:IsA("BasePart") then
-                    CachedCharParts[#CachedCharParts+1] = v
-                end
-            end
-        end
-        for i = 1, #CachedCharParts do
-            local part = CachedCharParts[i]
-            if part and part.Parent then part.CanCollide = false end
-        end
-    end
-
-    local function RestoreCollision()
-        for i = 1, #CachedCharParts do
-            local part = CachedCharParts[i]
-            if part and part.Parent then part.CanCollide = true end
-        end
-    end
-
-    local function MoveToTween(targetPos, speed)
-        local char = player.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-        ForceNoclip()
-        local diff = targetPos - hrp.Position
-        local distH = math.sqrt(diff.X * diff.X + diff.Z * diff.Z)
-        local hVel = Vector3.zero
-        if distH > 0.5 then
-            local mul = math.min(distH * 15, speed * 1.8) / distH
-            hVel = Vector3.new(diff.X * mul, 0, diff.Z * mul)
-        end
-        local absY = diff.Y < 0 and -diff.Y or diff.Y
-        local vVel = absY > 0.5 and (diff.Y > 0 and math.min(diff.Y * 12, speed * 1.5) or math.max(diff.Y * 12, -speed * 1.5)) or 0
-        hrp.AssemblyLinearVelocity = Vector3.new(hVel.X, vVel, hVel.Z)
-        hrp.AssemblyAngularVelocity = Vector3.zero
-    end
-
-    local function ReloadSpears()
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", workspace:WaitForChild("Climbable"):WaitForChild("_Walls"):WaitForChild("Gate"):WaitForChild("GasTanks"):WaitForChild("Refill"))
-        end)
-        CurrentFirePower = 8
-    end
-
-    local function FireSingleShot()
-        if CurrentFirePower <= 0 then
-            ReloadSpears()
-            task.wait(0.05)
-            if CurrentFirePower == 0 then return end
-        end
-        pcall(function()
-            GET:InvokeServer("Spears", "S_Fire", "1")
-            CurrentFirePower = CurrentFirePower - 1
-        end)
-    end
-
-    local function ExplodeAt(position)
-        for i = 1, AOE_EXPLOSIONS_PER_TARGET do
-            pcall(function()
-                POST:FireServer("Spears", "S_Explode", position, EXPLODE_RADIUS)
-            end)
-            task.wait(0.002)
-        end
-    end
-
-    local function AOEBombardment(centerPos, radius)
-        local titans = GetAliveTitans()
-        for _, titan in ipairs(titans) do
-            local nape = GetNape(titan)
-            if nape then
-                local dist = (centerPos - nape.Position).Magnitude
-                if dist <= radius then
-                    ExplodeAt(nape.Position)
-                end
-            end
-        end
-        ExplodeAt(centerPos)
-    end
-
-    local function ThunderBurstAttack(napePos)
-        for i = 1, BURST_SHOTS do
-            FireSingleShot()
-            task.wait(0.008)
-        end
-        AOEBombardment(napePos, 120)
-    end
-
-    local function IsTitanValid(titan)
-        if not titan or not titan.Parent then return false end
-        local hum = titan:FindFirstChildOfClass("Humanoid")
-        return hum and hum.Health > 10
-    end
-
-    RunService.Heartbeat:Connect(function()
-        pcall(function()
-            local now = tick()
-            if now - LastUpdate < 0.02 then return end
-            LastUpdate = now
-
-            local G = getgenv()
-            if not G.AutoThunderSpear then
-                RestoreCollision()
-                CurrentTarget = nil
-                HasTeleported = false
-                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
-                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
-                return
-            end
-            
-            -- ถ้า Objectives ไม่แสดง ให้หยุดทำงาน
-            if not isObjectivesActiveForSpear() then
-                if G.AutoThunderSpear then
-                    G.AutoThunderSpear = false
-                    if Options and Options.AutoThunderSpearToggle then
-                        Options.AutoThunderSpearToggle:SetValue(false)
-                    end
-                end
-                return
-            end
-
-            local char = player.Character
-            if not char then return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            if not hum or not hrp then return end
-            if hum.Health <= 0 then return end
-
-            hrp.AssemblyAngularVelocity = Vector3.zero
-
-            local titans = GetAliveTitans()
-            if #titans == 0 then
-                CurrentTarget = nil
-                HasTeleported = false
-                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
-                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
-                return
-            end
-
-            if not IsTitanValid(CurrentTarget) then
-                CurrentTarget = nil
-                HasTeleported = false
-                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
-                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
-            end
-
-            if not CurrentTarget then
-                CurrentTarget = GetNearestTitan(titans, hrp)
-                HasTeleported = false
-                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
-                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
-            end
-            if not CurrentTarget then return end
-
-            local nape = GetNape(CurrentTarget)
-            if not nape then
-                CurrentTarget = nil
-                HasTeleported = false
-                if BodyPosition then BodyPosition:Destroy(); BodyPosition = nil end
-                if BodyGyro then BodyGyro:Destroy(); BodyGyro = nil end
-                return
-            end
-
-            local hoverHeight = G.ThunderSpearHoverHeight or 120
-            local hoverSpeed = G.ThunderSpearHoverSpeed or 250
-            local targetHeight = nape.Position.Y + hoverHeight
-            local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
-
-            if G.ThunderSpearFarmMode == "Teleport" then
-                if not HasTeleported then
-                    ForceNoclip()
-                    hrp.CFrame = CFrame.new(targetPos)
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-
-                    if BodyPosition then BodyPosition:Destroy() end
-                    if BodyGyro then BodyGyro:Destroy() end
-                    BodyPosition = Instance.new("BodyPosition")
-                    BodyPosition.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                    BodyPosition.P = 50000
-                    BodyPosition.D = 500
-                    BodyPosition.Position = targetPos
-                    BodyPosition.Parent = hrp
-
-                    BodyGyro = Instance.new("BodyGyro")
-                    BodyGyro.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-                    BodyGyro.P = 50000
-                    BodyGyro.D = 500
-                    local direction = Vector3.new(nape.Position.X - targetPos.X, 0, nape.Position.Z - targetPos.Z)
-                    BodyGyro.CFrame = direction.Magnitude > 0 and CFrame.new(Vector3.zero, direction) or CFrame.new(Vector3.zero)
-                    BodyGyro.Parent = hrp
-
-                    HasTeleported = true
-                else
-                    ForceNoclip()
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-            else
-                MoveToTween(targetPos, hoverSpeed)
-            end
-
-            local gameMode = getGameMode()
-            if gameMode == "Mission" then
-                local elapsed = (G.FarmStartTime and (tick() - G.FarmStartTime)) or 0
-                local safe = elapsed >= (G.SafetyTime or 60)
-                local stopAt = G.StopAtTitansLeft or 1
-                if not safe and #titans <= stopAt then
-                    return
-                end
-            end
-
-            ThunderBurstAttack(nape.Position)
-        end)
+    pcall(function()
+        GET:InvokeServer("Spears", "S_Fire", tostring(CurrentFirePower))
+        CurrentFirePower = CurrentFirePower - 1
     end)
+end
+
+local function ThunderAOEAttack()
+    for _, entry in ipairs(ActiveTitans) do
+        local nape = entry.nape
+        if nape then
+            pcall(function()
+                POST:FireServer("Spears", "S_Explode", Vector3.new(nape.Position.X, nape.Position.Y, nape.Position.Z), EXPLODE_RADIUS)
+            end)
+        end
+    end
+end
+
+-- โจมตีหลัก: logic เหมือน Blade AttackAllTitans ทุกประการ
+local function ThunderAttackAllTitans()
+    if #ActiveTitans == 0 then return end
+    if not isObjectivesActiveForCore() then return end
+    
+    if getgenv().IsReloading or getgenv().IsRefilling then
+        return
+    end
+
+    local G = getgenv()
+    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
+    local safe = elapsed >= (G.SafetyTime or 60)
+
+    if safe then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+
+    if isShiganshinaBreachMission and not protectHQCompleted then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+
+    local currentWave, maxWave = getWaveProgress()
+    if currentWave and maxWave and currentWave < maxWave then
+        local nearComplete = (currentWave >= maxWave - 2)
+        if nearComplete then
+            if elapsed < (G.SafetyTime or 60) then
+                if not waveWaiting then
+                    waveWaiting = true
+                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
+                end
+                return
+            else
+                if waveWaiting then
+                    waveWaiting = false
+                    Library:Notify("Safety timer reached, resuming attack!", 2)
+                end
+            end
+        else
+            waveWaiting = false
+        end
+    elseif currentWave and currentWave == maxWave then
+        waveWaiting = false
+    elseif not currentWave then
+        waveWaiting = false
+    end
+
+    local slayVisible = isSlayObjectiveVisible()
+    
+    if not slayVisible then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+    
+    local stopAt = G.StopAtTitansLeft or 1
+    if not safe and #ActiveTitans <= stopAt then
+        return
+    end
+
+    FireSpear()
+    ThunderAOEAttack()
+end
+
+-- FarmUpdate เหมือน Blade
+local function SpearFarmUpdate()
+    pcall(function()
+        local G = getgenv()
+        
+        if not G.AutoThunderSpear then
+            if G.SpearFarm then G.SpearFarm = false end
+            return
+        end
+        
+        if not G.SpearFarm or isDead then return end
+        
+        if getgenv().IsReloading or getgenv().IsRefilling then return end
+        
+        if G.AutoThunderSpear and not G.SpearFarm then
+            G.SpearFarm = true
+            G.FarmStartTime = tick()
+        end
+        
+        if IsRewardsUIVisible() then
+            G.SpearFarm = false
+            if Options and Options.AutoThunderSpearToggle then
+                Options.AutoThunderSpearToggle:SetValue(false)
+            end
+            return
+        end
+
+        local char = Player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then
+            OnDeath()
+            return
+        end
+
+        hrp.AssemblyAngularVelocity = Vector3.zero
+
+        if hrp.Position.Y < -50 then
+            hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            CleanupSmoothMovement()
+            return
+        end
+
+        ScanTitans()
+
+        if #ActiveTitans == 0 then
+            SpearCurrentEntry = nil
+            NoclipOn()
+            CleanupSmoothMovement()
+            local dy = IdleHoverY - hrp.Position.Y
+            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
+            return
+        end
+
+        if not SpearCurrentEntry or not IsTitanAlive(SpearCurrentEntry.titan) then
+            SpearCurrentEntry = GetBestTarget(hrp.Position)
+        end
+        if not SpearCurrentEntry then return end
+
+        local nape = SpearCurrentEntry.nape
+        if not nape then
+            SpearCurrentEntry = nil
+            return
+        end
+
+        local hoverHeight = G.ThunderSpearHoverHeight or G.HoverHeight or 120
+        local hoverSpeed = G.ThunderSpearHoverSpeed or G.HoverSpeed or 120
+        local targetHeight = nape.Position.Y + hoverHeight
+        local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
+        local lookDir = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z - 5)
+
+        NoclipOn()
+
+        local farmMode = G.ThunderSpearFarmMode or G.FarmMode or "Tween"
+        if farmMode == "Teleport" then
+            MoveStableTeleport(hrp, targetPos)
+        else
+            MoveSmooth(hrp, targetPos, lookDir)
+        end
+
+        local now = tick()
+        if now - LastSpearAttackTime >= SPEAR_ATTACK_INTERVAL then
+            LastSpearAttackTime = now
+            ThunderAttackAllTitans()
+        end
+    end)
+end
+
+-- เริ่ม loop
+local SpearFarmConn = nil
+local function CreateSpearFarmLoop()
+    if SpearFarmConn then SpearFarmConn:Disconnect() end
+    SpearFarmConn = RunService.Heartbeat:Connect(SpearFarmUpdate)
+end
+CreateSpearFarmLoop()
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        local G = getgenv()
+        if G.AutoThunderSpear then
+            if not G.SpearFarm then
+                G.SpearFarm = true
+                G.FarmStartTime = tick()
+                SpearCurrentEntry = nil
+                LastSpearAttackTime = tick()
+            end
+        else
+            if G.SpearFarm then
+                G.SpearFarm = false
+                SpearCurrentEntry = nil
+                CleanupSmoothMovement()
+            end
+        end
+    end
 end)
 
+task.spawn(function()
+    while task.wait(2) do
+        if not SpearFarmConn or not SpearFarmConn.Connected then
+            CreateSpearFarmLoop()
+        end
+    end
+end)
 
 
 -- ============================== AUTO RETRY (SILENT MODE) ==============================
@@ -8059,6 +8008,8 @@ if IsIngameLobby() then
     })
 
 end
+
+--[[
 -- ============================== FAST TITAN KILL COUNTER + AUTO KILL (RELIABLE POLLING) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
     local KillGroup = Tabs.AutoFarm:AddRightGroupbox("Only Docks : Stall")
@@ -8276,3 +8227,4 @@ if IsIngameLobby() and Tabs.AutoFarm then
     end
 
 end
+--]]
