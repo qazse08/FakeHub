@@ -6389,7 +6389,7 @@ local LocalPlayer = Players.LocalPlayer
 local Settings = {
     CheckDelay = 1,
     BladeReload = {
-        Cooldown = 1.5,
+        Cooldown = 0.5,
         ConfirmCountRequired = 5,
     },
     Refill = {
