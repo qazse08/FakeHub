@@ -6285,6 +6285,20 @@ local function FarmUpdate()
 
         ScanTitans()
 
+        -- ========== ตรวจสอบสถานะรอ Safety Timer ==========
+        local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
+        if waveWaiting then
+            -- ถ้ายังไม่ครบเวลา ให้ลอยอยู่กับที่ ไม่เคลื่อนที่ ไม่โจมตี
+            if elapsed < (G.SafetyTime or 60) then
+                HoverInPlace(hrp)
+                return
+            else
+                -- ครบเวลาแล้ว รีเซ็ตสถานะและกลับมาทำงานปกติ
+                waveWaiting = false
+                Library:Notify("Safety timer reached, resuming attack!", 2)
+            end
+        end
+
         -- ถ้าไม่มีไททัน ให้ลอยอยู่กับที่ (ใช้ตำแหน่งไททันล่าสุด)
         if #ActiveTitans == 0 then
             CurrentEntry = nil
@@ -6383,17 +6397,32 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 --// =====================================================
+--// DEBUG NOTIFY HELPER (ENGLISH)
+--// =====================================================
+local function DebugNotify(msg, duration)
+    duration = duration or 3
+    local success, libExists = pcall(function()
+        return Library and Library.Notify
+    end)
+    if success and libExists then
+        pcall(function() Library:Notify(msg, duration) end)
+    else
+        print("[AutoReloadBlade] " .. msg)
+    end
+end
+
+--// =====================================================
 --// SETTINGS
 --// =====================================================
 
 local Settings = {
-    CheckDelay = 1,
+    CheckDelay = 0.5,
     BladeReload = {
-        Cooldown = 0.5,
-        ConfirmCountRequired = 5,
+        Cooldown = 0.01,
+        ConfirmCountRequired = 10,
     },
     Refill = {
-        Cooldown = 2,
+        Cooldown = 3,
     }
 }
 
@@ -6404,7 +6433,7 @@ local Settings = {
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
 
 --// =====================================================
---// KEY PRESS (R) - หลายวิธีเพื่อความเข้ากันได้
+--// KEY PRESS (R) - MULTIPLE METHODS FOR COMPATIBILITY
 --// =====================================================
 
 local VIM = game:GetService("VirtualInputManager")
@@ -6466,6 +6495,10 @@ local LastBladeReload = 0
 local LastRefillFire = 0
 local BladeEmptyConfirmCounter = 0
 local IsReloadingRapid = false
+local lastRefillNotify = 0
+local lastReloadNotify = 0
+local REFILL_NOTIFY_COOLDOWN = 5
+local RELOAD_NOTIFY_COOLDOWN = 5
 
 --// =====================================================
 --// CHECK REAL BLADES
@@ -6505,7 +6538,7 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// FIND REFILL OBJECT (DYNAMIC, BASED ON USER'S EXAMPLE)
+--// FIND REFILL OBJECT (DYNAMIC)
 --// =====================================================
 local function FindRefillObject()
     local success, refill = pcall(function()
@@ -6539,7 +6572,7 @@ local function FindRefillObject()
 end
 
 --// =====================================================
---// REFILL BLADE SETS (ใช้ POST Remote) - ตั้ง flag refilling
+--// REFILL BLADE SETS (USES POST REMOTE)
 --// =====================================================
 local function FireRefill()
     if not getgenv().AutoReloadBlade then return end
@@ -6549,11 +6582,17 @@ local function FireRefill()
     LastRefillFire = now
     getgenv().IsRefilling = true
     
+    if now - lastRefillNotify > REFILL_NOTIFY_COOLDOWN then
+        lastRefillNotify = now
+        DebugNotify("[Blade] 🔄 Starting refill...", 2)
+    end
+    
     local refillObj = FindRefillObject()
     if refillObj then
         pcall(function()
             POST:FireServer("Attacks", "Reload", refillObj)
         end)
+        DebugNotify("[Blade] ✅ Refill successful (Refill object found)", 2)
     else
         pcall(function()
             local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
@@ -6561,17 +6600,23 @@ local function FireRefill()
                 local children = gate:GetChildren()
                 if children[50] and children[50]:FindFirstChild("Refill") then
                     POST:FireServer("Attacks", "Reload", children[50].Refill)
+                    DebugNotify("[Blade] ✅ Refill successful (Gate[50] method)", 2)
+                else
+                    DebugNotify("[Blade] ❌ Refill object not found", 3)
                 end
+            else
+                DebugNotify("[Blade] ❌ Refill object not found", 3)
             end
         end)
     end
     
     task.wait(0.5)
     getgenv().IsRefilling = false
+    DebugNotify("[Blade] 🔧 Refill finished", 2)
 end
 
 --// =====================================================
---// RAPID RELOAD (กด R ซ้ำๆ) - ตั้ง flag reloading
+--// RAPID RELOAD (PRESSES R REPEATEDLY)
 --// =====================================================
 local function RapidReloadBlades()
     if not getgenv().AutoReloadBlade then return end
@@ -6580,24 +6625,39 @@ local function RapidReloadBlades()
     IsReloadingRapid = true
     getgenv().IsReloading = true
     
+    local now = tick()
+    if now - lastReloadNotify > RELOAD_NOTIFY_COOLDOWN then
+        lastReloadNotify = now
+        DebugNotify("[Blade] 🔁 Starting rapid reload (spamming R)", 2)
+    end
+    
     task.spawn(function()
+        local reloadCount = 0
         while getgenv().AutoReloadBlade and AreBladesEmpty() do
             local now = tick()
             if now - LastBladeReload >= Settings.BladeReload.Cooldown then
                 LastBladeReload = now
                 PressR()
+                reloadCount = reloadCount + 1
+                if reloadCount % 10 == 0 then
+                    DebugNotify(string.format("[Blade] 🔁 Reload attempt #%d...", reloadCount), 1)
+                end
             end
             task.wait(0.08)
         end
         getgenv().IsReloading = false
         IsReloadingRapid = false
+        if reloadCount > 0 then
+            DebugNotify(string.format("[Blade] ✅ Stopped rapid reload (total %d presses)", reloadCount), 2)
+        end
     end)
 end
 
 --// =====================================================
---// MAIN LOOP (ปรับ: เมื่อ Sets = 0/3 ให้ refill ทันที)
+--// MAIN LOOP
 --// =====================================================
 task.spawn(function()
+    local lastLogState = ""
     while true do
         if getgenv().AutoReloadBlade then
             local success, text = pcall(function()
@@ -6609,30 +6669,49 @@ task.spawn(function()
                 local bladesEmpty = AreBladesEmpty()
 
                 if text == "0/3" then
+                    if lastLogState ~= "refill" then
+                        DebugNotify("[Blade] 🧯 Detected Sets = 0/3 -> triggering refill", 2)
+                        lastLogState = "refill"
+                    end
                     FireRefill()
                 else
                     if bladesEmpty then
                         BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                         if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
+                            if lastLogState ~= "reload" then
+                                DebugNotify(string.format("[Blade] ⚠️ Blades empty for %d checks, starting rapid reload", BladeEmptyConfirmCounter), 2)
+                                lastLogState = "reload"
+                            end
                             RapidReloadBlades()
                             BladeEmptyConfirmCounter = 0
+                        elseif BladeEmptyConfirmCounter == 1 then
+                            DebugNotify("[Blade] 🧹 Detected empty blades, starting counter...", 2)
                         end
                     else
+                        if BladeEmptyConfirmCounter > 0 and lastLogState ~= "idle" then
+                            DebugNotify("[Blade] ✅ Blades no longer empty, resetting counter", 2)
+                            lastLogState = "idle"
+                        end
                         BladeEmptyConfirmCounter = 0
                     end
                 end
             end
         else
+            -- Only reset internal state when toggle is off, but never set toggle itself
+            if BladeEmptyConfirmCounter ~= 0 or IsReloadingRapid or getgenv().IsReloading or getgenv().IsRefilling then
+                DebugNotify("[Blade] ⏸️ AutoReloadBlade turned OFF, resetting all states", 2)
+            end
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
             getgenv().IsReloading = false
             getgenv().IsRefilling = false
+            lastLogState = ""
         end
         task.wait(Settings.CheckDelay)
     end
 end)
 
--- ========== WATCHDOG ป้องกันการค้าง reload/refill ==========
+-- ========== WATCHDOG (PREVENTS STUCK RELOAD/REFILL) ==========
 task.spawn(function()
     local STUCK_TIMEOUT = 5
     while true do
@@ -6643,6 +6722,7 @@ task.spawn(function()
                 if getgenv().IsReloading then
                     if not _G.ReloadStartTime then _G.ReloadStartTime = now end
                     if now - _G.ReloadStartTime > STUCK_TIMEOUT then
+                        DebugNotify("[Blade] ⚠️ Watchdog: Reload stuck >5s, resetting and pressing R once", 3)
                         getgenv().IsReloading = false
                         if IsReloadingRapid then IsReloadingRapid = false end
                         BladeEmptyConfirmCounter = 0
@@ -6655,6 +6735,7 @@ task.spawn(function()
                 if getgenv().IsRefilling then
                     if not _G.RefillStartTime then _G.RefillStartTime = now end
                     if now - _G.RefillStartTime > STUCK_TIMEOUT then
+                        DebugNotify("[Blade] ⚠️ Watchdog: Refill stuck >5s, resetting state", 3)
                         getgenv().IsRefilling = false
                         _G.RefillStartTime = nil
                     end
@@ -6670,10 +6751,11 @@ task.spawn(function()
 end)
 
 --// =====================================================
---// SILENT HQ REFILL CHECKER (every 2 seconds, no prints)
+--// HQ REFILL CHECKER (RUNS EVERY 2 SECONDS)
 --// =====================================================
 task.spawn(function()
     local hqFired = false
+    local lastHQNotify = 0
 
     local function checkAllBladesTransparentSilent()
         local charFolder = workspace:FindFirstChild("Characters")
@@ -6719,6 +6801,10 @@ task.spawn(function()
                 pcall(function()
                     local refill = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
                     POST:FireServer("Attacks", "Reload", refill)
+                    if tick() - lastHQNotify > 10 then
+                        lastHQNotify = tick()
+                        DebugNotify("[Blade] 🏠 Detected HQ refill automatically (blades empty + Sets=0)", 2)
+                    end
                 end)
                 hqFired = true
             elseif not (bladesAllClear and amountZero) then
@@ -6730,20 +6816,31 @@ task.spawn(function()
     end
 end)
 
--- ============================== THUNDER SPEAR CORE (ใช้ logic เดียวกับ BLADE ทุกประการ - แก้ไม่หยุดฟาร์ม) ==============================
+-- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
--- ตัวแปร Thunder Spear
+-- ตัวแปร Thunder Spear (ปรับให้แรงและไวขึ้น)
 local SpearCurrentEntry = nil
 local LastSpearAttackTime = 0
-local SPEAR_ATTACK_INTERVAL = 0.3
+local SPEAR_ATTACK_INTERVAL = 0.2     -- เร็วขึ้น (จาก 0.3)
 local CurrentFirePower = 8
-local EXPLODE_RADIUS = 0.13
+local EXPLODE_RADIUS = 0.14           -- แรงขึ้น (จาก 0.13)
 
 getgenv().SpearFarm = getgenv().SpearFarm or false
 
--- หา Refill object อัตโนมัติ (พยายามทุกวิถีทาง)
+-- ==================== CACHE ระบบ Refill (ลดการค้นหาซ้ำ) ====================
+local cachedSpearRefill = nil
+local lastSpearRefillCheck = 0
+
 local function FindRefillObject()
+    local now = tick()
+    if cachedSpearRefill and (now - lastSpearRefillCheck < 3) then
+        if pcall(function() return cachedSpearRefill.Parent end) then
+            return cachedSpearRefill
+        end
+    end
+    lastSpearRefillCheck = now
+
     local paths = {
         "Climbable._Walls.Gate.GasTanks.Refill",
         "Climbable._Walls.Gate:GetChildren()[50].Refill",
@@ -6766,10 +6863,17 @@ local function FindRefillObject()
                 return obj
             end
         end)
-        if success and obj then return obj end
+        if success and obj then
+            cachedSpearRefill = obj
+            return obj
+        end
     end
     local success, refill = pcall(function() return workspace:FindFirstChild("Refill", true) end)
-    if success and refill then return refill end
+    if success and refill then
+        cachedSpearRefill = refill
+        return refill
+    end
+    cachedSpearRefill = nil
     return nil
 end
 
@@ -6784,7 +6888,7 @@ end
 local function FireSpear()
     if CurrentFirePower <= 0 then
         ReloadSpears()
-        task.wait(0.2)
+        task.wait(0.15)   -- หน่วงน้อยลงเล็กน้อย (จาก 0.2)
         if CurrentFirePower == 0 then return end
     end
     pcall(function()
@@ -6794,7 +6898,9 @@ local function FireSpear()
 end
 
 local function ThunderAOEAttack()
-    for _, entry in ipairs(ActiveTitans) do
+    -- ใช้ local อ้างอิงเพื่อความเร็ว
+    local activeList = ActiveTitans
+    for _, entry in ipairs(activeList) do
         local nape = entry.nape
         if nape then
             pcall(function()
@@ -6804,7 +6910,7 @@ local function ThunderAOEAttack()
     end
 end
 
--- โจมตีหลัก: logic เหมือน Blade AttackAllTitans ทุกประการ
+-- โจมตีหลัก (logic คล้าย Blade แต่ปรับให้กระชับขึ้น)
 local function ThunderAttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
@@ -6871,7 +6977,7 @@ local function ThunderAttackAllTitans()
     ThunderAOEAttack()
 end
 
--- FarmUpdate เหมือน Blade
+-- FarmUpdate (ปรับให้ดึง getgenv() ครั้งเดียว และใช้ cache)
 local function SpearFarmUpdate()
     pcall(function()
         local G = getgenv()
@@ -6883,7 +6989,7 @@ local function SpearFarmUpdate()
         
         if not G.SpearFarm or isDead then return end
         
-        if getgenv().IsReloading or getgenv().IsRefilling then return end
+        if G.IsReloading or G.IsRefilling then return end
         
         if G.AutoThunderSpear and not G.SpearFarm then
             G.SpearFarm = true
@@ -6961,7 +7067,7 @@ local function SpearFarmUpdate()
     end)
 end
 
--- เริ่ม loop
+-- เริ่ม loop พร้อมระบบ reconnect ถี่ขึ้น
 local SpearFarmConn = nil
 local function CreateSpearFarmLoop()
     if SpearFarmConn then SpearFarmConn:Disconnect() end
@@ -6991,7 +7097,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait(1) do   -- เช็คถี่ขึ้นเป็น 1 วินาที
         if not SpearFarmConn or not SpearFarmConn.Connected then
             CreateSpearFarmLoop()
         end
