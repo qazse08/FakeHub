@@ -2835,7 +2835,7 @@ if Tabs.Lobby then
         ["Shiganshina"] = {"Skirmish","Breach","Random"},
         ["Trost"] = {"Skirmish","Protect","Random"},
         ["Outskirts"] = {"Skirmish","Escort","Random"},
-        ["Giant Forest"] = {"Skirmish","Guard","Random"},
+        ["Forest"] = {"Skirmish","Guard","Random"},
         ["Utgard"] = {"Skirmish","Defend","Random"},
         ["Docks"] = {"Skirmish","Stall","Random"},
         ["Stohess"] = {"Skirmish","Random"}
@@ -3102,7 +3102,7 @@ if Tabs.Lobby then
     end
 
     MissionTab:AddDropdown("MissionDropdown", {
-        Values = {"Shiganshina","Trost","Outskirts","Giant Forest","Utgard","Docks","Stohess"},
+        Values = {"Shiganshina","Trost","Outskirts","Forest","Utgard","Docks","Stohess"},
         Default = State_Mission.Name,
         Text = "Mission",
         Callback = function(val)
