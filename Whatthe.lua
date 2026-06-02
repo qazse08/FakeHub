@@ -3010,6 +3010,7 @@ if Tabs.Lobby then
         return nil
     end
 
+    -- ========== MISSION LOOP (UPDATED WITH PRECISE LEAVE + RECREATE + MODIFIERS) ==========
     local function MissionLoop(mySession)
         task.wait(1)
         if MissionDelay > 0 then task.wait(MissionDelay) end
@@ -3025,6 +3026,9 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Missions")
                 local created = false
+                local targetDiff = nil
+                local targetObj = nil
+                
                 for _, diff in ipairs(cycle) do
                     if not missionRunning or missionSessionId ~= mySession then break end
                     if State_Mission.Difficulty ~= "Hardest" then break end
@@ -3037,12 +3041,16 @@ if Tabs.Lobby then
                         obj = filtered[math.random(#filtered)]
                     end
                     
+                    -- สร้าง Mission ครั้งแรกเพื่อทดสอบระดับ
                     CreateMission(currentMission, obj, diff)
                     task.wait(0.2)
                     
                     if GetMyMission() then
+                        -- พบระดับที่เหมาะสม
+                        Library:Notify(string.format("Found suitable difficulty: %s", diff), 3)
+                        targetDiff = diff
+                        targetObj = obj
                         created = true
-                        Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, diff), 2)
                         break
                     else
                         LeaveMission()
@@ -3059,9 +3067,102 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                ApplyMissionModifiers()
-                if not missionRunning then missionBusy = false; continue end
+                -- 2) LEAVE ครั้งเดียว (รอให้ Mission หายไปจาก ReplicatedStorage)
+                Library:Notify("🔄 Leaving current mission to reset state...", 3)
+                LeaveMission()
+                local leaveStart = tick()
+                while (tick() - leaveStart) < 2 do
+                    local missions = game:GetService("ReplicatedStorage"):FindFirstChild("Missions")
+                    local stillExists = false
+                    if missions then
+                        for _, m in next, missions:GetChildren() do
+                            if m:FindFirstChild("Leader") and m.Leader.Value == game.Players.LocalPlayer.Name then
+                                stillExists = true
+                                break
+                            end
+                        end
+                    end
+                    if not stillExists then break end
+                    task.wait(0.1)
+                end
                 task.wait(0.3)
+                
+                -- 3) สร้างใหม่ด้วย difficulty ที่พบ
+                Library:Notify(string.format("Recreating mission with exact difficulty: %s", targetDiff), 3)
+                CreateMission(currentMission, targetObj, targetDiff)
+                task.wait(0.2)
+                
+                -- ตรวจสอบว่าสร้างสำเร็จ
+                local recreateSuccess = false
+                for retry = 1, 3 do
+                    if GetMyMission() then
+                        recreateSuccess = true
+                        break
+                    end
+                    task.wait(0.3)
+                end
+                if not recreateSuccess then
+                    Library:Notify("Failed to recreate mission, restarting loop", 3)
+                    LeaveMission()
+                    missionBusy = false
+                    task.wait(1)
+                    continue
+                end
+                Library:Notify("Mission recreated successfully!", 3)
+                
+                -- 4) Apply Modifiers ครบทุกตัว
+                Library:Notify("Applying modifiers...", 3)
+                local selectedMods = {}
+                pcall(function()
+                    if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
+                        local val = Options.MissionModifiersDropdown.Value
+                        if type(val) == "table" then
+                            for mod, enabled in pairs(val) do
+                                if enabled then table.insert(selectedMods, mod) end
+                            end
+                        end
+                    end
+                end)
+                
+                if #selectedMods > 0 then
+                    -- Clear ก่อน
+                    for retry = 1, 2 do
+                        if not missionRunning then break end
+                        SafeMissionCall("S_Missions", "ClearModifiers")
+                        task.wait(0.2)
+                    end
+                    task.wait(0.3)
+                    
+                    -- Apply ทีละอัน
+                    local applied = 0
+                    for _, mod in ipairs(selectedMods) do
+                        if not missionRunning then break end
+                        local success = false
+                        for retry = 1, 3 do
+                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            if success then break end
+                            task.wait(0.2)
+                        end
+                        if success then
+                            applied = applied + 1
+                            Library:Notify(string.format("  Applied: %s (%d/%d)", mod, applied, #selectedMods), 1)
+                        else
+                            Library:Notify(string.format("  Failed to apply: %s", mod), 2)
+                        end
+                        task.wait(0.15)
+                    end
+                    task.wait(0.4)
+                    Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
+                else
+                    Library:Notify("ℹ️ No modifiers selected", 2)
+                end
+                
+                if not missionRunning then
+                    missionBusy = false
+                    continue
+                end
+                
+                -- 5) Start Mission
                 Library:Notify("Starting mission", 2)
                 StartMission()
                 local startTick = tick()
@@ -3069,6 +3170,7 @@ if Tabs.Lobby then
                 if MissionDelay > 0 then task.wait(MissionDelay) end
                 
             else
+                -- Fixed difficulty mode
                 local objList = MissionObjectives[currentMission] or {"Skirmish"}
                 local obj = currentObjective
                 if obj == "Random" then
@@ -3077,6 +3179,7 @@ if Tabs.Lobby then
                     obj = filtered[math.random(#filtered)]
                 end
                 
+                -- 1) สร้าง Mission ครั้งแรก
                 CreateMission(currentMission, obj, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3088,10 +3191,71 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                Library:Notify(string.format("Creating mission: %s - %s (%s)", currentMission, obj, currentDifficulty), 2)
-                ApplyMissionModifiers()
-                if not missionRunning then missionBusy = false; continue end
+                -- 2) LEAVE + RECREATE (เพื่อความแม่นยำ)
+                Library:Notify("Recreating mission to ensure stability...", 3)
+                LeaveMission()
                 task.wait(0.3)
+                CreateMission(currentMission, obj, currentDifficulty)
+                task.wait(0.2)
+                
+                local recreateSuccess = false
+                for retry = 1, 3 do
+                    if GetMyMission() then
+                        recreateSuccess = true
+                        break
+                    end
+                    task.wait(0.3)
+                end
+                if not recreateSuccess then
+                    Library:Notify("Recreate failed, restarting loop", 3)
+                    LeaveMission()
+                    missionBusy = false
+                    task.wait(1)
+                    continue
+                end
+                Library:Notify("Mission ready", 3)
+                
+                -- 3) Apply Modifiers
+                local selectedMods = {}
+                pcall(function()
+                    if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
+                        local val = Options.MissionModifiersDropdown.Value
+                        if type(val) == "table" then
+                            for mod, enabled in pairs(val) do
+                                if enabled then table.insert(selectedMods, mod) end
+                            end
+                        end
+                    end
+                end)
+                
+                if #selectedMods > 0 then
+                    for retry = 1, 2 do
+                        if not missionRunning then break end
+                        SafeMissionCall("S_Missions", "ClearModifiers")
+                        task.wait(0.2)
+                    end
+                    task.wait(0.3)
+                    local applied = 0
+                    for _, mod in ipairs(selectedMods) do
+                        if not missionRunning then break end
+                        local success = false
+                        for retry = 1, 3 do
+                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            if success then break end
+                            task.wait(0.2)
+                        end
+                        if success then applied = applied + 1 end
+                        task.wait(0.15)
+                    end
+                    task.wait(0.4)
+                    Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
+                end
+                
+                if not missionRunning then
+                    missionBusy = false
+                    continue
+                end
+                
                 Library:Notify("Starting mission", 2)
                 StartMission()
                 local startTick = tick()
@@ -3292,6 +3456,7 @@ if Tabs.Lobby then
         SafeMissionCall("S_Missions", "Leave")
     end
 
+    -- ========== RAID LOOP (UPDATED WITH PRECISE LEAVE + RECREATE + MODIFIERS) ==========
     local function RaidLoop(mySession)
         task.wait(1)
         if RaidDelay > 0 then task.wait(RaidDelay) end
@@ -3305,6 +3470,8 @@ if Tabs.Lobby then
             if currentDifficulty == "Hardest" then
                 local cycle = GetDifficultyCycle("Raids")
                 local created = false
+                local targetDiff = nil
+                
                 for _, diff in ipairs(cycle) do
                     if not raidRunning or raidSessionId ~= mySession then break end
                     if State_Raid.Difficulty ~= "Hardest" then break end
@@ -3313,8 +3480,9 @@ if Tabs.Lobby then
                     task.wait(0.2)
                     
                     if GetMyMission() then
+                        Library:Notify(string.format("Found suitable raid difficulty: %s", diff), 3)
+                        targetDiff = diff
                         created = true
-                        Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, diff), 2)
                         break
                     else
                         LeaveRaid()
@@ -3331,9 +3499,66 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                ApplyRaidModifiers()
-                if not raidRunning then raidBusy = false; continue end
+                -- LEAVE
+                Library:Notify("Leaving current raid...", 3)
+                LeaveRaid()
                 task.wait(0.3)
+                
+                -- RECREATE
+                Library:Notify(string.format("Recreating raid with difficulty: %s", targetDiff), 3)
+                CreateRaid(currentBoss, targetDiff)
+                task.wait(0.2)
+                local ok = false
+                for retry = 1, 3 do
+                    if GetMyMission() then ok = true; break end
+                    task.wait(0.3)
+                end
+                if not ok then
+                    Library:Notify("Raid recreate failed, restarting", 3)
+                    LeaveRaid()
+                    raidBusy = false
+                    task.wait(1)
+                    continue
+                end
+                Library:Notify("Raid recreated successfully!", 3)
+                
+                -- APPLY MODIFIERS
+                local selectedMods = {}
+                pcall(function()
+                    if Options and Options.RaidModifiersDropdown and Options.RaidModifiersDropdown.Value then
+                        local val = Options.RaidModifiersDropdown.Value
+                        if type(val) == "table" then
+                            for mod, enabled in pairs(val) do
+                                if enabled then table.insert(selectedMods, mod) end
+                            end
+                        end
+                    end
+                end)
+                
+                if #selectedMods > 0 then
+                    for retry = 1, 2 do SafeMissionCall("S_Missions", "ClearModifiers") task.wait(0.2) end
+                    task.wait(0.3)
+                    local applied = 0
+                    for _, mod in ipairs(selectedMods) do
+                        if not raidRunning then break end
+                        local success = false
+                        for retry = 1, 3 do
+                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            if success then break end
+                            task.wait(0.2)
+                        end
+                        if success then applied = applied + 1 end
+                        task.wait(0.15)
+                    end
+                    task.wait(0.4)
+                    Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
+                end
+                
+                if not raidRunning then
+                    raidBusy = false
+                    continue
+                end
+                
                 Library:Notify("Starting raid", 2)
                 StartRaid()
                 local startTick = tick()
@@ -3341,6 +3566,7 @@ if Tabs.Lobby then
                 if RaidDelay > 0 then task.wait(RaidDelay) end
                 
             else
+                -- Fixed difficulty mode
                 CreateRaid(currentBoss, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3352,10 +3578,62 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                Library:Notify(string.format("Creating raid: %s (%s)", currentBoss, currentDifficulty), 2)
-                ApplyRaidModifiers()
-                if not raidRunning then raidBusy = false; continue end
+                -- LEAVE + RECREATE
+                Library:Notify("Recreating raid for stability...", 3)
+                LeaveRaid()
                 task.wait(0.3)
+                CreateRaid(currentBoss, currentDifficulty)
+                task.wait(0.2)
+                local ok = false
+                for retry = 1, 3 do
+                    if GetMyMission() then ok = true; break end
+                    task.wait(0.3)
+                end
+                if not ok then
+                    Library:Notify("Recreate failed, restarting", 3)
+                    LeaveRaid()
+                    raidBusy = false
+                    task.wait(1)
+                    continue
+                end
+                
+                -- APPLY MODIFIERS
+                local selectedMods = {}
+                pcall(function()
+                    if Options and Options.RaidModifiersDropdown and Options.RaidModifiersDropdown.Value then
+                        local val = Options.RaidModifiersDropdown.Value
+                        if type(val) == "table" then
+                            for mod, enabled in pairs(val) do
+                                if enabled then table.insert(selectedMods, mod) end
+                            end
+                        end
+                    end
+                end)
+                
+                if #selectedMods > 0 then
+                    for retry = 1, 2 do SafeMissionCall("S_Missions", "ClearModifiers") task.wait(0.2) end
+                    task.wait(0.3)
+                    local applied = 0
+                    for _, mod in ipairs(selectedMods) do
+                        if not raidRunning then break end
+                        local success = false
+                        for retry = 1, 3 do
+                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            if success then break end
+                            task.wait(0.2)
+                        end
+                        if success then applied = applied + 1 end
+                        task.wait(0.15)
+                    end
+                    task.wait(0.4)
+                    Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
+                end
+                
+                if not raidRunning then
+                    raidBusy = false
+                    continue
+                end
+                
                 Library:Notify("Starting raid", 2)
                 StartRaid()
                 local startTick = tick()
@@ -6584,7 +6862,7 @@ local function FireRefill()
     
     if now - lastRefillNotify > REFILL_NOTIFY_COOLDOWN then
         lastRefillNotify = now
-        DebugNotify("[Blade] 🔄 Starting refill...", 2)
+        DebugNotify("[Blade] Starting refill...", 2)
     end
     
     local refillObj = FindRefillObject()
@@ -6592,7 +6870,7 @@ local function FireRefill()
         pcall(function()
             POST:FireServer("Attacks", "Reload", refillObj)
         end)
-        DebugNotify("[Blade] ✅ Refill successful (Refill object found)", 2)
+        DebugNotify("[Blade] Refill successful (Refill object found)", 2)
     else
         pcall(function()
             local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
@@ -6600,12 +6878,12 @@ local function FireRefill()
                 local children = gate:GetChildren()
                 if children[50] and children[50]:FindFirstChild("Refill") then
                     POST:FireServer("Attacks", "Reload", children[50].Refill)
-                    DebugNotify("[Blade] ✅ Refill successful (Gate[50] method)", 2)
+                    DebugNotify("[Blade] Refill successful (Gate[50] method)", 2)
                 else
-                    DebugNotify("[Blade] ❌ Refill object not found", 3)
+                    DebugNotify("[Blade] Refill object not found", 3)
                 end
             else
-                DebugNotify("[Blade] ❌ Refill object not found", 3)
+                DebugNotify("[Blade] Refill object not found", 3)
             end
         end)
     end
@@ -6628,7 +6906,7 @@ local function RapidReloadBlades()
     local now = tick()
     if now - lastReloadNotify > RELOAD_NOTIFY_COOLDOWN then
         lastReloadNotify = now
-        DebugNotify("[Blade] 🔁 Starting rapid reload (spamming R)", 2)
+        DebugNotify("[Blade] Starting rapid reload (spamming R)", 2)
     end
     
     task.spawn(function()
@@ -6640,7 +6918,7 @@ local function RapidReloadBlades()
                 PressR()
                 reloadCount = reloadCount + 1
                 if reloadCount % 10 == 0 then
-                    DebugNotify(string.format("[Blade] 🔁 Reload attempt #%d...", reloadCount), 1)
+                    DebugNotify(string.format("[Blade] Reload attempt #%d...", reloadCount), 1)
                 end
             end
             task.wait(0.08)
@@ -6648,7 +6926,7 @@ local function RapidReloadBlades()
         getgenv().IsReloading = false
         IsReloadingRapid = false
         if reloadCount > 0 then
-            DebugNotify(string.format("[Blade] ✅ Stopped rapid reload (total %d presses)", reloadCount), 2)
+            DebugNotify(string.format("[Blade] Stopped rapid reload (total %d presses)", reloadCount), 2)
         end
     end)
 end
@@ -6670,7 +6948,7 @@ task.spawn(function()
 
                 if text == "0/3" then
                     if lastLogState ~= "refill" then
-                        DebugNotify("[Blade] 🧯 Detected Sets = 0/3 -> triggering refill", 2)
+                        DebugNotify("[Blade]  Detected Sets = 0/3 -> triggering refill", 2)
                         lastLogState = "refill"
                     end
                     FireRefill()
@@ -6679,17 +6957,17 @@ task.spawn(function()
                         BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                         if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
                             if lastLogState ~= "reload" then
-                                DebugNotify(string.format("[Blade] ⚠️ Blades empty for %d checks, starting rapid reload", BladeEmptyConfirmCounter), 2)
+                                DebugNotify(string.format("[Blade] Blades empty for %d checks, starting rapid reload", BladeEmptyConfirmCounter), 2)
                                 lastLogState = "reload"
                             end
                             RapidReloadBlades()
                             BladeEmptyConfirmCounter = 0
                         elseif BladeEmptyConfirmCounter == 1 then
-                            DebugNotify("[Blade] 🧹 Detected empty blades, starting counter...", 2)
+                            DebugNotify("[Blade] Detected empty blades, starting counter...", 2)
                         end
                     else
                         if BladeEmptyConfirmCounter > 0 and lastLogState ~= "idle" then
-                            DebugNotify("[Blade] ✅ Blades no longer empty, resetting counter", 2)
+                            DebugNotify("[Blade] Blades no longer empty, resetting counter", 2)
                             lastLogState = "idle"
                         end
                         BladeEmptyConfirmCounter = 0
@@ -6699,7 +6977,7 @@ task.spawn(function()
         else
             -- Only reset internal state when toggle is off, but never set toggle itself
             if BladeEmptyConfirmCounter ~= 0 or IsReloadingRapid or getgenv().IsReloading or getgenv().IsRefilling then
-                DebugNotify("[Blade] ⏸️ AutoReloadBlade turned OFF, resetting all states", 2)
+                DebugNotify("[Blade] AutoReloadBlade turned OFF, resetting all states", 2)
             end
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
@@ -6722,7 +7000,7 @@ task.spawn(function()
                 if getgenv().IsReloading then
                     if not _G.ReloadStartTime then _G.ReloadStartTime = now end
                     if now - _G.ReloadStartTime > STUCK_TIMEOUT then
-                        DebugNotify("[Blade] ⚠️ Watchdog: Reload stuck >5s, resetting and pressing R once", 3)
+                        DebugNotify("[Blade] Reload stuck >5s, resetting and pressing R once", 3)
                         getgenv().IsReloading = false
                         if IsReloadingRapid then IsReloadingRapid = false end
                         BladeEmptyConfirmCounter = 0
@@ -6735,7 +7013,7 @@ task.spawn(function()
                 if getgenv().IsRefilling then
                     if not _G.RefillStartTime then _G.RefillStartTime = now end
                     if now - _G.RefillStartTime > STUCK_TIMEOUT then
-                        DebugNotify("[Blade] ⚠️ Watchdog: Refill stuck >5s, resetting state", 3)
+                        DebugNotify("[Blade] Refill stuck >5s, resetting state", 3)
                         getgenv().IsRefilling = false
                         _G.RefillStartTime = nil
                     end
