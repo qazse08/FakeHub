@@ -6790,18 +6790,10 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
 --// =====================================================
---// DEBUG NOTIFY HELPER (ENGLISH)
+--// DEBUG NOTIFY HELPER (DISABLED)
 --// =====================================================
 local function DebugNotify(msg, duration)
-    duration = duration or 3
-    local success, libExists = pcall(function()
-        return Library and Library.Notify
-    end)
-    if success and libExists then
-        pcall(function() Library:Notify(msg, duration) end)
-    else
-        print("[AutoReloadBlade] " .. msg)
-    end
+    -- Disabled - no output
 end
 
 --// =====================================================
@@ -6809,7 +6801,7 @@ end
 --// =====================================================
 
 local Settings = {
-    CheckDelay = 0.5,
+    CheckDelay = 0.01,
     BladeReload = {
         Cooldown = 0.01,
         ConfirmCountRequired = 10,
@@ -6824,7 +6816,6 @@ local Settings = {
 --// =====================================================
 
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
 --// =====================================================
 --// KEY PRESS (R) - MULTIPLE METHODS FOR COMPATIBILITY
@@ -6895,232 +6886,6 @@ local REFILL_NOTIFY_COOLDOWN = 5
 local RELOAD_NOTIFY_COOLDOWN = 5
 
 --// =====================================================
---// CACHED REFILL OBJECTS (SMART SCAN)
---// =====================================================
-
-local CachedRefillObjects = {}  -- { ["path_string"] = instance, ... }
-local LastFullScanTime = 0
-local FULL_SCAN_INTERVAL = 30  -- รีสแกนทุก 30 วินาที (เผื่อ Map เปลี่ยน)
-local ValidatedRefill = nil      -- ค่าที่ใช้ได้ล่าสุด
-
--- รายการ Path สำเร็จรูปที่อาจใช้ได้ (Fallback)
-local FALLBACK_PATHS = {
-    "Unclimbable.Props.HQ.GasTanks.Refill",
-    "Climbable._Walls.Gate.GasTanks.Refill",
-}
-
---// =====================================================
---// SMART REFILL SCANNER (SEARCH BY OBJECT NAME)
---// =====================================================
-
--- ฟังก์ชันค้นหา Refill โดยตรงจาก workspace (ไวที่สุด)
-local function FindRefillByName()
-    -- วิธีที่ 1: ค้นหาโดยตรงจากชื่อ "Refill" ใน Unclimbable.Props.HQ
-    local success, hq = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") 
-            and workspace.Unclimbable:FindFirstChild("Props") 
-            and workspace.Unclimbable.Props:FindFirstChild("HQ")
-    end)
-    
-    if success and hq then
-        -- ตรวจสอบ GasTanks.Refill ก่อน (path มาตรฐาน)
-        local gasTanks = hq:FindFirstChild("GasTanks")
-        if gasTanks then
-            local refill = gasTanks:FindFirstChild("Refill")
-            if refill and refill:IsA("BasePart") then
-                return refill, "GasTanks.Refill"
-            end
-        end
-        
-        -- สแกนหา Refill ทั้งหมดใน HQ (ไม่จำกัด index)
-        local allRefills = {}
-        for _, child in ipairs(hq:GetChildren()) do
-            local refill = child:FindFirstChild("Refill")
-            if refill and refill:IsA("BasePart") then
-                table.insert(allRefills, {obj = refill, parent = child})
-            end
-        end
-        
-        if #allRefills > 0 then
-            -- คืนค่าตัวแรกที่เจอ (ปกติมีอันเดียว)
-            return allRefills[1].obj, "HQ." .. allRefills[1].parent.Name .. ".Refill"
-        end
-    end
-    
-    -- วิธีที่ 2: ค้นหา Refill ทั่วทั้ง Workspace (ช้าสุดแต่ได้ผล)
-    local success, refill = pcall(function()
-        return workspace:FindFirstChild("Refill", true)
-    end)
-    if success and refill then
-        return refill, "Global.FindFirstChild"
-    end
-    
-    return nil, nil
-end
-
--- ฟังก์ชันสแกนและแคช Refill Objects ทั้งหมดใน HQ (ใช้สำหรับกรณีที่ต้องการไล่ยิง)
-local function ScanAndCacheAllRefills()
-    local refills = {}
-    
-    local success, hq = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") 
-            and workspace.Unclimbable:FindFirstChild("Props") 
-            and workspace.Unclimbable.Props:FindFirstChild("HQ")
-    end)
-    
-    if success and hq then
-        -- สแกนทุก Child ใน HQ
-        for idx, child in ipairs(hq:GetChildren()) do
-            local refill = child:FindFirstChild("Refill")
-            if refill and refill:IsA("BasePart") then
-                table.insert(refills, {
-                    index = idx,
-                    obj = refill,
-                    parent = child,
-                    path = string.format("HQ:GetChildren()[%d].Refill", idx)
-                })
-            end
-        end
-        
-        -- ตรวจสอบ GasTanks ด้วย
-        local gasTanks = hq:FindFirstChild("GasTanks")
-        if gasTanks then
-            local refill = gasTanks:FindFirstChild("Refill")
-            if refill and refill:IsA("BasePart") then
-                table.insert(refills, {
-                    index = 0,
-                    obj = refill,
-                    parent = gasTanks,
-                    path = "HQ.GasTanks.Refill"
-                })
-            end
-        end
-    end
-    
-    return refills
-end
-
--- ฟังก์ชันอัปเดตแคช (รันตอนเริ่มและเมื่อ Map เปลี่ยน)
-local function UpdateRefillCache()
-    local now = tick()
-    if now - LastFullScanTime < FULL_SCAN_INTERVAL and #CachedRefillObjects > 0 then
-        return  -- ยังไม่ต้องอัปเดต
-    end
-    
-    LastFullScanTime = now
-    CachedRefillObjects = {}
-    
-    local refills = ScanAndCacheAllRefills()
-    for _, ref in ipairs(refills) do
-        CachedRefillObjects[ref.path] = ref.obj
-    end
-    
-    if #refills > 0 then
-        DebugNotify(string.format("[Blade] Refill cache updated: found %d Refill object(s)", #refills), 2)
-    else
-        DebugNotify("[Blade] No Refill objects found in HQ", 2)
-    end
-end
-
--- ฟังก์ชันหลักหา Refill ที่ใช้ได้ (พยายามทุกวิธี)
-local function FindValidRefill()
-    -- อัปเดตแคชถ้าจำเป็น
-    UpdateRefillCache()
-    
-    -- วิธีที่ 1: ใช้ Refill ที่เคยใช้ได้แล้ว (Validated)
-    if ValidatedRefill and pcall(function() return ValidatedRefill.Parent end) then
-        return ValidatedRefill
-    end
-    
-    -- วิธีที่ 2: ค้นหาจากแคช (ใช้ path ที่จำได้)
-    for path, refill in pairs(CachedRefillObjects) do
-        if refill and pcall(function() return refill.Parent end) then
-            ValidatedRefill = refill
-            return refill
-        end
-    end
-    
-    -- วิธีที่ 3: ค้นหาแบบ Real-time โดยชื่อ
-    local refill, path = FindRefillByName()
-    if refill then
-        ValidatedRefill = refill
-        return refill
-    end
-    
-    -- วิธีที่ 4: Fallback paths
-    for _, path in ipairs(FALLBACK_PATHS) do
-        local success, obj = pcall(function()
-            local parts = {}
-            for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
-            local obj = workspace
-            for _, p in ipairs(parts) do
-                obj = obj and obj:FindFirstChild(p)
-                if not obj then break end
-            end
-            return obj
-        end)
-        if success and obj and obj:IsA("BasePart") then
-            ValidatedRefill = obj
-            return obj
-        end
-    end
-    
-    return nil
-end
-
--- ฟังก์ชันไล่ยิง Refill ทุกตัวในแคช (ใช้เมื่ออันแรกใช้ไม่ได้)
-local function FireAllCachedRefills()
-    local fired = 0
-    for path, refill in pairs(CachedRefillObjects) do
-        if refill and pcall(function() return refill.Parent end) then
-            pcall(function()
-                POST:FireServer("Attacks", "Reload", refill)
-                fired = fired + 1
-                task.wait(0.05)
-            end)
-        end
-    end
-    if fired > 0 then
-        DebugNotify(string.format("[Blade] Fired %d cached Refill object(s)", fired), 2)
-    end
-    return fired
-end
-
--- ฟังก์ชันไล่ยิง Refill ทีละตัวตั้งแต่ 1-300 (วิธีสุดท้าย)
-local function FireRefillByIndexRange(startIdx, endIdx)
-    local success, hq = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") 
-            and workspace.Unclimbable:FindFirstChild("Props") 
-            and workspace.Unclimbable.Props:FindFirstChild("HQ")
-    end)
-    
-    if not success or not hq then return 0 end
-    
-    local fired = 0
-    local children = hq:GetChildren()
-    local maxIdx = math.min(endIdx, #children)
-    
-    for i = startIdx, maxIdx do
-        local child = children[i]
-        if child then
-            local refill = child:FindFirstChild("Refill")
-            if refill and refill:IsA("BasePart") then
-                pcall(function()
-                    POST:FireServer("Attacks", "Reload", refill)
-                    fired = fired + 1
-                    task.wait(0.03)
-                end)
-            end
-        end
-    end
-    
-    if fired > 0 then
-        DebugNotify(string.format("[Blade] Fired %d Refill(s) from index %d-%d", fired, startIdx, endIdx), 2)
-    end
-    return fired
-end
-
---// =====================================================
 --// CHECK REAL BLADES
 --// =====================================================
 
@@ -7158,71 +6923,149 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// REFILL BLADE SETS (SMART VERSION)
+--// FIND REFILL OBJECT (DYNAMIC)
 --// =====================================================
-local function FireRefill()
+local function FindRefillObject()
+    local success, refill = pcall(function()
+        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+        if gate then
+            local children = gate:GetChildren()
+            for i, child in ipairs(children) do
+                local ref = child:FindFirstChild("Refill")
+                if ref then return ref end
+            end
+        end
+        return nil
+    end)
+    if success and refill then return refill end
+
+    success, refill = pcall(function()
+        local gasTanks = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:FindFirstChild("GasTanks")
+        if gasTanks then
+            return gasTanks:FindFirstChild("Refill")
+        end
+        return nil
+    end)
+    if success and refill then return refill end
+
+    success, refill = pcall(function()
+        return workspace:FindFirstChild("Refill", true)
+    end)
+    if success and refill then return refill end
+
+    return nil
+end
+
+--// =====================================================
+--// REFILL FUNCTIONS (UPDATED WITH TIMER LOGIC)
+--// =====================================================
+
+local zeroThreeStartTime = nil
+local isRefillTriggered = false
+local refillFailedStartTime = nil
+local isRapidFiring = false
+local rapidFireStopTime = nil
+
+local function RapidFireRandomRefill()
+    if isRapidFiring then return end
+    isRapidFiring = true
+    rapidFireStopTime = tick() + 5
+    
+    task.spawn(function()
+        while isRapidFiring and tick() < rapidFireStopTime do
+            local success, currentText = pcall(function()
+                return tostring(Sets.Text)
+            end)
+            if success and currentText and currentText:gsub("%s+", "") ~= "0/3" then
+                break
+            end
+            
+            local randomIndex = math.random(1, 300)
+            local success, hq = pcall(function()
+                return workspace:FindFirstChild("Unclimbable") 
+                    and workspace.Unclimbable:FindFirstChild("Props") 
+                    and workspace.Unclimbable.Props:FindFirstChild("HQ")
+            end)
+            
+            if success and hq then
+                local children = hq:GetChildren()
+                if randomIndex <= #children then
+                    local targetChild = children[randomIndex]
+                    if targetChild then
+                        local refill = targetChild:FindFirstChild("Refill")
+                        if refill then
+                            pcall(function()
+                                POST:FireServer("Attacks", "Reload", refill)
+                            end)
+                        end
+                    end
+                end
+            end
+            
+            task.wait(0.01)
+        end
+        isRapidFiring = false
+    end)
+end
+
+local function FireRefillWithDelay()
     if not getgenv().AutoReloadBlade then return end
+    
     local now = tick()
     if now - LastRefillFire < Settings.Refill.Cooldown then return end
     
-    LastRefillFire = now
-    getgenv().IsRefilling = true
-    
-    if now - lastRefillNotify > REFILL_NOTIFY_COOLDOWN then
-        lastRefillNotify = now
-        DebugNotify("[Blade] Starting refill...", 2)
+    if zeroThreeStartTime == nil then
+        zeroThreeStartTime = now
+        return
     end
     
-    -- ขั้นตอนที่ 1: พยายามใช้ Refill ที่เคยใช้ได้แล้ว หรือหาใหม่
-    local refillObj = FindValidRefill()
-    local success = false
+    if now - zeroThreeStartTime >= 5 and not isRefillTriggered then
+        isRefillTriggered = true
+        LastRefillFire = now
+        getgenv().IsRefilling = true
+        
+        local refillObj = FindRefillObject()
+        
+        if refillObj then
+            pcall(function()
+                POST:FireServer("Attacks", "Reload", refillObj)
+            end)
+        else
+            pcall(function()
+                local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+                if gate then
+                    local children = gate:GetChildren()
+                    if children[50] and children[50]:FindFirstChild("Refill") then
+                        POST:FireServer("Attacks", "Reload", children[50].Refill)
+                    end
+                end
+            end)
+        end
+        
+        task.wait(0.5)
+        getgenv().IsRefilling = false
+        refillFailedStartTime = tick()
+    end
+end
+
+local function CheckRefillResult()
+    if not getgenv().AutoReloadBlade then return end
+    if refillFailedStartTime == nil then return end
     
-    if refillObj then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refillObj)
-            success = true
+    local now = tick()
+    if now - refillFailedStartTime >= 3 then
+        refillFailedStartTime = nil
+        
+        local success, text = pcall(function()
+            return tostring(Sets.Text)
         end)
         if success then
-            DebugNotify("[Blade] Refill successful (cached object)", 2)
-        end
-    end
-    
-    -- ขั้นตอนที่ 2: ถ้ายังไม่ได้ ให้ไล่ยิงทุกตัวในแคช
-    if not success then
-        local fired = FireAllCachedRefills()
-        if fired > 0 then success = true end
-    end
-    
-    -- ขั้นตอนที่ 3: ถ้ายังไม่ได้ ให้ไล่ยิง index 1-300 (วิธีสุดท้าย)
-    if not success then
-        local fired = FireRefillByIndexRange(1, 300)
-        if fired > 0 then success = true end
-    end
-    
-    -- ขั้นตอนที่ 4: ถ้ายังไม่ได้ ให้ลอง Fallback paths
-    if not success then
-        for _, path in ipairs(FALLBACK_PATHS) do
-            local success2, obj = pcall(function()
-                local parts = {}
-                for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
-                local obj = workspace
-                for _, p in ipairs(parts) do
-                    obj = obj and obj:FindFirstChild(p)
-                    if not obj then break end
-                end
-                return obj
-            end)
-            if success2 and obj then
-                pcall(function() POST:FireServer("Attacks", "Reload", obj) end)
-                DebugNotify(string.format("[Blade] Refill attempted with fallback: %s", path), 2)
-                break
+            text = text:gsub("%s+", "")
+            if text == "0/3" then
+                RapidFireRandomRefill()
             end
         end
     end
-    
-    task.wait(0.5)
-    getgenv().IsRefilling = false
-    DebugNotify("[Blade] Refill finished", 2)
 end
 
 --// =====================================================
@@ -7235,12 +7078,6 @@ local function RapidReloadBlades()
     IsReloadingRapid = true
     getgenv().IsReloading = true
     
-    local now = tick()
-    if now - lastReloadNotify > RELOAD_NOTIFY_COOLDOWN then
-        lastReloadNotify = now
-        DebugNotify("[Blade] Starting rapid reload (spamming R)", 2)
-    end
-    
     task.spawn(function()
         local reloadCount = 0
         while getgenv().AutoReloadBlade and AreBladesEmpty() do
@@ -7249,22 +7086,16 @@ local function RapidReloadBlades()
                 LastBladeReload = now
                 PressR()
                 reloadCount = reloadCount + 1
-                if reloadCount % 10 == 0 then
-                    DebugNotify(string.format("[Blade] Reload attempt #%d...", reloadCount), 1)
-                end
             end
             task.wait(0.08)
         end
         getgenv().IsReloading = false
         IsReloadingRapid = false
-        if reloadCount > 0 then
-            DebugNotify(string.format("[Blade] Stopped rapid reload (total %d presses)", reloadCount), 2)
-        end
     end)
 end
 
 --// =====================================================
---// MAIN LOOP
+--// MAIN LOOP (UPDATED)
 --// =====================================================
 task.spawn(function()
     local lastLogState = ""
@@ -7277,44 +7108,54 @@ task.spawn(function()
             if success then
                 text = text:gsub("%s+", "")
                 local bladesEmpty = AreBladesEmpty()
-
-                if text == "0/3" then
-                    if lastLogState ~= "refill" then
-                        DebugNotify("[Blade] Detected Sets = 0/3 -> triggering refill", 2)
-                        lastLogState = "refill"
+                local isZeroThree = (text == "0/3")
+                
+                if isZeroThree then
+                    if lastLogState ~= "zero" then
+                        zeroThreeStartTime = tick()
+                        isRefillTriggered = false
+                        lastLogState = "zero"
                     end
-                    FireRefill()
+                    FireRefillWithDelay()
                 else
+                    if zeroThreeStartTime ~= nil or isRefillTriggered then
+                        zeroThreeStartTime = nil
+                        isRefillTriggered = nil
+                        refillFailedStartTime = nil
+                    end
+                    lastLogState = "normal"
+                    
                     if bladesEmpty then
                         BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
                         if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
                             if lastLogState ~= "reload" then
-                                DebugNotify(string.format("[Blade] Blades empty for %d checks, starting rapid reload", BladeEmptyConfirmCounter), 2)
                                 lastLogState = "reload"
                             end
                             RapidReloadBlades()
                             BladeEmptyConfirmCounter = 0
-                        elseif BladeEmptyConfirmCounter == 1 then
-                            DebugNotify("[Blade] Detected empty blades, starting counter...", 2)
                         end
                     else
                         if BladeEmptyConfirmCounter > 0 and lastLogState ~= "idle" then
-                            DebugNotify("[Blade] Blades no longer empty, resetting counter", 2)
                             lastLogState = "idle"
                         end
                         BladeEmptyConfirmCounter = 0
                     end
                 end
+                
+                CheckRefillResult()
             end
         else
-            -- Only reset internal state when toggle is off, but never set toggle itself
-            if BladeEmptyConfirmCounter ~= 0 or IsReloadingRapid or getgenv().IsReloading or getgenv().IsRefilling then
-                DebugNotify("[Blade] AutoReloadBlade turned OFF, resetting all states", 2)
+            if BladeEmptyConfirmCounter ~= 0 or IsReloadingRapid or getgenv().IsReloading or getgenv().IsRefilling or zeroThreeStartTime then
+                -- Silent reset
             end
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
             getgenv().IsReloading = false
             getgenv().IsRefilling = false
+            zeroThreeStartTime = nil
+            isRefillTriggered = false
+            refillFailedStartTime = nil
+            isRapidFiring = false
             lastLogState = ""
         end
         task.wait(Settings.CheckDelay)
@@ -7332,7 +7173,6 @@ task.spawn(function()
                 if getgenv().IsReloading then
                     if not _G.ReloadStartTime then _G.ReloadStartTime = now end
                     if now - _G.ReloadStartTime > STUCK_TIMEOUT then
-                        DebugNotify("[Blade] Reload stuck >5s, resetting and pressing R once", 3)
                         getgenv().IsReloading = false
                         if IsReloadingRapid then IsReloadingRapid = false end
                         BladeEmptyConfirmCounter = 0
@@ -7345,7 +7185,6 @@ task.spawn(function()
                 if getgenv().IsRefilling then
                     if not _G.RefillStartTime then _G.RefillStartTime = now end
                     if now - _G.RefillStartTime > STUCK_TIMEOUT then
-                        DebugNotify("[Blade] Refill stuck >5s, resetting state", 3)
                         getgenv().IsRefilling = false
                         _G.RefillStartTime = nil
                     end
@@ -7361,11 +7200,16 @@ task.spawn(function()
 end)
 
 --// =====================================================
---// HQ REFILL CHECKER (RUNS EVERY 2 SECONDS) - UPDATED WITH SMART SCAN
+--// HQ REFILL CHECKER (UPDATED WITH DELAY AND RAPID FIRE)
 --// =====================================================
 task.spawn(function()
     local hqFired = false
     local lastHQNotify = 0
+    local hqZeroStartTime = nil
+    local hqRefillTriggered = false
+    local hqRefillFailedStart = nil
+    local hqRapidFiring = false
+    local hqRapidStopTime = nil
 
     local function checkAllBladesTransparentSilent()
         local charFolder = workspace:FindFirstChild("Characters")
@@ -7400,45 +7244,96 @@ task.spawn(function()
         return tonumber(string.match(text, "^(%d+)")) or -1
     end
 
+    local function rapidFireHQ()
+        if hqRapidFiring then return end
+        hqRapidFiring = true
+        hqRapidStopTime = tick() + 5
+        
+        task.spawn(function()
+            while hqRapidFiring and tick() < hqRapidStopTime do
+                local success, currentText = pcall(function()
+                    return tostring(Sets.Text)
+                end)
+                if success and currentText and currentText:gsub("%s+", "") ~= "0/3" then
+                    break
+                end
+                
+                local randomIndex = math.random(1, 300)
+                local success2, hq = pcall(function()
+                    return workspace:FindFirstChild("Unclimbable") 
+                        and workspace.Unclimbable:FindFirstChild("Props") 
+                        and workspace.Unclimbable.Props:FindFirstChild("HQ")
+                end)
+                
+                if success2 and hq then
+                    local children = hq:GetChildren()
+                    if randomIndex <= #children then
+                        local targetChild = children[randomIndex]
+                        if targetChild then
+                            local refill = targetChild:FindFirstChild("Refill")
+                            if refill then
+                                pcall(function()
+                                    POST:FireServer("Attacks", "Reload", refill)
+                                end)
+                            end
+                        end
+                    end
+                end
+                task.wait(0.01)
+            end
+            hqRapidFiring = false
+        end)
+    end
+
     while true do
         task.wait(2)
 
         if getgenv().AutoReloadBlade then
             local bladesAllClear = checkAllBladesTransparentSilent()
             local amountZero = (getCurrentAmountSilent() == 0)
+            local isZeroThree = (amountZero and bladesAllClear)
 
-            if bladesAllClear and amountZero and not hqFired then
-                -- ใช้ Smart Refill แทนการ hardcode index
-                local refillObj = FindValidRefill()
-                if refillObj then
-                    pcall(function()
-                        POST:FireServer("Attacks", "Reload", refillObj)
-                        if tick() - lastHQNotify > 10 then
-                            lastHQNotify = tick()
-                            DebugNotify("[Blade] Detected HQ refill automatically (blades empty + Sets=0)", 2)
-                        end
-                    end)
-                else
-                    -- ถ้าหาไม่เจอ ให้ลองไล่ยิงช่วง index
-                    FireRefillByIndexRange(1, 300)
+            if isZeroThree then
+                if hqZeroStartTime == nil then
+                    hqZeroStartTime = tick()
+                    hqRefillTriggered = false
                 end
+                
+                if not hqRefillTriggered and (tick() - hqZeroStartTime >= 5) then
+                    hqRefillTriggered = true
+                    pcall(function()
+                        local refill = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+                        POST:FireServer("Attacks", "Reload", refill)
+                    end)
+                    hqRefillFailedStart = tick()
+                end
+                
+                if hqRefillFailedStart and (tick() - hqRefillFailedStart >= 3) then
+                    local stillZero = (getCurrentAmountSilent() == 0 and checkAllBladesTransparentSilent())
+                    if stillZero then
+                        rapidFireHQ()
+                    end
+                    hqRefillFailedStart = nil
+                end
+                
                 hqFired = true
-            elseif not (bladesAllClear and amountZero) then
+            else
+                if hqZeroStartTime ~= nil then
+                    hqZeroStartTime = nil
+                    hqRefillTriggered = false
+                    hqRefillFailedStart = nil
+                end
                 hqFired = false
             end
         else
+            hqZeroStartTime = nil
+            hqRefillTriggered = false
+            hqRefillFailedStart = nil
             hqFired = false
+            hqRapidFiring = false
         end
     end
 end)
-
--- รันสแกน Refill ครั้งแรกทันที
-task.spawn(function()
-    task.wait(2)
-    UpdateRefillCache()
-    FindValidRefill()
-end)
-
 -- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
