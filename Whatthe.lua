@@ -6815,7 +6815,7 @@ local Settings = {
         ConfirmCountRequired = 10,
     },
     Refill = {
-        Cooldown = 3,
+        Cooldown = 2.5,
     }
 }
 
