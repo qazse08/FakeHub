@@ -6815,7 +6815,7 @@ local Settings = {
         ConfirmCountRequired = 10,
     },
     Refill = {
-        Cooldown = 2.5,
+        Cooldown = 3,
     }
 }
 
@@ -6824,6 +6824,7 @@ local Settings = {
 --// =====================================================
 
 local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
+local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
 --// =====================================================
 --// KEY PRESS (R) - MULTIPLE METHODS FOR COMPATIBILITY
@@ -6894,6 +6895,232 @@ local REFILL_NOTIFY_COOLDOWN = 5
 local RELOAD_NOTIFY_COOLDOWN = 5
 
 --// =====================================================
+--// CACHED REFILL OBJECTS (SMART SCAN)
+--// =====================================================
+
+local CachedRefillObjects = {}  -- { ["path_string"] = instance, ... }
+local LastFullScanTime = 0
+local FULL_SCAN_INTERVAL = 30  -- รีสแกนทุก 30 วินาที (เผื่อ Map เปลี่ยน)
+local ValidatedRefill = nil      -- ค่าที่ใช้ได้ล่าสุด
+
+-- รายการ Path สำเร็จรูปที่อาจใช้ได้ (Fallback)
+local FALLBACK_PATHS = {
+    "Unclimbable.Props.HQ.GasTanks.Refill",
+    "Climbable._Walls.Gate.GasTanks.Refill",
+}
+
+--// =====================================================
+--// SMART REFILL SCANNER (SEARCH BY OBJECT NAME)
+--// =====================================================
+
+-- ฟังก์ชันค้นหา Refill โดยตรงจาก workspace (ไวที่สุด)
+local function FindRefillByName()
+    -- วิธีที่ 1: ค้นหาโดยตรงจากชื่อ "Refill" ใน Unclimbable.Props.HQ
+    local success, hq = pcall(function()
+        return workspace:FindFirstChild("Unclimbable") 
+            and workspace.Unclimbable:FindFirstChild("Props") 
+            and workspace.Unclimbable.Props:FindFirstChild("HQ")
+    end)
+    
+    if success and hq then
+        -- ตรวจสอบ GasTanks.Refill ก่อน (path มาตรฐาน)
+        local gasTanks = hq:FindFirstChild("GasTanks")
+        if gasTanks then
+            local refill = gasTanks:FindFirstChild("Refill")
+            if refill and refill:IsA("BasePart") then
+                return refill, "GasTanks.Refill"
+            end
+        end
+        
+        -- สแกนหา Refill ทั้งหมดใน HQ (ไม่จำกัด index)
+        local allRefills = {}
+        for _, child in ipairs(hq:GetChildren()) do
+            local refill = child:FindFirstChild("Refill")
+            if refill and refill:IsA("BasePart") then
+                table.insert(allRefills, {obj = refill, parent = child})
+            end
+        end
+        
+        if #allRefills > 0 then
+            -- คืนค่าตัวแรกที่เจอ (ปกติมีอันเดียว)
+            return allRefills[1].obj, "HQ." .. allRefills[1].parent.Name .. ".Refill"
+        end
+    end
+    
+    -- วิธีที่ 2: ค้นหา Refill ทั่วทั้ง Workspace (ช้าสุดแต่ได้ผล)
+    local success, refill = pcall(function()
+        return workspace:FindFirstChild("Refill", true)
+    end)
+    if success and refill then
+        return refill, "Global.FindFirstChild"
+    end
+    
+    return nil, nil
+end
+
+-- ฟังก์ชันสแกนและแคช Refill Objects ทั้งหมดใน HQ (ใช้สำหรับกรณีที่ต้องการไล่ยิง)
+local function ScanAndCacheAllRefills()
+    local refills = {}
+    
+    local success, hq = pcall(function()
+        return workspace:FindFirstChild("Unclimbable") 
+            and workspace.Unclimbable:FindFirstChild("Props") 
+            and workspace.Unclimbable.Props:FindFirstChild("HQ")
+    end)
+    
+    if success and hq then
+        -- สแกนทุก Child ใน HQ
+        for idx, child in ipairs(hq:GetChildren()) do
+            local refill = child:FindFirstChild("Refill")
+            if refill and refill:IsA("BasePart") then
+                table.insert(refills, {
+                    index = idx,
+                    obj = refill,
+                    parent = child,
+                    path = string.format("HQ:GetChildren()[%d].Refill", idx)
+                })
+            end
+        end
+        
+        -- ตรวจสอบ GasTanks ด้วย
+        local gasTanks = hq:FindFirstChild("GasTanks")
+        if gasTanks then
+            local refill = gasTanks:FindFirstChild("Refill")
+            if refill and refill:IsA("BasePart") then
+                table.insert(refills, {
+                    index = 0,
+                    obj = refill,
+                    parent = gasTanks,
+                    path = "HQ.GasTanks.Refill"
+                })
+            end
+        end
+    end
+    
+    return refills
+end
+
+-- ฟังก์ชันอัปเดตแคช (รันตอนเริ่มและเมื่อ Map เปลี่ยน)
+local function UpdateRefillCache()
+    local now = tick()
+    if now - LastFullScanTime < FULL_SCAN_INTERVAL and #CachedRefillObjects > 0 then
+        return  -- ยังไม่ต้องอัปเดต
+    end
+    
+    LastFullScanTime = now
+    CachedRefillObjects = {}
+    
+    local refills = ScanAndCacheAllRefills()
+    for _, ref in ipairs(refills) do
+        CachedRefillObjects[ref.path] = ref.obj
+    end
+    
+    if #refills > 0 then
+        DebugNotify(string.format("[Blade] Refill cache updated: found %d Refill object(s)", #refills), 2)
+    else
+        DebugNotify("[Blade] No Refill objects found in HQ", 2)
+    end
+end
+
+-- ฟังก์ชันหลักหา Refill ที่ใช้ได้ (พยายามทุกวิธี)
+local function FindValidRefill()
+    -- อัปเดตแคชถ้าจำเป็น
+    UpdateRefillCache()
+    
+    -- วิธีที่ 1: ใช้ Refill ที่เคยใช้ได้แล้ว (Validated)
+    if ValidatedRefill and pcall(function() return ValidatedRefill.Parent end) then
+        return ValidatedRefill
+    end
+    
+    -- วิธีที่ 2: ค้นหาจากแคช (ใช้ path ที่จำได้)
+    for path, refill in pairs(CachedRefillObjects) do
+        if refill and pcall(function() return refill.Parent end) then
+            ValidatedRefill = refill
+            return refill
+        end
+    end
+    
+    -- วิธีที่ 3: ค้นหาแบบ Real-time โดยชื่อ
+    local refill, path = FindRefillByName()
+    if refill then
+        ValidatedRefill = refill
+        return refill
+    end
+    
+    -- วิธีที่ 4: Fallback paths
+    for _, path in ipairs(FALLBACK_PATHS) do
+        local success, obj = pcall(function()
+            local parts = {}
+            for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
+            local obj = workspace
+            for _, p in ipairs(parts) do
+                obj = obj and obj:FindFirstChild(p)
+                if not obj then break end
+            end
+            return obj
+        end)
+        if success and obj and obj:IsA("BasePart") then
+            ValidatedRefill = obj
+            return obj
+        end
+    end
+    
+    return nil
+end
+
+-- ฟังก์ชันไล่ยิง Refill ทุกตัวในแคช (ใช้เมื่ออันแรกใช้ไม่ได้)
+local function FireAllCachedRefills()
+    local fired = 0
+    for path, refill in pairs(CachedRefillObjects) do
+        if refill and pcall(function() return refill.Parent end) then
+            pcall(function()
+                POST:FireServer("Attacks", "Reload", refill)
+                fired = fired + 1
+                task.wait(0.05)
+            end)
+        end
+    end
+    if fired > 0 then
+        DebugNotify(string.format("[Blade] Fired %d cached Refill object(s)", fired), 2)
+    end
+    return fired
+end
+
+-- ฟังก์ชันไล่ยิง Refill ทีละตัวตั้งแต่ 1-300 (วิธีสุดท้าย)
+local function FireRefillByIndexRange(startIdx, endIdx)
+    local success, hq = pcall(function()
+        return workspace:FindFirstChild("Unclimbable") 
+            and workspace.Unclimbable:FindFirstChild("Props") 
+            and workspace.Unclimbable.Props:FindFirstChild("HQ")
+    end)
+    
+    if not success or not hq then return 0 end
+    
+    local fired = 0
+    local children = hq:GetChildren()
+    local maxIdx = math.min(endIdx, #children)
+    
+    for i = startIdx, maxIdx do
+        local child = children[i]
+        if child then
+            local refill = child:FindFirstChild("Refill")
+            if refill and refill:IsA("BasePart") then
+                pcall(function()
+                    POST:FireServer("Attacks", "Reload", refill)
+                    fired = fired + 1
+                    task.wait(0.03)
+                end)
+            end
+        end
+    end
+    
+    if fired > 0 then
+        DebugNotify(string.format("[Blade] Fired %d Refill(s) from index %d-%d", fired, startIdx, endIdx), 2)
+    end
+    return fired
+end
+
+--// =====================================================
 --// CHECK REAL BLADES
 --// =====================================================
 
@@ -6931,41 +7158,7 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// FIND REFILL OBJECT (DYNAMIC)
---// =====================================================
-local function FindRefillObject()
-    local success, refill = pcall(function()
-        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-        if gate then
-            local children = gate:GetChildren()
-            for i, child in ipairs(children) do
-                local ref = child:FindFirstChild("Refill")
-                if ref then return ref end
-            end
-        end
-        return nil
-    end)
-    if success and refill then return refill end
-
-    success, refill = pcall(function()
-        local gasTanks = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:FindFirstChild("GasTanks")
-        if gasTanks then
-            return gasTanks:FindFirstChild("Refill")
-        end
-        return nil
-    end)
-    if success and refill then return refill end
-
-    success, refill = pcall(function()
-        return workspace:FindFirstChild("Refill", true)
-    end)
-    if success and refill then return refill end
-
-    return nil
-end
-
---// =====================================================
---// REFILL BLADE SETS (USES POST REMOTE)
+--// REFILL BLADE SETS (SMART VERSION)
 --// =====================================================
 local function FireRefill()
     if not getgenv().AutoReloadBlade then return end
@@ -6980,27 +7173,51 @@ local function FireRefill()
         DebugNotify("[Blade] Starting refill...", 2)
     end
     
-    local refillObj = FindRefillObject()
+    -- ขั้นตอนที่ 1: พยายามใช้ Refill ที่เคยใช้ได้แล้ว หรือหาใหม่
+    local refillObj = FindValidRefill()
+    local success = false
+    
     if refillObj then
         pcall(function()
             POST:FireServer("Attacks", "Reload", refillObj)
+            success = true
         end)
-        DebugNotify("[Blade] Refill successful (Refill object found)", 2)
-    else
-        pcall(function()
-            local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-            if gate then
-                local children = gate:GetChildren()
-                if children[50] and children[50]:FindFirstChild("Refill") then
-                    POST:FireServer("Attacks", "Reload", children[50].Refill)
-                    DebugNotify("[Blade] Refill successful (Gate[50] method)", 2)
-                else
-                    DebugNotify("[Blade] Refill object not found", 3)
+        if success then
+            DebugNotify("[Blade] Refill successful (cached object)", 2)
+        end
+    end
+    
+    -- ขั้นตอนที่ 2: ถ้ายังไม่ได้ ให้ไล่ยิงทุกตัวในแคช
+    if not success then
+        local fired = FireAllCachedRefills()
+        if fired > 0 then success = true end
+    end
+    
+    -- ขั้นตอนที่ 3: ถ้ายังไม่ได้ ให้ไล่ยิง index 1-300 (วิธีสุดท้าย)
+    if not success then
+        local fired = FireRefillByIndexRange(1, 300)
+        if fired > 0 then success = true end
+    end
+    
+    -- ขั้นตอนที่ 4: ถ้ายังไม่ได้ ให้ลอง Fallback paths
+    if not success then
+        for _, path in ipairs(FALLBACK_PATHS) do
+            local success2, obj = pcall(function()
+                local parts = {}
+                for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
+                local obj = workspace
+                for _, p in ipairs(parts) do
+                    obj = obj and obj:FindFirstChild(p)
+                    if not obj then break end
                 end
-            else
-                DebugNotify("[Blade] Refill object not found", 3)
+                return obj
+            end)
+            if success2 and obj then
+                pcall(function() POST:FireServer("Attacks", "Reload", obj) end)
+                DebugNotify(string.format("[Blade] Refill attempted with fallback: %s", path), 2)
+                break
             end
-        end)
+        end
     end
     
     task.wait(0.5)
@@ -7063,7 +7280,7 @@ task.spawn(function()
 
                 if text == "0/3" then
                     if lastLogState ~= "refill" then
-                        DebugNotify("[Blade]  Detected Sets = 0/3 -> triggering refill", 2)
+                        DebugNotify("[Blade] Detected Sets = 0/3 -> triggering refill", 2)
                         lastLogState = "refill"
                     end
                     FireRefill()
@@ -7144,7 +7361,7 @@ task.spawn(function()
 end)
 
 --// =====================================================
---// HQ REFILL CHECKER (RUNS EVERY 2 SECONDS)
+--// HQ REFILL CHECKER (RUNS EVERY 2 SECONDS) - UPDATED WITH SMART SCAN
 --// =====================================================
 task.spawn(function()
     local hqFired = false
@@ -7191,14 +7408,20 @@ task.spawn(function()
             local amountZero = (getCurrentAmountSilent() == 0)
 
             if bladesAllClear and amountZero and not hqFired then
-                pcall(function()
-                    local refill = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
-                    POST:FireServer("Attacks", "Reload", refill)
-                    if tick() - lastHQNotify > 10 then
-                        lastHQNotify = tick()
-                        DebugNotify("[Blade] Detected HQ refill automatically (blades empty + Sets=0)", 2)
-                    end
-                end)
+                -- ใช้ Smart Refill แทนการ hardcode index
+                local refillObj = FindValidRefill()
+                if refillObj then
+                    pcall(function()
+                        POST:FireServer("Attacks", "Reload", refillObj)
+                        if tick() - lastHQNotify > 10 then
+                            lastHQNotify = tick()
+                            DebugNotify("[Blade] Detected HQ refill automatically (blades empty + Sets=0)", 2)
+                        end
+                    end)
+                else
+                    -- ถ้าหาไม่เจอ ให้ลองไล่ยิงช่วง index
+                    FireRefillByIndexRange(1, 300)
+                end
                 hqFired = true
             elseif not (bladesAllClear and amountZero) then
                 hqFired = false
@@ -7207,6 +7430,13 @@ task.spawn(function()
             hqFired = false
         end
     end
+end)
+
+-- รันสแกน Refill ครั้งแรกทันที
+task.spawn(function()
+    task.wait(2)
+    UpdateRefillCache()
+    FindValidRefill()
 end)
 
 -- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
