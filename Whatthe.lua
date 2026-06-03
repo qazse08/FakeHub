@@ -2505,7 +2505,7 @@ if IsMainmenuLobby() then
 
     local codesFile = "FakeHUB/codes.txt"
     local codeList = {}
-    local selectedCode = ""
+    local selectedCodes = {}   -- table { ["code"] = true, ... } สำหรับ multi selection
     local autoRedeemActive = false
     local autoRedeemTask = nil
 
@@ -2526,7 +2526,6 @@ if IsMainmenuLobby() then
                 end
             end
         end
-        -- ไม่เพิ่มโค้ด Default อีกต่อไป
     end
 
     -- ฟังก์ชันเพิ่มโค้ดใหม่
@@ -2541,41 +2540,47 @@ if IsMainmenuLobby() then
         return true
     end
 
-    -- ฟังก์ชันลบโค้ดที่เลือก
-    local function removeCode(code)
-        for i, existing in ipairs(codeList) do
-            if existing == code then
-                table.remove(codeList, i)
-                saveCodes()
-                return true
+    -- ฟังก์ชันลบโค้ดที่เลือก (หลายตัว)
+    local function removeSelectedCodes()
+        local removed = false
+        for code, isSelected in pairs(selectedCodes) do
+            if isSelected then
+                for i, existing in ipairs(codeList) do
+                    if existing == code then
+                        table.remove(codeList, i)
+                        removed = true
+                        break
+                    end
+                end
             end
         end
-        return false
+        if removed then
+            saveCodes()
+            refreshDropdown()
+        end
+        return removed
     end
 
     -- โหลดโค้ดตอนเริ่ม
     loadCodes()
 
-    -- Dropdown สำหรับเลือกโค้ด
+    -- Dropdown สำหรับเลือกโค้ด (multi)
     local codeDropdown = CodeGroup:AddDropdown("CodeListDropdown", {
         Text = "Stored Codes",
         Values = codeList,
-        Default = codeList[1] or "",
-        Multi = false,
+        Default = {},  -- ไม่มีเลือก default
+        Multi = true,
         Callback = function(v)
-            selectedCode = v
+            selectedCodes = v   -- v เป็น table { [code] = true/false }
         end
     })
 
     -- ฟังก์ชันอัปเดต dropdown
     local function refreshDropdown()
         codeDropdown:SetValues(codeList)
-        if #codeList > 0 then
-            codeDropdown:SetValue(codeList[1])
-            selectedCode = codeList[1]
-        else
-            selectedCode = ""
-        end
+        -- เคลียร์การเลือกทั้งหมด (เพราะ code list อาจเปลี่ยน)
+        selectedCodes = {}
+        codeDropdown:SetValue(selectedCodes)
     end
 
     -- Input สำหรับเพิ่มโค้ดใหม่
@@ -2608,14 +2613,17 @@ if IsMainmenuLobby() then
         end
     end)
 
-    -- ปุ่ม Remove (ลบโค้ดที่เลือก)
-    CodeGroup:AddButton("Remove Selected Code", function()
-        if selectedCode and selectedCode ~= "" then
-            if removeCode(selectedCode) then
-                Library:Notify("Code '" .. selectedCode .. "' removed.", 3)
-                refreshDropdown()
+    -- ปุ่ม Remove Selected Codes (ลบโค้ดที่เลือกทั้งหมด)
+    CodeGroup:AddButton("Remove Selected Codes", function()
+        local hasSelected = false
+        for _, selected in pairs(selectedCodes) do
+            if selected then hasSelected = true; break end
+        end
+        if hasSelected then
+            if removeSelectedCodes() then
+                Library:Notify("Selected codes removed.", 3)
             else
-                Library:Notify("Failed to remove code.", 3)
+                Library:Notify("Failed to remove codes.", 3)
             end
         else
             Library:Notify("No code selected.", 3)
@@ -2627,7 +2635,7 @@ if IsMainmenuLobby() then
     -- ฟังก์ชัน Redeem พร้อมแจ้งเตือน (คืนค่า success/failed)
     local function redeemCode(code)
         if not code or code == "" then
-            return false, "No code selected!"
+            return false, "No code provided!"
         end
 
         local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
@@ -2654,24 +2662,59 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- Auto Redeem Loop
+    -- สร้างรายชื่อโค้ดที่เลือก (เฉพาะอันที่มีค่า true)
+    local function getSelectedCodeList()
+        local list = {}
+        for code, isSelected in pairs(selectedCodes) do
+            if isSelected then
+                table.insert(list, code)
+            end
+        end
+        return list
+    end
+
+    -- Auto Redeem Loop (สำหรับหลายโค้ด)
     local function startAutoRedeem()
         if autoRedeemTask then return end
         
         autoRedeemTask = task.spawn(function()
-            while autoRedeemActive do
-                if not selectedCode or selectedCode == "" then
-                    Library:Notify("No code selected! Stopping Auto Redeem.", 3)
-                    break
+            local selectedList = getSelectedCodeList()
+            if #selectedList == 0 then
+                Library:Notify("No code selected! Please select at least one code.", 3)
+                autoRedeemActive = false
+                if Options and Options.AutoRedeemToggle then
+                    Options.AutoRedeemToggle:SetValue(false)
                 end
+                autoRedeemTask = nil
+                return
+            end
+
+            Library:Notify(string.format("Auto Redeem started for %d code(s).", #selectedList), 3)
+            
+            local successCount = 0
+            local failCount = 0
+            
+            for i, code in ipairs(selectedList) do
+                if not autoRedeemActive then break end
                 
-                local success, message = redeemCode(selectedCode)
-                Library:Notify(message, 5)
+                Library:Notify(string.format("Redeeming (%d/%d): %s", i, #selectedList, code), 2)
+                local success, message = redeemCode(code)
+                Library:Notify(message, 4)
                 print("[Code Redeemer] " .. message)
                 
-                -- หยุดทันทีไม่ว่าจะสำเร็จหรือล้มเหลว
-                break
+                if success then
+                    successCount = successCount + 1
+                else
+                    failCount = failCount + 1
+                end
+                
+                -- รอเล็กน้อยระหว่าง redeem แต่ละตัว (ป้องกัน spam)
+                if i < #selectedList then
+                    task.wait(1)
+                end
             end
+            
+            Library:Notify(string.format("Auto Redeem finished. Success: %d, Failed: %d", successCount, failCount), 5)
             
             -- ปิด Toggle อัตโนมัติ
             autoRedeemActive = false
@@ -2682,14 +2725,15 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ปุ่ม Redeem (เปลี่ยนเป็น Toggle)
+    -- Toggle สำหรับ Auto Redeem (แบบ multi)
     CodeGroup:AddToggle("AutoRedeemToggle", {
-        Text = "Auto Redeem Selected Code",
+        Text = "Auto Redeem Selected Codes",
         Default = false,
         Callback = function(v)
             if v then
-                if not selectedCode or selectedCode == "" then
-                    Library:Notify("No code selected! Please select a code first.", 3)
+                local selectedList = getSelectedCodeList()
+                if #selectedList == 0 then
+                    Library:Notify("No code selected! Please select at least one code.", 3)
                     pcall(function()
                         if Options and Options.AutoRedeemToggle then
                             Options.AutoRedeemToggle:SetValue(false)
@@ -2698,7 +2742,7 @@ if IsMainmenuLobby() then
                     return
                 end
                 if #codeList == 0 then
-                    Library:Notify("No codes in list! Please add a code first.", 3)
+                    Library:Notify("No codes in list! Please add codes first.", 3)
                     pcall(function()
                         if Options and Options.AutoRedeemToggle then
                             Options.AutoRedeemToggle:SetValue(false)
@@ -2708,7 +2752,6 @@ if IsMainmenuLobby() then
                 end
                 autoRedeemActive = true
                 startAutoRedeem()
-                Library:Notify("Auto Redeem started for code: " .. selectedCode, 3)
             else
                 autoRedeemActive = false
                 if autoRedeemTask then
@@ -3835,7 +3878,33 @@ end
 if IsLobbyLobby() then
     local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
 
-    -- ========== ฟังก์ชันอ่านค่า Gold / Gems โดยตรง (ไม่ต้องพึ่งส่วนอื่น) ==========
+    -- ตัวแปรกลางสำหรับห้ามเปิดพร้อมกัน
+    local activeUpgradeType = nil  -- "blade" or "spear"
+
+    -- ========== ฟังก์ชันเปลี่ยนอาวุธ (ใช้รูปแบบตามที่กำหนด) ==========
+    local function switchToBlades()
+        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+        local Result = Event:InvokeServer(
+            "S_Equipment",
+            "Weapon",
+            "Blades"
+        )
+        -- คาดว่า Result จะเป็น nil
+        return true
+    end
+
+    local function switchToSpears()
+        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+        local Result = Event:InvokeServer(
+            "S_Equipment",
+            "Weapon",
+            "Spears"
+        )
+        -- คาดว่า Result จะเป็น nil
+        return true
+    end
+
+    -- ========== ฟังก์ชันอ่านค่า Gold / Gems โดยตรง ==========
     local function getGoldAmount()
         local player = game:GetService("Players").LocalPlayer
         local gold = 0
@@ -3911,11 +3980,34 @@ if IsLobbyLobby() then
         Text = "Auto Upgrade Blade",
         Default = false,
         Callback = function(state)
-            getgenv().AutoUpgradeBlade = state
+            if state then
+                if activeUpgradeType == "spear" then
+                    Library:Notify("Cannot enable Blade upgrade because Thunder Spear upgrade is already running. Please disable Thunder Spear upgrade first.", 4)
+                    pcall(function()
+                        if Options and Options.AutoUpgradeBladeToggle then
+                            Options.AutoUpgradeBladeToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                -- เปลี่ยนอาวุธเป็น Blades ก่อนเริ่ม
+                local success = switchToBlades()
+                if not success then
+                    Library:Notify("Failed to switch weapon to Blades. Upgrade may not work properly.", 4)
+                else
+                    Library:Notify("Switched weapon to Blades. Starting auto upgrade.", 3)
+                end
+                activeUpgradeType = "blade"
+                getgenv().AutoUpgradeBlade = true
+            else
+                getgenv().AutoUpgradeBlade = false
+                if activeUpgradeType == "blade" then
+                    activeUpgradeType = nil
+                end
+            end
 
             if state and not getgenv().UpgradeRunning then
                 getgenv().UpgradeRunning = true
-
                 task.spawn(function()
                     while getgenv().AutoUpgradeBlade do
                         local ready = isUpgradeReady()
@@ -3981,11 +4073,34 @@ if IsLobbyLobby() then
         Text = "Auto Upgrade Thunder Spear",
         Default = false,
         Callback = function(state)
-            getgenv().AutoUpgradeSpear = state
+            if state then
+                if activeUpgradeType == "blade" then
+                    Library:Notify("Cannot enable Thunder Spear upgrade because Blade upgrade is already running. Please disable Blade upgrade first.", 4)
+                    pcall(function()
+                        if Options and Options.AutoUpgradeSpearToggle then
+                            Options.AutoUpgradeSpearToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                -- เปลี่ยนอาวุธเป็น Spears ก่อนเริ่ม
+                local success = switchToSpears()
+                if not success then
+                    Library:Notify("Failed to switch weapon to Thunder Spear. Upgrade may not work properly.", 4)
+                else
+                    Library:Notify("Switched weapon to Thunder Spear. Starting auto upgrade.", 3)
+                end
+                activeUpgradeType = "spear"
+                getgenv().AutoUpgradeSpear = true
+            else
+                getgenv().AutoUpgradeSpear = false
+                if activeUpgradeType == "spear" then
+                    activeUpgradeType = nil
+                end
+            end
 
             if state and not getgenv().SpearUpgradeRunning then
                 getgenv().SpearUpgradeRunning = true
-
                 task.spawn(function()
                     while getgenv().AutoUpgradeSpear do
                         local ready = isUpgradeReady()
@@ -6890,7 +7005,7 @@ local function FireRefill()
     
     task.wait(0.5)
     getgenv().IsRefilling = false
-    DebugNotify("[Blade] 🔧 Refill finished", 2)
+    DebugNotify("[Blade] Refill finished", 2)
 end
 
 --// =====================================================
@@ -7081,7 +7196,7 @@ task.spawn(function()
                     POST:FireServer("Attacks", "Reload", refill)
                     if tick() - lastHQNotify > 10 then
                         lastHQNotify = tick()
-                        DebugNotify("[Blade] 🏠 Detected HQ refill automatically (blades empty + Sets=0)", 2)
+                        DebugNotify("[Blade] Detected HQ refill automatically (blades empty + Sets=0)", 2)
                     end
                 end)
                 hqFired = true
@@ -8200,21 +8315,19 @@ if Tabs.AutoFarm then
         local skipFrame = interface:FindFirstChild("Skip")
         if not skipFrame or not skipFrame.Visible then return false end
         
-        -- หาปุ่ม Interact (ตามตัวอย่างที่ให้มา)
         local interactBtn = skipFrame:FindFirstChild("Interact")
         if not interactBtn or not interactBtn.Visible then return false end
         
-        -- ปิดเมนูค้าง (ถ้ามี)
         if GuiService.MenuIsOpen then
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
             task.wait(0.1)
         end
         
-        -- กดปุ่มโดยใช้ SelectedObject
         GuiService.SelectedObject = interactBtn
         task.wait(0.05)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
+        task.wait(0.05)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         task.wait(0.05)
         GuiService.SelectedObject = nil
@@ -8223,27 +8336,34 @@ if Tabs.AutoFarm then
     end
     
     task.spawn(function()
+        local detectedTime = 0
         local hasClicked = false
         
         while true do
-            task.wait(0.5)
+            task.wait(0.3)
             
             if not skipEnabled then
+                detectedTime = 0
                 hasClicked = false
                 continue
             end
             
             local interface = lp.PlayerGui:FindFirstChild("Interface")
             local skip = interface and interface:FindFirstChild("Skip")
-            if not skip or not skip.Visible then
+            
+            if skip and skip.Visible then
+                if not hasClicked then
+                    if detectedTime == 0 then
+                        detectedTime = tick()
+                    elseif tick() - detectedTime >= 1 then
+                        clickSkipButton()
+                        hasClicked = true
+                        detectedTime = 0
+                    end
+                end
+            else
+                detectedTime = 0
                 hasClicked = false
-                continue
-            end
-            
-            if hasClicked then continue end
-            
-            if clickSkipButton() then
-                hasClicked = true
             end
         end
     end)
