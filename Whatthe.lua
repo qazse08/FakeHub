@@ -8479,7 +8479,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท
+    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8568,10 +8568,10 @@ if IsIngameLobby() and Tabs.Webhook then
                         -- Emoji mapping
                         local emoji = {
                             Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
-                            ["Memory Scroll"] = "📜", ["Emperor's Key"] = "🔑", ["Female Serum"] = "💉",
-                            ["Attack Serum"] = "⚔️", ["armored serum"] = "🛡️",
-                            ["Angel's Halo"] = "👼", ["Kitsune Ribbon"] = "🦊", ["Radiant Headband"] = "✨",
-                            ["Blood Vial"] = "🩸", ["Kitsune Mask"] = "🎭",
+                            ["Memory Scroll"] = "📜", ["Emperor's Key"] = "|", ["Female Serum"] = "💉",
+                            ["Attack Serum"] = "|", ["armored serum"] = "|",
+                            ["Angel's Halo"] = "|", ["Kitsune Ribbon"] = "|", ["Radiant Headband"] = "|",
+                            ["Blood Vial"] = "|", ["Kitsune Mask"] = "|",
                         }
 
                         -- สร้าง description
@@ -8595,16 +8595,11 @@ if IsIngameLobby() and Tabs.Webhook then
 
                             if selected then
                                 local val = valueMap[field]
-                                -- ข้ามถ้าค่าเป็น 0 ยกเว้น Gold และ Gems
-                                if val == 0 and field ~= "Gold" and field ~= "Gems" then
-                                    -- ไม่เพิ่ม field นี้
-                                else
-                                    if field ~= "Slot" and field ~= "Time" then
-                                        val = formatNumber(val)
-                                    end
-                                    local e = emoji[field] or "•"
-                                    table.insert(parts, string.format("%s %s: %s", e, field, val))
+                                if field ~= "Slot" and field ~= "Time" then
+                                    val = formatNumber(val)
                                 end
+                                local e = emoji[field] or "•"
+                                table.insert(parts, string.format("%s %s: %s", e, field, val))
                             end
                         end
 
