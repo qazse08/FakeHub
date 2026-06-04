@@ -8441,25 +8441,91 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- รายการประเภท Description
-    local descriptionTypes = {
-        "Horst Description",
+    -- หมวดที่ 1: Stats
+    local statsFields = {
+        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"
+    }
+    local selectedStats = {
+        ["Level"] = true,
+        ["Prestige"] = true,
+        ["Slot"] = true,
+        ["Gold"] = true,
+        ["Gems"] = true,
+        ["Spins"] = true,
+        ["Time"] = true,
     }
 
-    local selectedType = descriptionTypes[1]
+    -- หมวดที่ 2: Items
+    local itemsFields = {
+        "Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "armored serum"
+    }
+    local selectedItems = {
+        ["Memory Scroll"] = true,
+        ["Emperor's Key"] = true,
+        ["Female Serum"] = true,
+        ["Attack Serum"] = true,
+        ["armored serum"] = true,
+    }
 
+    -- หมวดที่ 3: Cosmetics
+    local cosmeticsFields = {
+        "Angel's Halo", "Kitsune Ribbon", "Radiant Headband", "Blood Vial", "Kitsune Mask"
+    }
+    local selectedCosmetics = {
+        ["Angel's Halo"] = true,
+        ["Kitsune Ribbon"] = true,
+        ["Radiant Headband"] = true,
+        ["Blood Vial"] = true,
+        ["Kitsune Mask"] = true,
+    }
+
+    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
-        Values = descriptionTypes,
-        Default = selectedType,
+        Values = {"Horst"},
+        Default = "Horst",
         Multi = false,
-        Callback = function(v)
-            selectedType = v
-        end
+        Callback = function() end
     })
 
+    descGroup:AddDivider()
+
+    -- Dropdown Stats (multi)
+    descGroup:AddDropdown("DescStatsDropdown", {
+        Text = "Stats to include",
+        Values = statsFields,
+        Default = selectedStats,
+        Multi = true,
+        Callback = function(v) selectedStats = v end
+    })
+
+    descGroup:AddDivider()
+
+    -- Dropdown Items (multi)
+    descGroup:AddDropdown("DescItemsDropdown", {
+        Text = "Items to include",
+        Values = itemsFields,
+        Default = selectedItems,
+        Multi = true,
+        Callback = function(v) selectedItems = v end
+    })
+
+    descGroup:AddDivider()
+
+    -- Dropdown Cosmetics (multi)
+    descGroup:AddDropdown("DescCosmeticsDropdown", {
+        Text = "Cosmetics to include",
+        Values = cosmeticsFields,
+        Default = selectedCosmetics,
+        Multi = true,
+        Callback = function(v) selectedCosmetics = v end
+    })
+
+    descGroup:AddDivider()
+
+    -- Toggle สำหรับ apply description
     descGroup:AddToggle("SetDescToggle", {
-        Text = "Apply Description (once, after 10s)",
+        Text = "Apply Description (once, after 1s)",
         Default = false,
         Callback = function(v)
             if not v then return end
@@ -8467,39 +8533,80 @@ if IsIngameLobby() and Tabs.Webhook then
             task.spawn(function()
                 task.wait(1)
 
-                if selectedType == "Horst Description" then
-                    local success, data = pcall(function()
-                        return GET:InvokeServer("Data", "Copy")
-                    end)
+                local success, data = pcall(function()
+                    return GET:InvokeServer("Data", "Copy")
+                end)
 
-                    if success and data and data.Slots then
-                        local currentSlot = data.Current_Slot or "A"
-                        local slotData = data.Slots[currentSlot]
+                if success and data and data.Slots then
+                    local currentSlot = data.Current_Slot or "A"
+                    local slotData = data.Slots[currentSlot]
 
-                        if slotData then
-                            local level = slotData.Progression and slotData.Progression.Level or 0
-                            local prestige = slotData.Progression and slotData.Progression.Prestige or 0
-                            local slot = currentSlot
-                            local gold = slotData.Currency and slotData.Currency.Gold or 0
-                            local gems = slotData.Currency and slotData.Currency.Gems or 0
-                            local spins = data.Spins or 0
-                            
-                            -- ดึงจำนวน Memory Scroll (path ที่ถูกต้อง: Inventory.Items["Memory Scroll"])
-                            local memoryScroll = 0
-                            if slotData.Inventory and slotData.Inventory.Items then
-                                memoryScroll = slotData.Inventory.Items["Memory Scroll"] or 0
+                    if slotData then
+                        -- เตรียม map ค่า
+                        local valueMap = {
+                            Level = slotData.Progression and slotData.Progression.Level or 0,
+                            Prestige = slotData.Progression and slotData.Progression.Prestige or 0,
+                            Slot = currentSlot,
+                            Gold = slotData.Currency and slotData.Currency.Gold or 0,
+                            Gems = slotData.Currency and slotData.Currency.Gems or 0,
+                            Spins = data.Spins or 0,
+                            Time = getThaiTime(),
+                        }
+
+                        -- Items
+                        local items = slotData.Inventory and slotData.Inventory.Items or {}
+                        for _, field in ipairs(itemsFields) do
+                            valueMap[field] = items[field] or 0
+                        end
+
+                        -- Cosmetics
+                        local cosmetics = slotData.Inventory and slotData.Inventory.Cosmetics or {}
+                        for _, field in ipairs(cosmeticsFields) do
+                            valueMap[field] = cosmetics[field] or 0
+                        end
+
+                        -- Emoji mapping
+                        local emoji = {
+                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
+                            ["Memory Scroll"] = "📜", ["Emperor's Key"] = "🔑", ["Female Serum"] = "💉",
+                            ["Attack Serum"] = "⚔️", ["armored serum"] = "🛡️",
+                            ["Angel's Halo"] = "👼", ["Kitsune Ribbon"] = "🦊", ["Radiant Headband"] = "✨",
+                            ["Blood Vial"] = "🩸", ["Kitsune Mask"] = "🎭",
+                        }
+
+                        -- สร้าง description
+                        local parts = {}
+
+                        -- เรียงลำดับ: Stats -> Items -> Cosmetics
+                        local order = {}
+                        for _, f in ipairs(statsFields) do table.insert(order, f) end
+                        for _, f in ipairs(itemsFields) do table.insert(order, f) end
+                        for _, f in ipairs(cosmeticsFields) do table.insert(order, f) end
+
+                        for _, field in ipairs(order) do
+                            local selected = false
+                            if table.find(statsFields, field) then
+                                selected = selectedStats[field]
+                            elseif table.find(itemsFields, field) then
+                                selected = selectedItems[field]
+                            elseif table.find(cosmeticsFields, field) then
+                                selected = selectedCosmetics[field]
                             end
-                            
-                            local thaiTime = getThaiTime()
 
-                            local description = string.format(
-                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🎲 Spins: %s  Memory Scroll: %s  🕐 Time: %s",
-                                level, prestige, slot, formatNumber(gold), formatNumber(gems), formatNumber(spins), formatNumber(memoryScroll), thaiTime
-                            )
-
-                            if _G and _G.Horst_SetDescription then
-                                _G.Horst_SetDescription(description)
+                            if selected then
+                                local val = valueMap[field]
+                                if field ~= "Slot" and field ~= "Time" then
+                                    val = formatNumber(val)
+                                end
+                                local e = emoji[field] or "•"
+                                table.insert(parts, string.format("%s %s: %s", e, field, val))
                             end
+                        end
+
+                        local description = table.concat(parts, "  ")
+
+                        if _G and _G.Horst_SetDescription then
+                            _G.Horst_SetDescription(description)
                         end
                     end
                 end
