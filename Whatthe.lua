@@ -1336,13 +1336,13 @@ if IsLobbyLobby() then
         local pendingTargetChange = false
         local newTargetValue = 1
 
-        -- 🔥 ปรับค่าความเร็วให้เร็วที่สุด
+        -- ปรับค่าความเร็ว
         local ClickInterval = 0.015
         local MainLoopDelay = 0.01
         local AddPanelOpenDelay = 0.08
         local CheckWait = 0.005
         local ReduceWait = 0.02
-        local AddWait = 0.001               -- ลดเหลือ 0.001 วินาที (เร็วมาก)
+        local AddWait = 0.001
         local UIUpdateDelay = 0.03
 
         local Players = game:GetService("Players")
@@ -1351,14 +1351,20 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
 
-        -- 🔥 Item Mapping (Memory Scroll ใช้ 600_Memory Scroll)
+        -- Item Mapping เดิม
         local itemMapping = {
             ["Memory Scroll"] = "600_Memory Scroll",
             ["Emperor's Key"] = "500_Emperor's Key",
         }
         local SelectedItems = {"Memory Scroll"}
 
-        -- 🔥 ฟังก์ชันเช็คว่า GUI Object ยังใช้งานได้จริงหรือไม่
+        -- รายการ Cosmetics สำหรับ dropdown ใหม่
+        local cosmeticItems = {
+            "Angel's Halo", "Radiant Headband", "Kitsune Mask", "Blood Vial", "Kitsune Ribbon"
+        }
+        local SelectedCosmetics = {}
+
+        -- ฟังก์ชันเช็คว่า GUI Object ยังใช้งานได้จริงหรือไม่
         local function isGuiAlive(obj)
             if not obj then return false end
             if typeof(obj) ~= "Instance" then return false end
@@ -1387,7 +1393,7 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- 🔥 ฟังก์ชันคลิกด้วยเมาส์ (เร็วสุด)
+        -- ฟังก์ชันคลิกด้วยเมาส์
         local function clickWithMouse(target)
             if not isGuiAlive(target) then
                 return false
@@ -1398,17 +1404,16 @@ if IsLobbyLobby() then
             local y = target.AbsolutePosition.Y + (target.AbsoluteSize.Y / 2) + inset.Y
 
             VIM:SendMouseMoveEvent(x, y, game)
-            task.wait(0.005)               -- ลดเหลือ 5ms
+            task.wait(0.005)
 
             VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.005)               -- ลดเหลือ 5ms
+            task.wait(0.005)
             VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            task.wait(0.01)                -- ลดเหลือ 10ms แต่ยังพอให้เกมประมวลผล
+            task.wait(0.01)
 
             return true
         end
 
-        -- ฟังก์ชัน click หลัก (ใช้ clickWithMouse)
         local function click(target)
             return clickWithMouse(target)
         end
@@ -1461,16 +1466,40 @@ if IsLobbyLobby() then
         end
 
         local function getFirstItemQuantity()
-            if #SelectedItems == 0 then return 0 end
-            local itemName = SelectedItems[1]
-            local realName = itemMapping[itemName] or itemName
-            local ok, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-            end)
-            if ok and item then
-                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                if label then
-                    return tonumber(label.Text:match("%d+")) or 0
+            if #SelectedItems == 0 and #SelectedCosmetics == 0 then return 0 end
+            -- ดึงจาก items ก่อน
+            if #SelectedItems > 0 then
+                local itemName = SelectedItems[1]
+                local realName = itemMapping[itemName] or itemName
+                local ok, item = pcall(function()
+                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
+                end)
+                if ok and item then
+                    local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
+                    if label then
+                        return tonumber(label.Text:match("%d+")) or 0
+                    end
+                end
+            end
+            -- ดึงจาก cosmetics
+            if #SelectedCosmetics > 0 then
+                local cosmeticName = SelectedCosmetics[1]
+                local idMap = {
+                    ["Angel's Halo"] = "200_Angel's Halo",
+                    ["Radiant Headband"] = "200_Radiant Headband",
+                    ["Kitsune Mask"] = "400_Kitsune Mask",
+                    ["Blood Vial"] = "500_Blood Vial",
+                    ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
+                }
+                local realName = idMap[cosmeticName] or cosmeticName
+                local ok, item = pcall(function()
+                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
+                end)
+                if ok and item then
+                    local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
+                    if label then
+                        return tonumber(label.Text:match("%d+")) or 0
+                    end
                 end
             end
             return 0
@@ -1497,9 +1526,27 @@ if IsLobbyLobby() then
             return (success1 or success2)
         end
 
+        -- สำหรับ Items (เดิม)
         local function getTradeItem(itemName)
             if not isYouBoxVisible() then return nil end
             local realName = itemMapping[itemName] or itemName
+            local success, item = pcall(function()
+                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName].Main.Interact
+            end)
+            return success and item or nil
+        end
+
+        -- สำหรับ Cosmetics
+        local function getCosmeticTradeItem(cosmeticName)
+            if not isYouBoxVisible() then return nil end
+            local idMap = {
+                ["Angel's Halo"] = "200_Angel's Halo",
+                ["Radiant Headband"] = "200_Radiant Headband",
+                ["Kitsune Mask"] = "400_Kitsune Mask",
+                ["Blood Vial"] = "500_Blood Vial",
+                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
+            }
+            local realName = idMap[cosmeticName] or cosmeticName
             local success, item = pcall(function()
                 return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName].Main.Interact
             end)
@@ -1525,6 +1572,7 @@ if IsLobbyLobby() then
             end) and player.PlayerGui.Interface.Trading.Prompt.Review.Rate.Title or nil
         end
 
+        -- Inventory Count สำหรับ Items
         local function getInventoryCount(itemName)
             if not isYouBoxVisible() then return 0 end
             local realName = itemMapping[itemName] or itemName
@@ -1538,6 +1586,28 @@ if IsLobbyLobby() then
             return 0
         end
 
+        -- Inventory Count สำหรับ Cosmetics
+        local function getCosmeticInventoryCount(cosmeticName)
+            if not isYouBoxVisible() then return 0 end
+            local idMap = {
+                ["Angel's Halo"] = "200_Angel's Halo",
+                ["Radiant Headband"] = "200_Radiant Headband",
+                ["Kitsune Mask"] = "400_Kitsune Mask",
+                ["Blood Vial"] = "500_Blood Vial",
+                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
+            }
+            local realName = idMap[cosmeticName] or cosmeticName
+            local success, item = pcall(function()
+                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName]
+            end)
+            if success and item then
+                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
+                return label and tonumber(label.Text:match("%d+")) or 0
+            end
+            return 0
+        end
+
+        -- Current Added Count สำหรับ Items
         local function getCurrentAddedCount(itemName)
             if not isYouBoxVisible() then return 0 end
             local realName = itemMapping[itemName] or itemName
@@ -1551,9 +1621,35 @@ if IsLobbyLobby() then
             return 0
         end
 
+        -- Current Added Count สำหรับ Cosmetics
+        local function getCosmeticCurrentAddedCount(cosmeticName)
+            if not isYouBoxVisible() then return 0 end
+            local idMap = {
+                ["Angel's Halo"] = "200_Angel's Halo",
+                ["Radiant Headband"] = "200_Radiant Headband",
+                ["Kitsune Mask"] = "400_Kitsune Mask",
+                ["Blood Vial"] = "500_Blood Vial",
+                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
+            }
+            local realName = idMap[cosmeticName] or cosmeticName
+            local success, item = pcall(function()
+                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
+            end)
+            if success and item then
+                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
+                return label and tonumber(label.Text:match("%d+")) or 0
+            end
+            return 0
+        end
+
         local function allItemsMatchTarget(target)
             for _, itemName in ipairs(SelectedItems) do
                 if getCurrentAddedCount(itemName) ~= target then
+                    return false
+                end
+            end
+            for _, cosmeticName in ipairs(SelectedCosmetics) do
+                if getCosmeticCurrentAddedCount(cosmeticName) ~= target then
                     return false
                 end
             end
@@ -1585,8 +1681,34 @@ if IsLobbyLobby() then
             return false
         end
 
+        local function waitForCosmeticAddedStable(cosmeticName, target, timeout)
+            local start = tick()
+            local lastAdded = getCosmeticCurrentAddedCount(cosmeticName)
+            local stableTime = 0
+            local requiredStable = 0.1
+            
+            while tick() - start < (timeout or 1.5) do
+                if not isYouBoxVisible() then return false end
+                local current = getCosmeticCurrentAddedCount(cosmeticName)
+                if current == target then
+                    if current == lastAdded then
+                        stableTime = stableTime + CheckWait
+                        if stableTime >= requiredStable then return true end
+                    else 
+                        stableTime = 0 
+                    end
+                else 
+                    stableTime = 0 
+                end
+                lastAdded = current
+                task.wait(CheckWait)
+            end
+            return false
+        end
+
+        -- Dropdown สำหรับ Items (เดิม)
         Alt2Box:AddDropdown("Alt2_ItemSelectDropdown", {
-            Text = "Select Items)",
+            Text = "Select Items",
             Values = {"Memory Scroll", "Emperor's Key"},
             Default = {"Memory Scroll"},
             Multi = true,
@@ -1594,6 +1716,26 @@ if IsLobbyLobby() then
                 SelectedItems = {}
                 for item, enabled in pairs(val) do
                     if enabled then table.insert(SelectedItems, item) end
+                end
+                if Alt2Enabled then
+                    isWaitingForConfirm = false
+                    Alt2Running = false
+                    pendingTargetChange = true
+                    newTargetValue = SelectAmount
+                end
+            end
+        })
+
+        -- Dropdown ใหม่สำหรับ Cosmetics
+        Alt2Box:AddDropdown("Alt2_CosmeticSelectDropdown", {
+            Text = "Select Cosmetics",
+            Values = cosmeticItems,
+            Default = {},
+            Multi = true,
+            Callback = function(val)
+                SelectedCosmetics = {}
+                for item, enabled in pairs(val) do
+                    if enabled then table.insert(SelectedCosmetics, item) end
                 end
                 if Alt2Enabled then
                     isWaitingForConfirm = false
@@ -1636,6 +1778,7 @@ if IsLobbyLobby() then
             end
         })
 
+        -- Confirm click handler
         task.spawn(function()
             local lastConfirmClick = 0
             local confirmCooldown = 0.2
@@ -1664,6 +1807,7 @@ if IsLobbyLobby() then
             end
         end)
 
+        -- Timeout checker
         task.spawn(function()
             while true do
                 task.wait(0.5)
@@ -1706,7 +1850,7 @@ if IsLobbyLobby() then
             end
         end)
 
-        -- 🔥 ปรับ processItem: เพิ่ม delay 1 วินาทีหลังจากกดปุ่ม + และใช้ AddWait ที่เร็วมาก
+        -- Process Item (เดิม)
         local function processItem(itemName, target)
             if not isYouBoxVisible() then return false end
             
@@ -1746,7 +1890,7 @@ if IsLobbyLobby() then
             local addTitle = getAddButtonTitle()
             if addTitle == "+" then
                 click(addBtn)
-                task.wait(1)           -- รอ 1 วินาทีหลังจากกดบวก
+                task.wait(1)
                 return false
             elseif addTitle ~= "-" then
                 return false
@@ -1773,13 +1917,95 @@ if IsLobbyLobby() then
             for i = 1, clicksNeeded do
                 if not Alt2Enabled or not isYouBoxVisible() then break end
                 click(tradeItem)
-                task.wait(AddWait)     -- 0.001 วินาทีต่อครั้ง (เร็วมาก)
+                task.wait(AddWait)
                 if getCurrentAddedCount(itemName) >= targetTotal then break end
             end
             
             return true
         end
 
+        -- Process Cosmetic
+        local function processCosmetic(cosmeticName, target)
+            if not isYouBoxVisible() then return false end
+            
+            local added = getCosmeticCurrentAddedCount(cosmeticName)
+            local inventoryCount = getCosmeticInventoryCount(cosmeticName)
+            local needed = target - added
+
+            if added == target then return true end
+
+            if needed < 0 then
+                local idMap = {
+                    ["Angel's Halo"] = "200_Angel's Halo",
+                    ["Radiant Headband"] = "200_Radiant Headband",
+                    ["Kitsune Mask"] = "400_Kitsune Mask",
+                    ["Blood Vial"] = "500_Blood Vial",
+                    ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
+                }
+                local realName = idMap[cosmeticName] or cosmeticName
+                local youItem = pcall(function()
+                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
+                end) and player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName] or nil
+                
+                if not youItem then return false end
+                
+                local current = added
+                local targetTotal = target
+                local clicksNeeded = current - targetTotal
+                
+                for i = 1, clicksNeeded do
+                    if not Alt2Enabled or not isYouBoxVisible() then break end
+                    local clickTarget = youItem:FindFirstChild("Main") or youItem
+                    if clickTarget then
+                        click(clickTarget)
+                        task.wait(ReduceWait)
+                        if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
+                    end
+                end
+                return true
+            end
+
+            local addBtn = getAddButton()
+            if not addBtn then return false end
+            
+            local addTitle = getAddButtonTitle()
+            if addTitle == "+" then
+                click(addBtn)
+                task.wait(1)
+                return false
+            elseif addTitle ~= "-" then
+                return false
+            end
+
+            local currentInv = getCosmeticInventoryCount(cosmeticName)
+            if currentInv == 0 then return true end
+
+            local actualNeeded = needed
+            if currentInv < needed then
+                actualNeeded = currentInv
+                target = added + currentInv
+            end
+            
+            if actualNeeded <= 0 then return true end
+
+            local tradeItem = getCosmeticTradeItem(cosmeticName)
+            if not tradeItem then return false end
+
+            local current = added
+            local targetTotal = target
+            local clicksNeeded = targetTotal - current
+            
+            for i = 1, clicksNeeded do
+                if not Alt2Enabled or not isYouBoxVisible() then break end
+                click(tradeItem)
+                task.wait(AddWait)
+                if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
+            end
+            
+            return true
+        end
+
+        -- Main loop
         task.spawn(function()
             while true do
                 task.wait(MainLoopDelay)
@@ -1818,6 +2044,12 @@ if IsLobbyLobby() then
                                 break
                             end
                         end
+                        for _, cosmeticName in ipairs(SelectedCosmetics) do
+                            if not waitForCosmeticAddedStable(cosmeticName, target, 1) then
+                                allStable = false
+                                break
+                            end
+                        end
                         
                         if allStable then
                             Alt2Running = true
@@ -1833,7 +2065,12 @@ if IsLobbyLobby() then
                     for _, itemName in ipairs(SelectedItems) do
                         if not Alt2Enabled or not isYouBoxVisible() then break end
                         processItem(itemName, target)
-                        task.wait(0.05)   -- delay ระหว่าง items
+                        task.wait(0.05)
+                    end
+                    for _, cosmeticName in ipairs(SelectedCosmetics) do
+                        if not Alt2Enabled or not isYouBoxVisible() then break end
+                        processCosmetic(cosmeticName, target)
+                        task.wait(0.05)
                     end
                     Alt2Running = false
                 end)
