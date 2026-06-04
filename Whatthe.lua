@@ -8482,13 +8482,19 @@ if IsIngameLobby() and Tabs.Webhook then
                             local slot = currentSlot
                             local gold = slotData.Currency and slotData.Currency.Gold or 0
                             local gems = slotData.Currency and slotData.Currency.Gems or 0
-                            -- 🔥 ใช้ data.Spins แทน slotData.Total_Spins
                             local spins = data.Spins or 0
+                            
+                            -- ดึงจำนวน Memory Scroll (path ที่ถูกต้อง: Inventory.Items["Memory Scroll"])
+                            local memoryScroll = 0
+                            if slotData.Inventory and slotData.Inventory.Items then
+                                memoryScroll = slotData.Inventory.Items["Memory Scroll"] or 0
+                            end
+                            
                             local thaiTime = getThaiTime()
 
                             local description = string.format(
-                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🎲 Spins: %s  🕐 Time: %s",
-                                level, prestige, slot, formatNumber(gold), formatNumber(gems), formatNumber(spins), thaiTime
+                                "🎖️ Lv: %d  👑 Prestige: %d  💾 Slot: %s  💰 Gold: %s  💎 Gems: %s  🎲 Spins: %s  Memory Scroll: %s  🕐 Time: %s",
+                                level, prestige, slot, formatNumber(gold), formatNumber(gems), formatNumber(spins), formatNumber(memoryScroll), thaiTime
                             )
 
                             if _G and _G.Horst_SetDescription then
