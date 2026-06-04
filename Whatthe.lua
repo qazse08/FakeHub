@@ -2967,16 +2967,35 @@ if Tabs.Lobby then
         return "Modifiers:\n" .. table.concat(sorted, "\n")
     end
 
+    -- ========== RETRY WRAPPER FOR CREATE MISSION ==========
+    local function CreateMissionWithRetry(missionName, objective, difficulty)
+        local maxRetries = 3
+        for attempt = 1, maxRetries do
+            if not missionRunning then return false end
+            local success, _ = SafeMissionCall("S_Missions", "Create", {
+                Difficulty = difficulty,
+                Type = "Missions",
+                Name = missionName,
+                Objective = objective
+            })
+            if success then
+                task.wait(0.15)
+                return true
+            end
+            if attempt < maxRetries then
+                Library:Notify(string.format("Mission creation failed, retry %d/%d in 3s", attempt, maxRetries), 2)
+                task.wait(3)
+            else
+                Library:Notify("Mission creation failed after 3 attempts, stopping", 3)
+                return false
+            end
+        end
+        return false
+    end
+
+    -- แทนที่ฟังก์ชัน CreateMission เดิม
     local function CreateMission(missionName, objective, difficulty)
-        if not missionRunning then return false end
-        local success, _ = SafeMissionCall("S_Missions", "Create", {
-            Difficulty = difficulty, 
-            Type = "Missions", 
-            Name = missionName, 
-            Objective = objective
-        })
-        task.wait(0.15)
-        return success
+        return CreateMissionWithRetry(missionName, objective, difficulty)
     end
 
     local function ClearMissionModifiers()
@@ -3022,7 +3041,7 @@ if Tabs.Lobby then
                 if success then break end
                 task.wait(0.2)
             end
-            task.wait(0.15)
+            task.wait(0.2)  -- เปลี่ยนจาก 0.15 เป็น 0.2 เพื่อป้องกันการยิงรัว
         end
         task.wait(0.4)
     end
@@ -3176,7 +3195,7 @@ if Tabs.Lobby then
                     end
                     task.wait(0.3)
                     
-                    -- Apply ทีละอัน
+                    -- Apply ทีละอัน (เพิ่ม delay 0.2 ระหว่างอัน)
                     local applied = 0
                     for _, mod in ipairs(selectedMods) do
                         if not missionRunning then break end
@@ -3192,7 +3211,7 @@ if Tabs.Lobby then
                         else
                             Library:Notify(string.format("  Failed to apply: %s", mod), 2)
                         end
-                        task.wait(0.15)
+                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3288,7 +3307,7 @@ if Tabs.Lobby then
                             task.wait(0.2)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.15)
+                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3426,22 +3445,39 @@ if Tabs.Lobby then
         if Options and Options.RaidDelaySlider and Options.RaidDelaySlider.Value then RaidDelay = tonumber(Options.RaidDelaySlider.Value) or 0 end
     end)
 
+    -- ========== RETRY WRAPPER FOR CREATE RAID ==========
+    local function CreateRaidWithRetry(bossName, difficulty)
+        local maxRetries = 3
+        for attempt = 1, maxRetries do
+            if not raidRunning then return false end
+            local data = RaidObjectives[bossName]
+            if not data then return false end
+            local createArgs = {
+                Difficulty = difficulty,
+                Type = "Raids",
+                Name = data.name,
+                Objective = data.objective
+            }
+            if data.hasMinimum then createArgs.Minimum = data.minimum end
+            local success, _ = SafeMissionCall("S_Missions", "Create", createArgs)
+            if success then
+                task.wait(0.15)
+                return true
+            end
+            if attempt < maxRetries then
+                Library:Notify(string.format("Raid creation failed, retry %d/%d in 3s", attempt, maxRetries), 2)
+                task.wait(3)
+            else
+                Library:Notify("Raid creation failed after 3 attempts, stopping", 3)
+                return false
+            end
+        end
+        return false
+    end
+
+    -- แทนที่ฟังก์ชัน CreateRaid เดิม
     local function CreateRaid(bossName, difficulty)
-        if not raidRunning then return false end
-        local data = RaidObjectives[bossName]
-        if not data then return false end
-        
-        local createArgs = {
-            Difficulty = difficulty, 
-            Type = "Raids", 
-            Name = data.name, 
-            Objective = data.objective
-        }
-        if data.hasMinimum then createArgs.Minimum = data.minimum end
-        
-        local success, _ = SafeMissionCall("S_Missions", "Create", createArgs)
-        task.wait(0.15)
-        return success
+        return CreateRaidWithRetry(bossName, difficulty)
     end
 
     local function ClearRaidModifiers()
@@ -3484,7 +3520,7 @@ if Tabs.Lobby then
                 if success then break end
                 task.wait(0.2)
             end
-            task.wait(0.15)
+            task.wait(0.2)  -- เปลี่ยนจาก 0.15 เป็น 0.2
         end
         task.wait(0.4)
     end
@@ -3591,7 +3627,7 @@ if Tabs.Lobby then
                             task.wait(0.2)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.15)
+                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3666,7 +3702,7 @@ if Tabs.Lobby then
                             task.wait(0.2)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.15)
+                        task.wait(0.2)
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3770,16 +3806,35 @@ if Tabs.Lobby then
     local wavesBusy = false
     local wavesSessionId = 0
 
+    -- ========== RETRY WRAPPER FOR CREATE WAVE ==========
+    local function CreateWaveWithRetry()
+        local maxRetries = 3
+        for attempt = 1, maxRetries do
+            if not wavesRunning then return false end
+            local success, _ = SafeMissionCall("S_Missions", "Create", {
+                Difficulty = "Easy",
+                Type = "Waves",
+                Name = "Trost",
+                Objective = "Waves"
+            })
+            if success then
+                task.wait(0.15)
+                return true
+            end
+            if attempt < maxRetries then
+                Library:Notify(string.format("Wave creation failed, retry %d/%d in 3s", attempt, maxRetries), 2)
+                task.wait(3)
+            else
+                Library:Notify("Wave creation failed after 3 attempts, stopping", 3)
+                return false
+            end
+        end
+        return false
+    end
+
+    -- แทนที่ฟังก์ชัน CreateWave เดิม
     local function CreateWave()
-        if not wavesRunning then return false end
-        local success, _ = SafeMissionCall("S_Missions", "Create", {
-            Difficulty = "Easy",
-            Type = "Waves",
-            Name = "Trost",
-            Objective = "Waves"
-        })
-        task.wait(0.15)
-        return success
+        return CreateWaveWithRetry()
     end
 
     local function StartWave()
