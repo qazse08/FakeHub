@@ -4604,16 +4604,30 @@ if IsLobbyLobby() then
             end
 
             task.spawn(function()
-                for i = 1, 5 do
+                -- กำหนดลำดับ duration ที่จะใช้: 2h, 1h, 30m
+                local durations = {"2h", "1h", "30m"}
+                -- จำนวนรอบต่อ duration (3 ครั้ง)
+                local roundsPerDuration = 3
+
+                for _, dur in ipairs(durations) do
+                    for round = 1, roundsPerDuration do
+                        if not isReady then break end
+                        -- gold
+                        local goldName = "2x Gold Boost [" .. dur .. "]"
+                        useBoost(goldName)
+                        task.wait(0.01)
+                        if not isReady then break end
+                        -- luck
+                        local luckName = "2x Luck Boost [" .. dur .. "]"
+                        useBoost(luckName)
+                        task.wait(0.01)
+                        if not isReady then break end
+                        -- xp
+                        local xpName = "2x XP Boost [" .. dur .. "]"
+                        useBoost(xpName)
+                        task.wait(0.01)
+                    end
                     if not isReady then break end
-                    if goldBoosts[i] then useBoost(goldBoosts[i]) end
-                    task.wait(0.01)
-                    if not isReady then break end
-                    if luckBoosts[i] then useBoost(luckBoosts[i]) end
-                    task.wait(0.01)
-                    if not isReady then break end
-                    if xpBoosts[i] then useBoost(xpBoosts[i]) end
-                    task.wait(0.01)
                 end
 
                 pcall(function()
@@ -5808,7 +5822,6 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoFarmBlade", {
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
-            -- รอ 1 วินาทีเมื่อเปิด toggle ครั้งแรก
             if v then task.wait(1) end
             waitForUI()
             if v then
@@ -5832,7 +5845,7 @@ if Tabs.AutoFarm then
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
-                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
+                    Library:Notify("Please select Farm Mode (Tween/Teleport) first!", 3)
                     pcall(function()
                         if Options and Options.AutoFarmBlade then
                             Options.AutoFarmBlade:SetValue(false)
@@ -5852,7 +5865,6 @@ if Tabs.AutoFarm then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                -- หยุดการเคลื่อนที่ทั้งหมด
                 CleanupSmoothMovement()
                 CurrentEntry = nil
             end
@@ -5882,8 +5894,6 @@ if Tabs.AutoFarm then
         end
     })
     
-
-
     local SpearTab = AutoFarmTabbox:AddTab("Thunder Spear")
     
     SpearTab:AddToggle("AutoThunderSpearToggle", {
@@ -5913,7 +5923,6 @@ if Tabs.AutoFarm then
                         end)
                     end
                 end
-                
                 G.AutoThunderSpear = true
             else
                 G.AutoThunderSpear = false
@@ -5946,7 +5955,6 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
-                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -5973,11 +5981,11 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
+    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL + LEAVE) ==============================
     TeleportGroup:AddDivider()
     
     local combinedDelay = 0
-    local selectedActions = {}  -- e.g., {"Teleport to Main Menu", "Kill Character"}
+    local selectedActions = {}
     local combinedEnabled = false
     local combinedTimerRunning = false
     local combinedStartTime = 0
@@ -5998,15 +6006,22 @@ if Tabs.AutoFarm then
     })
     
     TeleportGroup:AddDropdown("CombinedActionsDropdown", {
-        Values = {"Teleport to Main Menu", "Kill Character"},
+        Values = {"Teleport to Main Menu", "Kill Character", "AUTO Leave Game"},
         Default = {},
         Multi = true,
         Text = "Select [ Multi ]",
         Callback = function(v)
+            selectedActions = {}
             if type(v) == "table" then
-                selectedActions = v
+                for k, val in pairs(v) do
+                    if val then
+                        table.insert(selectedActions, k)
+                    end
+                end
             else
-                selectedActions = {v}
+                if v then
+                    table.insert(selectedActions, v)
+                end
             end
         end
     })
@@ -6026,6 +6041,10 @@ if Tabs.AutoFarm then
         end
     end
     
+    local function performLeaveGame()
+        game:Shutdown()
+    end
+    
     local function executeCombinedActions()
         if not actionPending then return end
         actionPending = false
@@ -6036,8 +6055,10 @@ if Tabs.AutoFarm then
                 performTeleportToMainMenu()
             elseif action == "Kill Character" then
                 performKillCharacter()
+            elseif action == "AUTO Leave Game" then
+                performLeaveGame()
             end
-            task.wait(0.2)  -- slight delay between actions if both selected
+            task.wait(0.2)
         end
         teleportAttempts = 0
     end
@@ -6045,7 +6066,6 @@ if Tabs.AutoFarm then
     local function startCombinedTimer()
         if combinedTimerRunning then return end
         if combinedDelay <= 0 then
-            -- execute immediately
             if #selectedActions > 0 then
                 actionPending = true
                 executeCombinedActions()
@@ -6088,6 +6108,32 @@ if Tabs.AutoFarm then
             end
         end
     })
+end
+
+local TitansFolder = workspace:FindFirstChild("Titans")
+
+local function IsInCutscene()
+    local ok, result = pcall(function()
+        local gui = Player:FindFirstChild("PlayerGui")
+        if not gui then return false end
+        local Interface = gui:FindFirstChild("Interface")
+        if not Interface then return false end
+        local skip = Interface:FindFirstChild("Skip")
+        local skipWarning = Interface:FindFirstChild("Skip_Warning")
+        return (skip and skip.Visible) or (skipWarning and skipWarning.Visible) or false
+    end)
+    return ok and result or false
+end
+
+if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
+
+if not TitansFolder then
+    TitansFolder = workspace:FindFirstChild("Titans")
+    if not TitansFolder then
+        TitansFolder = Instance.new("Folder")
+        TitansFolder.Name = "Titans"
+        TitansFolder.Parent = workspace
+    end
 end
 
 local TitansFolder = workspace:FindFirstChild("Titans")
