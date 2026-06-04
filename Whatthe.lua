@@ -8479,7 +8479,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
+    -- Dropdown ประเภท
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8595,11 +8595,16 @@ if IsIngameLobby() and Tabs.Webhook then
 
                             if selected then
                                 local val = valueMap[field]
-                                if field ~= "Slot" and field ~= "Time" then
-                                    val = formatNumber(val)
+                                -- ข้ามถ้าค่าเป็น 0 ยกเว้น Gold และ Gems
+                                if val == 0 and field ~= "Gold" and field ~= "Gems" then
+                                    -- ไม่เพิ่ม field นี้
+                                else
+                                    if field ~= "Slot" and field ~= "Time" then
+                                        val = formatNumber(val)
+                                    end
+                                    local e = emoji[field] or "•"
+                                    table.insert(parts, string.format("%s %s: %s", e, field, val))
                                 end
-                                local e = emoji[field] or "•"
-                                table.insert(parts, string.format("%s %s: %s", e, field, val))
                             end
                         end
 
