@@ -8565,16 +8565,7 @@ if IsIngameLobby() and Tabs.Webhook then
                             valueMap[field] = cosmetics[field] or 0
                         end
 
-                        -- Emoji mapping
-                        local emoji = {
-                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
-                            ["Memory Scroll"] = "📜", ["Emperor's Key"] = "🔑", ["Female Serum"] = "💉",
-                            ["Attack Serum"] = "⚔️", ["armored serum"] = "🛡️",
-                            ["Angel's Halo"] = "👼", ["Kitsune Ribbon"] = "🦊", ["Radiant Headband"] = "✨",
-                            ["Blood Vial"] = "🩸", ["Kitsune Mask"] = "🎭",
-                        }
-
-                        -- สร้าง description
+                        -- สร้าง description แบบไม่มี emoji
                         local parts = {}
 
                         -- เรียงลำดับ: Stats -> Items -> Cosmetics
@@ -8602,13 +8593,12 @@ if IsIngameLobby() and Tabs.Webhook then
                                     if field ~= "Slot" and field ~= "Time" then
                                         val = formatNumber(val)
                                     end
-                                    local e = emoji[field] or "•"
-                                    table.insert(parts, string.format("%s %s: %s", e, field, val))
+                                    table.insert(parts, string.format("%s: %s", field, val))
                                 end
                             end
                         end
 
-                        local description = table.concat(parts, "  ")
+                        local description = table.concat(parts, " | ")
 
                         if _G and _G.Horst_SetDescription then
                             _G.Horst_SetDescription(description)
