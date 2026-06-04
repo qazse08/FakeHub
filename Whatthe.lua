@@ -8427,6 +8427,9 @@ end
 if IsIngameLobby() and Tabs.Webhook then
     local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
 
+    -- ประกาศ GET remote
+    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+
     -- ฟังก์ชันจัดรูปแบบตัวเลข
     local function formatNumber(n)
         if type(n) ~= "number" then return "0" end
@@ -8441,42 +8444,31 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats
-    local statsFields = {
-        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"
-    }
+    -- helper สำหรับตรวจสอบค่าใน table
+    local function hasValue(tbl, val)
+        for _, v in ipairs(tbl) do if v == val then return true end end
+        return false
+    end
+
+    -- หมวด Stats
+    local statsFields = {"Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"}
     local selectedStats = {
-        ["Level"] = true,
-        ["Prestige"] = true,
-        ["Slot"] = true,
-        ["Gold"] = true,
-        ["Gems"] = true,
-        ["Spins"] = true,
-        ["Time"] = true,
+        ["Level"] = true, ["Prestige"] = true, ["Slot"] = true,
+        ["Gold"] = true, ["Gems"] = true, ["Spins"] = true, ["Time"] = true,
     }
 
-    -- หมวดที่ 2: Items
-    local itemsFields = {
-        "Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "armored serum"
-    }
+    -- หมวด Items
+    local itemsFields = {"Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "armored serum"}
     local selectedItems = {
-        ["Memory Scroll"] = true,
-        ["Emperor's Key"] = true,
-        ["Female Serum"] = true,
-        ["Attack Serum"] = true,
-        ["armored serum"] = true,
+        ["Memory Scroll"] = true, ["Emperor's Key"] = true, ["Female Serum"] = true,
+        ["Attack Serum"] = true, ["armored serum"] = true,
     }
 
-    -- หมวดที่ 3: Cosmetics
-    local cosmeticsFields = {
-        "Angel's Halo", "Kitsune Ribbon", "Radiant Headband", "Blood Vial", "Kitsune Mask"
-    }
+    -- หมวด Cosmetics
+    local cosmeticsFields = {"Angel's Halo", "Kitsune Ribbon", "Radiant Headband", "Blood Vial", "Kitsune Mask"}
     local selectedCosmetics = {
-        ["Angel's Halo"] = true,
-        ["Kitsune Ribbon"] = true,
-        ["Radiant Headband"] = true,
-        ["Blood Vial"] = true,
-        ["Kitsune Mask"] = true,
+        ["Angel's Halo"] = true, ["Kitsune Ribbon"] = true, ["Radiant Headband"] = true,
+        ["Blood Vial"] = true, ["Kitsune Mask"] = true,
     }
 
     -- Dropdown ประเภท
@@ -8487,10 +8479,9 @@ if IsIngameLobby() and Tabs.Webhook then
         Multi = false,
         Callback = function() end
     })
-
     descGroup:AddDivider()
 
-    -- Dropdown Stats (multi)
+    -- Dropdown Stats
     descGroup:AddDropdown("DescStatsDropdown", {
         Text = "Stats to include",
         Values = statsFields,
@@ -8498,10 +8489,9 @@ if IsIngameLobby() and Tabs.Webhook then
         Multi = true,
         Callback = function(v) selectedStats = v end
     })
-
     descGroup:AddDivider()
 
-    -- Dropdown Items (multi)
+    -- Dropdown Items
     descGroup:AddDropdown("DescItemsDropdown", {
         Text = "Items to include",
         Values = itemsFields,
@@ -8509,10 +8499,9 @@ if IsIngameLobby() and Tabs.Webhook then
         Multi = true,
         Callback = function(v) selectedItems = v end
     })
-
     descGroup:AddDivider()
 
-    -- Dropdown Cosmetics (multi)
+    -- Dropdown Cosmetics
     descGroup:AddDropdown("DescCosmeticsDropdown", {
         Text = "Cosmetics to include",
         Values = cosmeticsFields,
@@ -8520,10 +8509,9 @@ if IsIngameLobby() and Tabs.Webhook then
         Multi = true,
         Callback = function(v) selectedCosmetics = v end
     })
-
     descGroup:AddDivider()
 
-    -- Toggle สำหรับ apply description
+    -- Toggle หลัก
     descGroup:AddToggle("SetDescToggle", {
         Text = "Apply Description (once, after 1s)",
         Default = false,
@@ -8542,7 +8530,7 @@ if IsIngameLobby() and Tabs.Webhook then
                     local slotData = data.Slots[currentSlot]
 
                     if slotData then
-                        -- เตรียม map ค่า
+                        -- รวบรวมค่าทั้งหมด
                         local valueMap = {
                             Level = slotData.Progression and slotData.Progression.Level or 0,
                             Prestige = slotData.Progression and slotData.Progression.Prestige or 0,
@@ -8553,48 +8541,39 @@ if IsIngameLobby() and Tabs.Webhook then
                             Time = getThaiTime(),
                         }
 
-                        -- Items
                         local items = slotData.Inventory and slotData.Inventory.Items or {}
-                        for _, field in ipairs(itemsFields) do
-                            valueMap[field] = items[field] or 0
+                        for _, f in ipairs(itemsFields) do valueMap[f] = items[f] or 0 end
+
+                        local cosmetics = slotData.Inventory and slotData.Inventory.Cosmetics or {}
+                        for _, f in ipairs(cosmeticsFields) do valueMap[f] = cosmetics[f] or 0 end
+
+                        -- สร้าง description
+                        local parts = {}
+
+                        -- Stats
+                        for _, f in ipairs(statsFields) do
+                            if selectedStats[f] then
+                                local val = valueMap[f]
+                                if val == 0 and f ~= "Gold" and f ~= "Gems" then
+                                    -- skip
+                                else
+                                    if f ~= "Slot" and f ~= "Time" then val = formatNumber(val) end
+                                    table.insert(parts, string.format("%s: %s", f, val))
+                                end
+                            end
+                        end
+
+                        -- Items
+                        for _, f in ipairs(itemsFields) do
+                            if selectedItems[f] and valueMap[f] ~= 0 then
+                                table.insert(parts, string.format("%s: %s", f, formatNumber(valueMap[f])))
+                            end
                         end
 
                         -- Cosmetics
-                        local cosmetics = slotData.Inventory and slotData.Inventory.Cosmetics or {}
-                        for _, field in ipairs(cosmeticsFields) do
-                            valueMap[field] = cosmetics[field] or 0
-                        end
-
-                        -- สร้าง description แบบไม่มี emoji
-                        local parts = {}
-
-                        -- เรียงลำดับ: Stats -> Items -> Cosmetics
-                        local order = {}
-                        for _, f in ipairs(statsFields) do table.insert(order, f) end
-                        for _, f in ipairs(itemsFields) do table.insert(order, f) end
-                        for _, f in ipairs(cosmeticsFields) do table.insert(order, f) end
-
-                        for _, field in ipairs(order) do
-                            local selected = false
-                            if table.find(statsFields, field) then
-                                selected = selectedStats[field]
-                            elseif table.find(itemsFields, field) then
-                                selected = selectedItems[field]
-                            elseif table.find(cosmeticsFields, field) then
-                                selected = selectedCosmetics[field]
-                            end
-
-                            if selected then
-                                local val = valueMap[field]
-                                -- ข้ามถ้าค่าเป็น 0 ยกเว้น Gold และ Gems
-                                if val == 0 and field ~= "Gold" and field ~= "Gems" then
-                                    -- ไม่เพิ่ม field นี้
-                                else
-                                    if field ~= "Slot" and field ~= "Time" then
-                                        val = formatNumber(val)
-                                    end
-                                    table.insert(parts, string.format("%s: %s", field, val))
-                                end
+                        for _, f in ipairs(cosmeticsFields) do
+                            if selectedCosmetics[f] and valueMap[f] ~= 0 then
+                                table.insert(parts, string.format("%s: %s", f, formatNumber(valueMap[f])))
                             end
                         end
 
