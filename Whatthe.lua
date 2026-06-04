@@ -5822,6 +5822,7 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoFarmBlade", {
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
+            -- รอ 1 วินาทีเมื่อเปิด toggle ครั้งแรก
             if v then task.wait(1) end
             waitForUI()
             if v then
@@ -5845,7 +5846,7 @@ if Tabs.AutoFarm then
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
-                    Library:Notify("Please select Farm Mode (Tween/Teleport) first!", 3)
+                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
                     pcall(function()
                         if Options and Options.AutoFarmBlade then
                             Options.AutoFarmBlade:SetValue(false)
@@ -5865,6 +5866,7 @@ if Tabs.AutoFarm then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
+                -- หยุดการเคลื่อนที่ทั้งหมด
                 CleanupSmoothMovement()
                 CurrentEntry = nil
             end
@@ -5894,6 +5896,8 @@ if Tabs.AutoFarm then
         end
     })
     
+
+
     local SpearTab = AutoFarmTabbox:AddTab("Thunder Spear")
     
     SpearTab:AddToggle("AutoThunderSpearToggle", {
@@ -5923,6 +5927,7 @@ if Tabs.AutoFarm then
                         end)
                     end
                 end
+                
                 G.AutoThunderSpear = true
             else
                 G.AutoThunderSpear = false
@@ -5955,6 +5960,7 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
+                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -5981,7 +5987,7 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL + LEAVE) ==============================
+    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
     TeleportGroup:AddDivider()
     
     local combinedDelay = 0
@@ -6011,18 +6017,7 @@ if Tabs.AutoFarm then
         Multi = true,
         Text = "Select [ Multi ]",
         Callback = function(v)
-            selectedActions = {}
-            if type(v) == "table" then
-                for k, val in pairs(v) do
-                    if val then
-                        table.insert(selectedActions, k)
-                    end
-                end
-            else
-                if v then
-                    table.insert(selectedActions, v)
-                end
-            end
+            selectedActions = v
         end
     })
     
@@ -6041,10 +6036,6 @@ if Tabs.AutoFarm then
         end
     end
     
-    local function performLeaveGame()
-        game:Shutdown()
-    end
-    
     local function executeCombinedActions()
         if not actionPending then return end
         actionPending = false
@@ -6056,7 +6047,7 @@ if Tabs.AutoFarm then
             elseif action == "Kill Character" then
                 performKillCharacter()
             elseif action == "AUTO Leave Game" then
-                performLeaveGame()
+                game:Shutdown()
             end
             task.wait(0.2)
         end
