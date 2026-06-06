@@ -1336,13 +1336,13 @@ if IsLobbyLobby() then
         local pendingTargetChange = false
         local newTargetValue = 1
 
-        -- ปรับค่าความเร็ว
+        -- 🔥 ปรับค่าความเร็วให้เร็วที่สุด (คลิกไวมาก)
         local ClickInterval = 0.015
-        local MainLoopDelay = 0.01
+        local MainLoopDelay = 0.001
         local AddPanelOpenDelay = 0.08
-        local CheckWait = 0.005
-        local ReduceWait = 0.02
-        local AddWait = 0.001
+        local CheckWait = 0.001
+        local ReduceWait = 0.001
+        local AddWait = 0
         local UIUpdateDelay = 0.03
 
         local Players = game:GetService("Players")
@@ -1351,20 +1351,24 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
 
-        -- Item Mapping เดิม
+        -- 🔥 Item Mapping
         local itemMapping = {
             ["Memory Scroll"] = "600_Memory Scroll",
             ["Emperor's Key"] = "500_Emperor's Key",
         }
         local SelectedItems = {"Memory Scroll"}
 
-        -- รายการ Cosmetics สำหรับ dropdown ใหม่
-        local cosmeticItems = {
-            "Angel's Halo", "Radiant Headband", "Kitsune Mask", "Blood Vial", "Kitsune Ribbon"
+        -- 🔥 Cosmetics Mapping
+        local cosmeticMapping = {
+            ["Angel's Halo"] = "200_Angel's Halo",
+            ["Radiant Headband"] = "200_Radiant Headband",
+            ["Kitsune Mask"] = "400_Kitsune Mask",
+            ["Blood Vial"] = "500_Blood Vial",
+            ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
         }
         local SelectedCosmetics = {}
 
-        -- ฟังก์ชันเช็คว่า GUI Object ยังใช้งานได้จริงหรือไม่
+        -- 🔥 ฟังก์ชันเช็คว่า GUI Object ยังใช้งานได้จริงหรือไม่
         local function isGuiAlive(obj)
             if not obj then return false end
             if typeof(obj) ~= "Instance" then return false end
@@ -1393,7 +1397,7 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- ฟังก์ชันคลิกด้วยเมาส์
+        -- 🔥 ฟังก์ชันคลิกด้วยเมาส์ (เร็วสุด ไม่มี task.wait)
         local function clickWithMouse(target)
             if not isGuiAlive(target) then
                 return false
@@ -1404,32 +1408,14 @@ if IsLobbyLobby() then
             local y = target.AbsolutePosition.Y + (target.AbsoluteSize.Y / 2) + inset.Y
 
             VIM:SendMouseMoveEvent(x, y, game)
-            task.wait(0.005)
-
             VIM:SendMouseButtonEvent(x, y, 0, true, game, 1)
-            task.wait(0.005)
             VIM:SendMouseButtonEvent(x, y, 0, false, game, 1)
-            task.wait(0.01)
 
             return true
         end
 
         local function click(target)
             return clickWithMouse(target)
-        end
-
-        local boxOpenedTime = 0
-        local hasCheckedInventoryTimeout = false
-        local hasCheckedQuantityTimeout = false
-        local INVENTORY_LOAD_TIMEOUT = 5
-        local QUANTITY_ZERO_TIMEOUT = 3
-
-        local function endTrade()
-            pcall(function()
-                game:GetService("ReplicatedStorage"):WaitForChild("Assets")
-                    :WaitForChild("Remotes"):WaitForChild("GET")
-                    :InvokeServer("S_Trade", "End")
-            end)
         end
 
         local _cachedYouBox = false
@@ -1455,78 +1441,20 @@ if IsLobbyLobby() then
             return true
         end
 
-        local function isInventoryLoaded()
-            local ok, holder = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder
-            end)
-            if not ok or not holder or not holder.Visible then return false end
-            local items = holder:FindFirstChild("Items")
-            if not items then return false end
-            return #items:GetChildren() > 0
-        end
-
-        local function getFirstItemQuantity()
-            if #SelectedItems == 0 and #SelectedCosmetics == 0 then return 0 end
-            -- ดึงจาก items ก่อน
-            if #SelectedItems > 0 then
-                local itemName = SelectedItems[1]
-                local realName = itemMapping[itemName] or itemName
-                local ok, item = pcall(function()
-                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-                end)
-                if ok and item then
-                    local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                    if label then
-                        return tonumber(label.Text:match("%d+")) or 0
-                    end
-                end
-            end
-            -- ดึงจาก cosmetics
-            if #SelectedCosmetics > 0 then
-                local cosmeticName = SelectedCosmetics[1]
-                local idMap = {
-                    ["Angel's Halo"] = "200_Angel's Halo",
-                    ["Radiant Headband"] = "200_Radiant Headband",
-                    ["Kitsune Mask"] = "400_Kitsune Mask",
-                    ["Blood Vial"] = "500_Blood Vial",
-                    ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-                }
-                local realName = idMap[cosmeticName] or cosmeticName
-                local ok, item = pcall(function()
-                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-                end)
-                if ok and item then
-                    local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                    if label then
-                        return tonumber(label.Text:match("%d+")) or 0
-                    end
-                end
-            end
-            return 0
-        end
-
         local function sendStateReady()
-            local success1 = false
-            local success2 = false
-            
             pcall(function()
                 game:GetService("ReplicatedStorage"):WaitForChild("Assets")
                     :WaitForChild("Remotes"):WaitForChild("GET")
                     :InvokeServer("S_Trade", "State", "Receiver", true)
-                success1 = true
             end)
-            
             pcall(function()
                 game:GetService("ReplicatedStorage"):WaitForChild("Assets")
                     :WaitForChild("Remotes"):WaitForChild("GET")
                     :InvokeServer("S_Trade", "State", "Sender", true)
-                success2 = true
             end)
-            
-            return (success1 or success2)
         end
 
-        -- สำหรับ Items (เดิม)
+        -- สำหรับ Items
         local function getTradeItem(itemName)
             if not isYouBoxVisible() then return nil end
             local realName = itemMapping[itemName] or itemName
@@ -1539,14 +1467,7 @@ if IsLobbyLobby() then
         -- สำหรับ Cosmetics
         local function getCosmeticTradeItem(cosmeticName)
             if not isYouBoxVisible() then return nil end
-            local idMap = {
-                ["Angel's Halo"] = "200_Angel's Halo",
-                ["Radiant Headband"] = "200_Radiant Headband",
-                ["Kitsune Mask"] = "400_Kitsune Mask",
-                ["Blood Vial"] = "500_Blood Vial",
-                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-            }
-            local realName = idMap[cosmeticName] or cosmeticName
+            local realName = cosmeticMapping[cosmeticName] or cosmeticName
             local success, item = pcall(function()
                 return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName].Main.Interact
             end)
@@ -1589,14 +1510,7 @@ if IsLobbyLobby() then
         -- Inventory Count สำหรับ Cosmetics
         local function getCosmeticInventoryCount(cosmeticName)
             if not isYouBoxVisible() then return 0 end
-            local idMap = {
-                ["Angel's Halo"] = "200_Angel's Halo",
-                ["Radiant Headband"] = "200_Radiant Headband",
-                ["Kitsune Mask"] = "400_Kitsune Mask",
-                ["Blood Vial"] = "500_Blood Vial",
-                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-            }
-            local realName = idMap[cosmeticName] or cosmeticName
+            local realName = cosmeticMapping[cosmeticName] or cosmeticName
             local success, item = pcall(function()
                 return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName]
             end)
@@ -1624,14 +1538,7 @@ if IsLobbyLobby() then
         -- Current Added Count สำหรับ Cosmetics
         local function getCosmeticCurrentAddedCount(cosmeticName)
             if not isYouBoxVisible() then return 0 end
-            local idMap = {
-                ["Angel's Halo"] = "200_Angel's Halo",
-                ["Radiant Headband"] = "200_Radiant Headband",
-                ["Kitsune Mask"] = "400_Kitsune Mask",
-                ["Blood Vial"] = "500_Blood Vial",
-                ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-            }
-            local realName = idMap[cosmeticName] or cosmeticName
+            local realName = cosmeticMapping[cosmeticName] or cosmeticName
             local success, item = pcall(function()
                 return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
             end)
@@ -1642,6 +1549,7 @@ if IsLobbyLobby() then
             return 0
         end
 
+        -- เช็คว่าทุกอย่างครบ target หรือยัง
         local function allItemsMatchTarget(target)
             for _, itemName in ipairs(SelectedItems) do
                 if getCurrentAddedCount(itemName) ~= target then
@@ -1656,6 +1564,7 @@ if IsLobbyLobby() then
             return true
         end
 
+        -- รอให้ stable (สำหรับ Items)
         local function waitForAddedStable(itemName, target, timeout)
             local start = tick()
             local lastAdded = getCurrentAddedCount(itemName)
@@ -1681,6 +1590,7 @@ if IsLobbyLobby() then
             return false
         end
 
+        -- รอให้ stable (สำหรับ Cosmetics)
         local function waitForCosmeticAddedStable(cosmeticName, target, timeout)
             local start = tick()
             local lastAdded = getCosmeticCurrentAddedCount(cosmeticName)
@@ -1706,7 +1616,7 @@ if IsLobbyLobby() then
             return false
         end
 
-        -- Dropdown สำหรับ Items (เดิม)
+        -- Dropdown สำหรับ Items
         Alt2Box:AddDropdown("Alt2_ItemSelectDropdown", {
             Text = "Select Items",
             Values = {"Memory Scroll", "Emperor's Key"},
@@ -1726,10 +1636,10 @@ if IsLobbyLobby() then
             end
         })
 
-        -- Dropdown ใหม่สำหรับ Cosmetics
+        -- Dropdown สำหรับ Cosmetics
         Alt2Box:AddDropdown("Alt2_CosmeticSelectDropdown", {
             Text = "Select Cosmetics",
-            Values = cosmeticItems,
+            Values = {"Angel's Halo", "Radiant Headband", "Kitsune Mask", "Blood Vial", "Kitsune Ribbon"},
             Default = {},
             Multi = true,
             Callback = function(val)
@@ -1771,9 +1681,6 @@ if IsLobbyLobby() then
                     isWaitingForConfirm = false
                     Alt2Running = false
                     pendingTargetChange = false
-                    boxOpenedTime = 0
-                    hasCheckedInventoryTimeout = false
-                    hasCheckedQuantityTimeout = false
                 end
             end
         })
@@ -1781,9 +1688,9 @@ if IsLobbyLobby() then
         -- Confirm click handler
         task.spawn(function()
             local lastConfirmClick = 0
-            local confirmCooldown = 0.2
+            local confirmCooldown = 0.05
             while true do
-                task.wait(0.05)
+                task.wait(0.01)
                 pcall(function()
                     if not Alt2Enabled then return end
                     local confirmTitle = getConfirm()
@@ -1807,50 +1714,7 @@ if IsLobbyLobby() then
             end
         end)
 
-        -- Timeout checker
-        task.spawn(function()
-            while true do
-                task.wait(0.5)
-                pcall(function()
-                    if not Alt2Enabled then return end
-                    
-                    if isYouBoxVisible() then
-                        if boxOpenedTime == 0 then
-                            boxOpenedTime = tick()
-                        end
-                        
-                        local elapsed = tick() - boxOpenedTime
-                        
-                        if not hasCheckedInventoryTimeout and not isInventoryLoaded() then
-                            if elapsed >= INVENTORY_LOAD_TIMEOUT then
-                                endTrade()
-                                hasCheckedInventoryTimeout = true
-                            end
-                        else
-                            hasCheckedInventoryTimeout = true
-                        end
-                        
-                        if not hasCheckedQuantityTimeout then
-                            local qty = getFirstItemQuantity()
-                            if qty == 0 then
-                                if elapsed >= QUANTITY_ZERO_TIMEOUT then
-                                    endTrade()
-                                    hasCheckedQuantityTimeout = true
-                                end
-                            else
-                                hasCheckedQuantityTimeout = true
-                            end
-                        end
-                    else
-                        boxOpenedTime = 0
-                        hasCheckedInventoryTimeout = false
-                        hasCheckedQuantityTimeout = false
-                    end
-                end)
-            end
-        end)
-
-        -- Process Item (เดิม)
+        -- Process Item
         local function processItem(itemName, target)
             if not isYouBoxVisible() then return false end
             
@@ -1877,7 +1741,6 @@ if IsLobbyLobby() then
                     local clickTarget = youItem:FindFirstChild("Main") or youItem
                     if clickTarget then
                         click(clickTarget)
-                        task.wait(ReduceWait)
                         if getCurrentAddedCount(itemName) >= targetTotal then break end
                     end
                 end
@@ -1890,7 +1753,7 @@ if IsLobbyLobby() then
             local addTitle = getAddButtonTitle()
             if addTitle == "+" then
                 click(addBtn)
-                task.wait(1)
+                task.wait(0.3)
                 return false
             elseif addTitle ~= "-" then
                 return false
@@ -1917,7 +1780,6 @@ if IsLobbyLobby() then
             for i = 1, clicksNeeded do
                 if not Alt2Enabled or not isYouBoxVisible() then break end
                 click(tradeItem)
-                task.wait(AddWait)
                 if getCurrentAddedCount(itemName) >= targetTotal then break end
             end
             
@@ -1935,14 +1797,7 @@ if IsLobbyLobby() then
             if added == target then return true end
 
             if needed < 0 then
-                local idMap = {
-                    ["Angel's Halo"] = "200_Angel's Halo",
-                    ["Radiant Headband"] = "200_Radiant Headband",
-                    ["Kitsune Mask"] = "400_Kitsune Mask",
-                    ["Blood Vial"] = "500_Blood Vial",
-                    ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-                }
-                local realName = idMap[cosmeticName] or cosmeticName
+                local realName = cosmeticMapping[cosmeticName] or cosmeticName
                 local youItem = pcall(function()
                     return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
                 end) and player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName] or nil
@@ -1958,7 +1813,6 @@ if IsLobbyLobby() then
                     local clickTarget = youItem:FindFirstChild("Main") or youItem
                     if clickTarget then
                         click(clickTarget)
-                        task.wait(ReduceWait)
                         if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
                     end
                 end
@@ -1971,7 +1825,7 @@ if IsLobbyLobby() then
             local addTitle = getAddButtonTitle()
             if addTitle == "+" then
                 click(addBtn)
-                task.wait(1)
+                task.wait(0.3)
                 return false
             elseif addTitle ~= "-" then
                 return false
@@ -1998,7 +1852,6 @@ if IsLobbyLobby() then
             for i = 1, clicksNeeded do
                 if not Alt2Enabled or not isYouBoxVisible() then break end
                 click(tradeItem)
-                task.wait(AddWait)
                 if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
             end
             
@@ -2021,7 +1874,6 @@ if IsLobbyLobby() then
                         local confirm = getConfirm()
                         if confirm and confirm:IsA("TextLabel") and string.lower(confirm.Text) == "confirm" then
                             click(confirm)
-                            task.wait(0.05)
                             isWaitingForConfirm = false
                         end
                         return
@@ -2054,7 +1906,7 @@ if IsLobbyLobby() then
                         if allStable then
                             Alt2Running = true
                             sendStateReady()
-                            task.wait(0.05)
+                            task.wait(0.02)
                             isWaitingForConfirm = true
                             Alt2Running = false
                         end
@@ -2065,12 +1917,10 @@ if IsLobbyLobby() then
                     for _, itemName in ipairs(SelectedItems) do
                         if not Alt2Enabled or not isYouBoxVisible() then break end
                         processItem(itemName, target)
-                        task.wait(0.05)
                     end
                     for _, cosmeticName in ipairs(SelectedCosmetics) do
                         if not Alt2Enabled or not isYouBoxVisible() then break end
                         processCosmetic(cosmeticName, target)
-                        task.wait(0.05)
                     end
                     Alt2Running = false
                 end)
@@ -7286,6 +7136,81 @@ local function FindRefillObject()
 end
 
 --// =====================================================
+--// SCAN AND CACHE GAS TANK REFILLS (1-300)
+--// =====================================================
+
+local cachedGasTankRefills = {}
+local lastGasTankScan = 0
+local GAS_TANK_SCAN_INTERVAL = 30
+
+local function scanGasTankRefills()
+    local now = tick()
+    if now - lastGasTankScan < GAS_TANK_SCAN_INTERVAL and #cachedGasTankRefills > 0 then
+        return cachedGasTankRefills
+    end
+    lastGasTankScan = now
+    cachedGasTankRefills = {}
+    
+    pcall(function()
+        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+        if not gate then return end
+        
+        -- สแกนหา Refill โดยตรงจาก Gate:GetChildren()[1-300]
+        for idx = 1, 300 do
+            local child = gate:FindFirstChild("GasTanks") or gate:FindFirstChild("GasTank")
+            if not child then
+                child = gate:FindChildren()[idx]
+            end
+            if child then
+                local refill = child:FindFirstChild("Refill")
+                if refill and refill:IsA("BasePart") then
+                    table.insert(cachedGasTankRefills, refill)
+                end
+            end
+        end
+    end)
+    
+    return cachedGasTankRefills
+end
+
+--// =====================================================
+--// FIRE GAS TANK REFILL (RAPID SCAN VERSION)
+--// =====================================================
+
+local lastGasTankFire = 0
+local GAS_TANK_FIRE_COOLDOWN = 2
+local fireIndex = 1
+
+local function FireGasTankRefill()
+    local now = tick()
+    if now - lastGasTankFire < GAS_TANK_FIRE_COOLDOWN then
+        return false
+    end
+    
+    local refills = scanGasTankRefills()
+    if #refills == 0 then
+        return false
+    end
+    
+    lastGasTankFire = now
+    
+    -- ยิงทีละตัวแบบ輪換 (round-robin)
+    local targetRefill = refills[fireIndex]
+    if targetRefill then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", targetRefill)
+        end)
+    end
+    
+    fireIndex = fireIndex + 1
+    if fireIndex > #refills then
+        fireIndex = 1
+    end
+    
+    return true
+end
+
+--// =====================================================
 --// REFILL FUNCTIONS (UPDATED WITH TIMER LOGIC)
 --// =====================================================
 
@@ -7353,22 +7278,31 @@ local function FireRefillWithDelay()
         LastRefillFire = now
         getgenv().IsRefilling = true
         
-        local refillObj = FindRefillObject()
+        local refillSuccess = false
         
-        if refillObj then
-            pcall(function()
-                POST:FireServer("Attacks", "Reload", refillObj)
-            end)
-        else
-            pcall(function()
-                local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-                if gate then
-                    local children = gate:GetChildren()
-                    if children[50] and children[50]:FindFirstChild("Refill") then
-                        POST:FireServer("Attacks", "Reload", children[50].Refill)
+        -- ลองใช้ Gas Tank Refill ก่อน
+        if FireGasTankRefill() then
+            refillSuccess = true
+        end
+        
+        -- ถ้าไม่ได้ ให้ใช้วิธีเดิม
+        if not refillSuccess then
+            local refillObj = FindRefillObject()
+            if refillObj then
+                pcall(function()
+                    POST:FireServer("Attacks", "Reload", refillObj)
+                end)
+            else
+                pcall(function()
+                    local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+                    if gate then
+                        local children = gate:GetChildren()
+                        if children[50] and children[50]:FindFirstChild("Refill") then
+                            POST:FireServer("Attacks", "Reload", children[50].Refill)
+                        end
                     end
-                end
-            end)
+                end)
+            end
         end
         
         task.wait(0.5)
@@ -7630,10 +7564,8 @@ task.spawn(function()
                 
                 if not hqRefillTriggered and (tick() - hqZeroStartTime >= 5) then
                     hqRefillTriggered = true
-                    pcall(function()
-                        local refill = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
-                        POST:FireServer("Attacks", "Reload", refill)
-                    end)
+                    -- ใช้ Gas Tank Refill แทนการ hardcode
+                    FireGasTankRefill()
                     hqRefillFailedStart = tick()
                 end
                 
