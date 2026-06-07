@@ -8610,9 +8610,9 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats
+    -- หมวดที่ 1: Stats (เพิ่ม Shards)
     local statsFields = {
-        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"
+        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time", "Shards"
     }
     local selectedStats = {
         ["Level"] = true,
@@ -8622,6 +8622,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Gems"] = true,
         ["Spins"] = true,
         ["Time"] = true,
+        ["Shards"] = true,
     }
 
     -- หมวดที่ 2: Items
@@ -8648,7 +8649,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
+    -- Dropdown ประเภท
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8720,6 +8721,7 @@ if IsIngameLobby() and Tabs.Webhook then
                             Gems = slotData.Currency and slotData.Currency.Gems or 0,
                             Spins = data.Spins or 0,
                             Time = getThaiTime(),
+                            Shards = slotData.Currency and slotData.Currency.Shards or 0,
                         }
 
                         -- Items
@@ -8736,7 +8738,7 @@ if IsIngameLobby() and Tabs.Webhook then
 
                         -- Emoji mapping
                         local emoji = {
-                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
+                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐", Shards = ":",
                             ["Memory Scroll"] = "📜", ["Emperor's Key"] = "|", ["Female Serum"] = "💉",
                             ["Attack Serum"] = "|", ["armored serum"] = "|",
                             ["Angel's Halo"] = "|", ["Kitsune Ribbon"] = "|", ["Radiant Headband"] = "|",
@@ -8789,7 +8791,6 @@ if IsIngameLobby() and Tabs.Webhook then
         end
     })
 end
-
 
 
 -- ============================== MISC (SKIP CUTSCENE) ==============================
