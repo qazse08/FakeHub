@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(0.5)
+task.wait(0.25)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -6823,7 +6823,7 @@ if Player.Character then OnSpawn(Player.Character) end
 Player.CharacterAdded:Connect(OnSpawn)
 
 local FarmConn = nil
-local FARM_ATTACK_INTERVAL = 0.15
+local FARM_ATTACK_INTERVAL = 0.05
 local LastAttackTime = 0
 
 -- ==================== Wave Safety ====================
@@ -7124,7 +7124,7 @@ local Settings = {
     -- Refill Settings (ยิงไปที่ GasTank/Refill)
     Refill = {
         Cooldown = 3,              -- Cooldown between refill attempts (seconds)
-        WaitTimeBeforeRefill = 0,  -- รีฟิลทันทีเมื่อเห็น 0/3 (ไม่ต้องรอ)
+        WaitTimeBeforeRefill = 5,  -- Time after seeing "0/3" before attempting refill (seconds)
         RefillFailedWaitTime = 3,  -- Time to wait after failed refill before retry (seconds)
         RefillSuccessDelay = 0.5,  -- Delay after refill success (seconds)
     },
@@ -7409,49 +7409,12 @@ end
 --// ========== REFILL METHODS (ALL CUSTOMIZABLE) ==========
 --// =====================================================
 
--- 0. ยิง Refill จาก Breach HQ index 276
-local function FireBreachHQRefill()
-    local success, refill = pcall(function()
-        local breach = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Breach")
-        if not breach then return nil end
-        local hq = breach:FindFirstChild("HQ")
-        if not hq then return nil end
-        local target = hq:GetChildren()[276]
-        if target then
-            return target:FindFirstChild("Refill")
-        end
-        return nil
-    end)
-    if success and refill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refill)
-        end)
-        return true
-    end
-    return false
-end
-
--- 0b. ยิง Refill จาก HQ.GasTanks (อีกวิธี)
-local function FireHQGasTanksRefill()
-    local success, refill = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:FindFirstChild("GasTanks") and workspace.Unclimbable.Props.HQ.GasTanks:FindFirstChild("Refill")
-    end)
-    if success and refill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refill)
-        end)
-        return true
-    end
-    return false
-end
-
 -- 1. ยิง Refill จาก Waves:GetChildren()[index].Refill
 local function FireWavesFixedRefill()
     if not Settings.WavesFixed.Enabled then return false end
     
     local success, refill = pcall(function()
-        local waves = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves")
-        if not waves then return nil end
+        local waves = workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves")
         local target = waves:GetChildren()[Settings.WavesFixed.TargetIndex]
         if target then
             return target:FindFirstChild("Refill")
@@ -7472,7 +7435,7 @@ local function FireWavesGasTanksRefill()
     if not Settings.WavesGasTanks.Enabled then return false end
     
     local success, refill = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves") and workspace.Unclimbable.Objective.Waves:FindFirstChild("GasTanks") and workspace.Unclimbable.Objective.Waves.GasTanks:FindFirstChild("Refill")
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves"):WaitForChild("GasTanks"):WaitForChild("Refill")
     end)
     if success and refill then
         pcall(function()
@@ -7483,12 +7446,12 @@ local function FireWavesGasTanksRefill()
     return false
 end
 
--- 3. ยิง Refill จาก HQ.GasTanks.Refill (เดิม)
+-- 3. ยิง Refill จาก HQ.GasTanks.Refill
 local function FireHQDirectRefill()
     if not Settings.HQDirect.Enabled then return false end
     
     local success, refill = pcall(function()
-        return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:FindFirstChild("GasTanks") and workspace.Unclimbable.Props.HQ.GasTanks:FindFirstChild("Refill")
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
     end)
     if success and refill then
         pcall(function()
@@ -7504,8 +7467,7 @@ local function FireHQIndexedRefill()
     if not Settings.HQIndexed.Enabled then return false end
     
     local success, target = pcall(function()
-        local hq = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ")
-        if not hq then return nil end
+        local hq = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ")
         local parent = hq:GetChildren()[Settings.HQIndexed.ParentIndex]
         if parent then
             return parent:GetChildren()[Settings.HQIndexed.ChildIndex]
@@ -7542,12 +7504,8 @@ local function FireRandomWaveRefillRapid()
     until tick() - startTime >= Settings.RandomWave.Duration
 end
 
--- รวมทุกวิธี (จัดลำดับให้สอดคล้องกับที่ต้องการ)
+-- รวมทุกวิธีลองทีละอันตามลำดับที่ตั้งค่า
 local function AttemptAllRefills()
-    -- วิธีใหม่ที่ต้องการให้ยิงก่อน
-    if FireBreachHQRefill() then return true end
-    if FireHQGasTanksRefill() then return true end
-    
     local refillOrder = {
         {name = "GasTank", func = FireGasTankRefill, enabled = Settings.GasTank.Enabled},
         {name = "WavesFixed", func = FireWavesFixedRefill, enabled = Settings.WavesFixed.Enabled},
@@ -7572,30 +7530,19 @@ local function AttemptAllRefills()
 end
 
 --// =====================================================
---// REFILL FUNCTIONS (WITH TIMER LOGIC + FORCE REFILL)
+--// REFILL FUNCTIONS (WITH TIMER LOGIC)
 --// =====================================================
 
 local zeroThreeStartTime = nil
 local isRefillTriggered = false
 local refillFailedStartTime = nil
 local isRapidFiring = false
-local emergencyLoopActive = false
 
--- ฟังก์ชันยิงตรงแบบไม่ต้องรอ (ใช้สำหรับกรณีเห็น 0/3 โดยตรง)
-local function ForceImmediateRefill()
-    if not getgenv().AutoReloadBlade then return end
-    
-    -- ยิงทั้งสองคำสั่งตามที่กำหนดทันที
-    local refilled = false
-    if FireBreachHQRefill() then refilled = true end
-    task.wait(0.1)
-    if FireHQGasTanksRefill() then refilled = true end
-    
-    if refilled then
-        getgenv().IsRefilling = true
-        task.wait(1.5)
-        getgenv().IsRefilling = false
-    end
+local function RapidFireRandomRefill()
+    if isRapidFiring then return end
+    isRapidFiring = true
+    FireRandomWaveRefillRapid()
+    isRapidFiring = false
 end
 
 local function FireRefillWithDelay()
@@ -7614,9 +7561,19 @@ local function FireRefillWithDelay()
         LastRefillFire = now
         getgenv().IsRefilling = true
         
-        -- ยิงทันที (รอแค่ 1.5 วิ แล้วรีเซ็ต)
-        ForceImmediateRefill()
+        local refillSuccess = AttemptAllRefills()
         
+        if not refillSuccess then
+            -- Fallback to original method
+            local refillObj = FindRefillObject()
+            if refillObj then
+                pcall(function()
+                    POST:FireServer("Attacks", "Reload", refillObj)
+                end)
+            end
+        end
+        
+        task.wait(Settings.Refill.RefillSuccessDelay)
         getgenv().IsRefilling = false
         refillFailedStartTime = tick()
     end
@@ -7635,20 +7592,11 @@ local function CheckRefillResult()
         end)
         if success then
             text = text:gsub("%s+", "")
-            if text:find("0/3") then
-                -- ยังเป็น 0/3 อยู่ ให้ยิงซ้ำอีกรอบ
-                ForceImmediateRefill()
-                refillFailedStartTime = tick()
+            if text == "0/3" and Settings.RandomWave.Enabled then
+                RapidFireRandomRefill()
             end
         end
     end
-end
-
-local function RapidFireRandomRefill()
-    if isRapidFiring then return end
-    isRapidFiring = true
-    FireRandomWaveRefillRapid()
-    isRapidFiring = false
 end
 
 --// =====================================================
@@ -7679,7 +7627,7 @@ local function RapidReloadBlades()
 end
 
 --// =====================================================
---// MAIN LOOP (ตรวจสอบ 0/3 แบบเข้มงวด)
+--// MAIN LOOP
 --// =====================================================
 task.spawn(function()
     local lastLogState = ""
@@ -7691,9 +7639,8 @@ task.spawn(function()
 
             if success then
                 text = text:gsub("%s+", "")
-                -- ใช้ find แทน == เพื่อความแม่นยำ (ตรวจจับ 0/3 ได้แม้มีอักขระแอบแฝง)
-                local isZeroThree = text:find("0/3") ~= nil
                 local bladesEmpty = AreBladesEmpty()
+                local isZeroThree = (text == "0/3")
                 
                 if isZeroThree then
                     if lastLogState ~= "zero" then
@@ -7707,7 +7654,6 @@ task.spawn(function()
                         zeroThreeStartTime = nil
                         isRefillTriggered = nil
                         refillFailedStartTime = nil
-                        emergencyLoopActive = false
                     end
                     lastLogState = "normal"
                     
@@ -7739,7 +7685,6 @@ task.spawn(function()
             isRefillTriggered = false
             refillFailedStartTime = nil
             isRapidFiring = false
-            emergencyLoopActive = false
             lastLogState = ""
         end
         task.wait(Settings.CheckDelay)
@@ -7770,7 +7715,6 @@ task.spawn(function()
                     if now - _G.RefillStartTime > Settings.BladeReload.WatchdogTimeout then
                         getgenv().IsRefilling = false
                         _G.RefillStartTime = nil
-                        emergencyLoopActive = false
                     end
                 else
                     _G.RefillStartTime = nil
@@ -7840,13 +7784,14 @@ task.spawn(function()
                 
                 if not hqRefillTriggered and (tick() - hqZeroStartTime >= Settings.Refill.WaitTimeBeforeRefill) then
                     hqRefillTriggered = true
-                    ForceImmediateRefill()
+                    AttemptAllRefills()
                     hqRefillFailedStart = tick()
                 end
                 
                 if hqRefillFailedStart and (tick() - hqRefillFailedStart >= Settings.Refill.RefillFailedWaitTime) then
                     local stillZero = (getCurrentAmountSilent() == 0 and checkAllBladesTransparentSilent())
                     if stillZero and Settings.HQRapidFire.Enabled then
+                        -- Rapid fire using HQ (if enabled)
                         local startTime = tick()
                         while tick() - startTime < Settings.HQRapidFire.Duration do
                             FireRandomWaveRefillRapid()
