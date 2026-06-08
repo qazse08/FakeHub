@@ -3892,6 +3892,7 @@ if Tabs.Lobby then
     local wavesRunning = false
     local wavesBusy = false
     local wavesSessionId = 0
+    local wavesDelay = 0  -- เพิ่มตัวแปร delay สำหรับ Waves
 
     -- ========== RETRY WRAPPER FOR CREATE WAVE ==========
     local function CreateWaveWithRetry()
@@ -3958,9 +3959,27 @@ if Tabs.Lobby then
                 if not wavesRunning or wavesSessionId ~= mySession then break end
             until tick() - startTick >= 0.45
 
+            -- เพิ่ม delay หลังจากจบแต่ละ Wave
+            if wavesDelay > 0 then
+                task.wait(wavesDelay)
+            end
+
             wavesBusy = false
         end
     end
+
+    -- เพิ่ม Slider Delay สำหรับ Waves
+    WavesTab:AddSlider("WavesDelaySlider", {
+        Text = "Wave Delay",
+        Default = 0,
+        Min = 0,
+        Max = 60,
+        Rounding = 0,
+        Suffix = " sec",
+        Callback = function(v)
+            wavesDelay = v
+        end
+    })
 
     -- ========== ปรับ Toggle Waves ==========
     local wavesPendingStart = false
@@ -4015,7 +4034,6 @@ if Tabs.Lobby then
     })
 
 end
-
 -- ============================== AUTO UPGRADE ==============================
 if IsLobbyLobby() then
     local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
