@@ -8974,11 +8974,13 @@ if IsIngameLobby() and Tabs.Webhook then
                                 if field ~= "Slot" and field ~= "Time" then
                                     val = formatNumber(val)
                                 end
-                                table.insert(parts, string.format("%s: %s", field, val))
+                                -- เปลี่ยนจาก "field: value" เป็น "field value" (ไม่มี colon)
+                                table.insert(parts, string.format("%s %s", field, val))
                             end
                         end
 
-                        local description = table.concat(parts, "  ")
+                        -- รวมด้วย " | " (space pipe space)
+                        local description = table.concat(parts, " | ")
 
                         if _G and _G.Horst_SetDescription then
                             _G.Horst_SetDescription(description)
