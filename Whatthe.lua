@@ -8803,9 +8803,9 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats
+    -- หมวดที่ 1: Stats (เพิ่ม Shards)
     local statsFields = {
-        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"
+        "Level", "Prestige", "Slot", "Gold", "Gems", "Shards", "Spins", "Time"
     }
     local selectedStats = {
         ["Level"] = true,
@@ -8813,6 +8813,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Slot"] = true,
         ["Gold"] = true,
         ["Gems"] = true,
+        ["Shards"] = true,
         ["Spins"] = true,
         ["Time"] = true,
     }
@@ -8911,6 +8912,7 @@ if IsIngameLobby() and Tabs.Webhook then
                             Slot = currentSlot,
                             Gold = slotData.Currency and slotData.Currency.Gold or 0,
                             Gems = slotData.Currency and slotData.Currency.Gems or 0,
+                            Shards = slotData.Currency and slotData.Currency.Shards or 0,
                             Spins = data.Spins or 0,
                             Time = getThaiTime(),
                         }
@@ -8927,16 +8929,7 @@ if IsIngameLobby() and Tabs.Webhook then
                             valueMap[field] = cosmetics[field] or 0
                         end
 
-                        -- Emoji mapping
-                        local emoji = {
-                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
-                            ["Memory Scroll"] = "📜", ["Emperor's Key"] = "|", ["Female Serum"] = "💉",
-                            ["Attack Serum"] = "|", ["armored serum"] = "|",
-                            ["Angel's Halo"] = "|", ["Kitsune Ribbon"] = "|", ["Radiant Headband"] = "|",
-                            ["Blood Vial"] = "|", ["Kitsune Mask"] = "|",
-                        }
-
-                        -- สร้าง description
+                        -- สร้าง description (ไม่มีอิโมจิ)
                         local parts = {}
 
                         -- เรียงลำดับ: Stats -> Items -> Cosmetics
@@ -8960,8 +8953,7 @@ if IsIngameLobby() and Tabs.Webhook then
                                 if field ~= "Slot" and field ~= "Time" then
                                     val = formatNumber(val)
                                 end
-                                local e = emoji[field] or "•"
-                                table.insert(parts, string.format("%s %s: %s", e, field, val))
+                                table.insert(parts, string.format("%s: %s", field, val))
                             end
                         end
 
@@ -8982,7 +8974,6 @@ if IsIngameLobby() and Tabs.Webhook then
         end
     })
 end
-
 
 
 -- ============================== MISC (SKIP CUTSCENE) ==============================
