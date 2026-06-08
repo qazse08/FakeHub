@@ -5815,6 +5815,7 @@ if Tabs.AutoFarm then
 end
 -- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
+local syncingWeapon = false  -- ป้องกันการวนลูปเมื่อสลับโหมดอัตโนมัติ
 
 -- ฟังก์ชันตรวจสอบ UI Objectives สำหรับควบคุมการเริ่มฟาร์ม
 local function isObjectivesVisibleForFarm()
@@ -5878,6 +5879,49 @@ if Tabs.AutoFarm then
     G.ThunderSpearFirePower = 8
     G.ThunderSpearExplodeRadius = 0.13
 
+    -- ========== อัปเดตอาวุธทุก 5 วินาที และสลับโหมดอัตโนมัติ ==========
+    task.spawn(function()
+        while true do
+            task.wait(5)
+            pcall(function()
+                if G.GetDetectedWeapon then
+                    local oldWeapon = G.GetDetectedWeapon()
+                    G.GetDetectedWeapon() -- รีเฟรช cache
+                    local newWeapon = G.GetDetectedWeapon()
+                    
+                    if oldWeapon ~= newWeapon and not syncingWeapon then
+                        syncingWeapon = true
+                        
+                        if newWeapon == "Blade" then
+                            -- ถ้า Thunder Spear กำลังทำงาน ให้ปิดแล้วเปิด Blade
+                            if G.AutoThunderSpear then
+                                if Options and Options.AutoThunderSpearToggle then
+                                    Options.AutoThunderSpearToggle:SetValue(false)
+                                end
+                                if Options and Options.AutoFarmBlade then
+                                    Options.AutoFarmBlade:SetValue(true)
+                                end
+                            end
+                        elseif newWeapon == "Thunder Spear" then
+                            -- ถ้า Blade กำลังทำงาน ให้ปิดแล้วเปิด Thunder Spear
+                            if G.AutoFarmBlade then
+                                if Options and Options.AutoFarmBlade then
+                                    Options.AutoFarmBlade:SetValue(false)
+                                end
+                                if Options and Options.AutoThunderSpearToggle then
+                                    Options.AutoThunderSpearToggle:SetValue(true)
+                                end
+                            end
+                        end
+                        
+                        syncingWeapon = false
+                    end
+                end
+            end)
+        end
+    end)
+    -- ===================================================
+
     local function getCurrentWeapon()
         return G.GetDetectedWeapon and G.GetDetectedWeapon() or "Unknown"
     end
@@ -5891,6 +5935,8 @@ if Tabs.AutoFarm then
     end
 
     local function resolveConflictingToggles()
+        if syncingWeapon then return end  -- หลีกเลี่ยงการทำงานซ้ำตอนสลับอัตโนมัติ
+        
         if G.AutoFarmBlade and G.AutoThunderSpear then
             if isBlade() then
                 G.AutoThunderSpear = false
@@ -5941,6 +5987,7 @@ if Tabs.AutoFarm then
         Multi = false, 
         Text = "Farm Select",
         Callback = function(val)
+            if syncingWeapon then return end
             G.FarmMode = val
             if PendingFarmStart and G.AutoFarmBlade and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                 if updateFarmObjectivesStatus() then
@@ -5953,18 +6000,18 @@ if Tabs.AutoFarm then
 
     BladeTab:AddSlider("HoverSpeedSlider", {
         Text="Hover Speed", Default=G.HoverSpeed, Min=50, Max=1000, Rounding=0,
-        Callback=function(val) G.HoverSpeed = val end
+        Callback=function(val) if not syncingWeapon then G.HoverSpeed = val end end
     })
     
     BladeTab:AddSlider("HoverHeightSlider", {
         Text="Hover Height", Default=G.HoverHeight, Min=0, Max=400, Rounding=0,
-        Callback=function(val) G.HoverHeight = val end
+        Callback=function(val) if not syncingWeapon then G.HoverHeight = val end end
     })
 
     BladeTab:AddToggle("AutoFarmBlade", {
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
-            -- รอ 1 วินาทีเมื่อเปิด toggle ครั้งแรก
+            if syncingWeapon then return end
             if v then task.wait(1) end
             waitForUI()
             if v then
@@ -6008,7 +6055,6 @@ if Tabs.AutoFarm then
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                -- หยุดการเคลื่อนที่ทั้งหมด
                 CleanupSmoothMovement()
                 CurrentEntry = nil
             end
@@ -6018,6 +6064,7 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("AutoReloadBlade", {
         Text="Auto Reload Blade", Default=false,
         Callback=function(v) 
+            if syncingWeapon then return end
             if v then task.wait(1) end
             G.AutoReloadBlade = v
             if not v then
@@ -6033,6 +6080,7 @@ if Tabs.AutoFarm then
     BladeTab:AddToggle("StartRejoin", {
         Text="Auto Retry", Default=false,
         Callback=function(v) 
+            if syncingWeapon then return end
             if v then task.wait(1) end
             G.StartRejoin = v 
         end
@@ -6046,6 +6094,7 @@ if Tabs.AutoFarm then
         Text = "Auto Thunder Spear",
         Default = false,
         Callback = function(v)
+            if syncingWeapon then return end
             if v then task.wait(1) end
             waitForUI()
             if v then
@@ -6084,17 +6133,17 @@ if Tabs.AutoFarm then
         Default = "Tween",
         Multi = false,
         Text = "Farm Mode",
-        Callback = function(v) G.ThunderSpearFarmMode = v end
+        Callback = function(v) if not syncingWeapon then G.ThunderSpearFarmMode = v end end
     })
     
     SpearTab:AddSlider("ThunderSpear_HoverSpeed", {
         Text="Hover Speed", Default=120, Min=50, Max=1000, Rounding=0,
-        Callback=function(v) G.ThunderSpearHoverSpeed = v end
+        Callback=function(v) if not syncingWeapon then G.ThunderSpearHoverSpeed = v end end
     })
     
     SpearTab:AddSlider("ThunderSpear_HoverHeight", {
         Text="Hover Height", Default=120, Min=0, Max=400, Rounding=0,
-        Callback=function(v) G.ThunderSpearHoverHeight = v end
+        Callback=function(v) if not syncingWeapon then G.ThunderSpearHoverHeight = v end end
     })
 
     task.spawn(function()
@@ -6102,7 +6151,6 @@ if Tabs.AutoFarm then
             task.wait(0.5)
             pcall(function()
                 resolveConflictingToggles()
-                -- เช็คว่า AutoFarmBlade เปิดอยู่มั้ย ถ้าปิดอย่าทำอะไร
                 if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
                     if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
                         G.Farm = true
@@ -6129,120 +6177,153 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-    -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
-    TeleportGroup:AddDivider()
-    
-    local combinedDelay = 0
-    local selectedActions = {}
-    local combinedEnabled = false
-    local combinedTimerRunning = false
-    local combinedStartTime = 0
-    local actionPending = false
-    local teleportAttempts = 0
-    local maxAttempts = 5
-    
-    TeleportGroup:AddSlider("CombinedActionDelaySlider", {
-        Text = "Set Delay (seconds)",
-        Default = 0,
-        Min = 0,
-        Max = 600,
-        Rounding = 0,
-        Suffix = " sec",
-        Callback = function(v)
-            combinedDelay = v
+   -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
+TeleportGroup:AddDivider()
+
+local combinedDelay = 0
+local selectedActions = {}
+local combinedEnabled = false
+local combinedTimerRunning = false
+local combinedStartTime = 0
+local actionPending = false
+local teleportAttempts = 0
+local maxAttempts = 5
+
+TeleportGroup:AddSlider("CombinedActionDelaySlider", {
+    Text = "Set Delay (seconds)",
+    Default = 0,
+    Min = 0,
+    Max = 1200,
+    Rounding = 0,
+    Suffix = " sec",
+    Callback = function(v)
+        combinedDelay = v
+    end
+})
+
+TeleportGroup:AddDropdown("CombinedActionsDropdown", {
+    Values = {"Teleport to Main Menu", "Kill Character", "AUTO Leave Game"},
+    Default = {},
+    Multi = true,
+    Text = "Select [ Multi ]",
+    Callback = function(v)
+        selectedActions = v
+    end
+})
+
+local function performTeleportToMainMenu()
+    teleportAttempts = teleportAttempts + 1
+    pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+    if teleportAttempts >= maxAttempts then
+        game:Shutdown()
+    end
+end
+
+local function performKillCharacter()
+    local player = game.Players.LocalPlayer
+    if player.Character and player.Character:FindFirstChild("Humanoid") then
+        player.Character.Humanoid.Health = 0
+    end
+end
+
+local function getSelectedActionsList()
+    local list = {}
+    for actionName, isSelected in pairs(selectedActions) do
+        if isSelected then
+            table.insert(list, actionName)
         end
-    })
+    end
+    return list
+end
+
+local function executeCombinedActions()
+    if not actionPending then return end
+    actionPending = false
+    combinedTimerRunning = false
     
-    TeleportGroup:AddDropdown("CombinedActionsDropdown", {
-        Values = {"Teleport to Main Menu", "Kill Character", "AUTO Leave Game"},
-        Default = {},
-        Multi = true,
-        Text = "Select [ Multi ]",
-        Callback = function(v)
-            selectedActions = v
-        end
-    })
-    
-    local function performTeleportToMainMenu()
-        teleportAttempts = teleportAttempts + 1
-        pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
-        if teleportAttempts >= maxAttempts then
+    local actionsToRun = getSelectedActionsList()
+    for _, action in ipairs(actionsToRun) do
+        if action == "Teleport to Main Menu" then
+            performTeleportToMainMenu()
+        elseif action == "Kill Character" then
+            performKillCharacter()
+        elseif action == "AUTO Leave Game" then
             game:Shutdown()
         end
+        task.wait(0.2)
     end
+    teleportAttempts = 0
+end
+
+local function startCombinedTimer()
+    if combinedTimerRunning then return end
     
-    local function performKillCharacter()
-        local player = game.Players.LocalPlayer
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Character.Humanoid.Health = 0
-        end
-    end
-    
-    local function executeCombinedActions()
-        if not actionPending then return end
-        actionPending = false
-        combinedTimerRunning = false
-        
-        for _, action in ipairs(selectedActions) do
-            if action == "Teleport to Main Menu" then
-                performTeleportToMainMenu()
-            elseif action == "Kill Character" then
-                performKillCharacter()
-            elseif action == "AUTO Leave Game" then
-                game:Shutdown()
-            end
-            task.wait(0.2)
-        end
-        teleportAttempts = 0
-    end
-    
-    local function startCombinedTimer()
-        if combinedTimerRunning then return end
-        if combinedDelay <= 0 then
-            if #selectedActions > 0 then
-                actionPending = true
-                executeCombinedActions()
-            end
-            return
-        end
-        
-        combinedTimerRunning = true
-        actionPending = true
-        combinedStartTime = tick()
-        
-        task.spawn(function()
-            while combinedEnabled and actionPending do
-                local elapsed = tick() - combinedStartTime
-                if elapsed >= combinedDelay then
-                    executeCombinedActions()
-                    break
+    local actionsToRun = getSelectedActionsList()
+    if #actionsToRun == 0 then
+        if combinedEnabled then
+            pcall(function()
+                if Options and Options.CombinedActionToggle then
+                    Options.CombinedActionToggle:SetValue(false)
                 end
-                task.wait(0.1)
-            end
-        end)
-    end
-    
-    local function stopCombinedTimer()
-        actionPending = false
-        combinedTimerRunning = false
-        teleportAttempts = 0
-    end
-    
-    TeleportGroup:AddToggle("CombinedActionToggle", {
-        Text = "Enable Failed Safe",
-        Default = false,
-        Callback = function(v)
-            if v then task.wait(1) end
-            combinedEnabled = v
-            if v then
-                startCombinedTimer()
-            else
-                stopCombinedTimer()
-            end
+            end)
+            combinedEnabled = false
         end
-    })
+        return
+    end
+    
+    if combinedDelay <= 0 then
+        actionPending = true
+        executeCombinedActions()
+        return
+    end
+    
+    combinedTimerRunning = true
+    actionPending = true
+    combinedStartTime = tick()
+    
+    task.spawn(function()
+        while combinedEnabled and actionPending do
+            local elapsed = tick() - combinedStartTime
+            if elapsed >= combinedDelay then
+                executeCombinedActions()
+                break
+            end
+            task.wait(0.1)
+        end
+    end)
 end
 
+local function stopCombinedTimer()
+    actionPending = false
+    combinedTimerRunning = false
+    teleportAttempts = 0
+end
+
+TeleportGroup:AddToggle("CombinedActionToggle", {
+    Text = "Enable Failed Safe",
+    Default = false,
+    Callback = function(v)
+        combinedEnabled = v
+        if v then
+            local actionsToRun = getSelectedActionsList()
+            if #actionsToRun == 0 then
+                Library:Notify("Please select at least one action first!", 3)
+                pcall(function()
+                    if Options and Options.CombinedActionToggle then
+                        Options.CombinedActionToggle:SetValue(false)
+                    end
+                end)
+                return
+            end
+            startCombinedTimer()
+        else
+            stopCombinedTimer()
+        end
+    end
+})
+end
+
+-- ส่วนอื่นๆ ของสคริปต์ (TitansFolder, IsInCutscene) คงเดิม
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -6294,7 +6375,6 @@ if not TitansFolder then
         TitansFolder.Parent = workspace
     end
 end
-
 -- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
@@ -6976,18 +7056,83 @@ local function DebugNotify(msg, duration)
 end
 
 --// =====================================================
---// SETTINGS
+--// ========== ADVANCED SETTINGS (FULLY CUSTOMIZABLE) ==========
 --// =====================================================
 
 local Settings = {
+    -- Master delay for main loop (seconds)
     CheckDelay = 0.01,
+    
+    -- Blade Reload Settings (กด R)
     BladeReload = {
-        Cooldown = 0.01,
-        ConfirmCountRequired = 10,
+        Cooldown = 0.01,           -- Delay between R key presses (seconds)
+        ConfirmCountRequired = 10, -- Number of consecutive empty checks before reload
+        MaxRetries = 50,           -- Maximum reload attempts before giving up
+        RetryDelay = 0.08,         -- Delay between reload attempts
+        WatchdogTimeout = 5,       -- Timeout before watchdog resets stuck reload (seconds)
     },
+    
+    -- Refill Settings (ยิงไปที่ GasTank/Refill)
     Refill = {
-        Cooldown = 3,
-    }
+        Cooldown = 3,              -- Cooldown between refill attempts (seconds)
+        WaitTimeBeforeRefill = 5,  -- Time after seeing "0/3" before attempting refill (seconds)
+        RefillFailedWaitTime = 3,  -- Time to wait after failed refill before retry (seconds)
+        RefillSuccessDelay = 0.5,  -- Delay after refill success (seconds)
+    },
+    
+    -- Gas Tank Refill Settings (Climbable Gate)
+    GasTank = {
+        Enabled = true,            -- Enable/disable GasTank refill method
+        Cooldown = 2,              -- Cooldown between GasTank fires (seconds)
+        ScanInterval = 30,         -- How often to rescan GasTanks (seconds)
+        MaxIndex = 300,            -- Max index to scan for GasTanks
+        RoundRobin = true,         -- Use round-robin (true) or random (false)
+    },
+    
+    -- Waves Fixed Refill Settings (Unclimbable.Objective.Waves[index].Refill)
+    WavesFixed = {
+        Enabled = true,            -- Enable/disable Waves fixed index refill
+        TargetIndex = 233,         -- Which index to target (default 233)
+    },
+    
+    -- Waves GasTanks Refill Settings
+    WavesGasTanks = {
+        Enabled = true,            -- Enable/disable Waves.GasTanks.Refill method
+    },
+    
+    -- HQ Direct Refill Settings (Unclimbable.Props.HQ.GasTanks.Refill)
+    HQDirect = {
+        Enabled = true,            -- Enable/disable HQ direct refill method
+    },
+    
+    -- HQ Indexed Refill Settings
+    HQIndexed = {
+        Enabled = true,            -- Enable/disable HQ indexed refill method
+        ParentIndex = 273,         -- Which child index in HQ (default 273)
+        ChildIndex = 3,            -- Which grandchild index (default 3)
+    },
+    
+    -- Random Wave Refill Settings (ฉุกเฉิน)
+    RandomWave = {
+        Enabled = true,            -- Enable/disable random wave refill fallback
+        Duration = 2,              -- How long to keep firing randomly (seconds)
+        MinIndex = 1,              -- Minimum random index
+        MaxIndex = 300,            -- Maximum random index
+        FireDelay = 0.05,          -- Delay between random fires (seconds)
+    },
+    
+    -- HQ Rapid Fire Settings (ฉุกเฉินอีกระดับ)
+    HQRapidFire = {
+        Enabled = true,            -- Enable/disable HQ rapid fire fallback
+        Duration = 5,              -- How long to keep firing rapidly (seconds)
+        FireDelay = 0.01,          -- Delay between rapid fires (seconds)
+    },
+    
+    -- Notification Settings
+    Notifications = {
+        Enabled = false,           -- Enable/disable debug notifications
+        Cooldown = 5,              -- Cooldown between same notifications (seconds)
+    },
 }
 
 --// =====================================================
@@ -7059,10 +7204,7 @@ local LastBladeReload = 0
 local LastRefillFire = 0
 local BladeEmptyConfirmCounter = 0
 local IsReloadingRapid = false
-local lastRefillNotify = 0
-local lastReloadNotify = 0
-local REFILL_NOTIFY_COOLDOWN = 5
-local RELOAD_NOTIFY_COOLDOWN = 5
+local reloadAttempts = 0
 
 --// =====================================================
 --// CHECK REAL BLADES
@@ -7102,7 +7244,7 @@ local function AreBladesEmpty()
 end
 
 --// =====================================================
---// FIND REFILL OBJECT (DYNAMIC)
+--// FIND REFILL OBJECT (DYNAMIC - FALLBACK)
 --// =====================================================
 local function FindRefillObject()
     local success, refill = pcall(function()
@@ -7141,11 +7283,12 @@ end
 
 local cachedGasTankRefills = {}
 local lastGasTankScan = 0
-local GAS_TANK_SCAN_INTERVAL = 30
 
 local function scanGasTankRefills()
+    if not Settings.GasTank.Enabled then return {} end
+    
     local now = tick()
-    if now - lastGasTankScan < GAS_TANK_SCAN_INTERVAL and #cachedGasTankRefills > 0 then
+    if now - lastGasTankScan < Settings.GasTank.ScanInterval and #cachedGasTankRefills > 0 then
         return cachedGasTankRefills
     end
     lastGasTankScan = now
@@ -7155,8 +7298,7 @@ local function scanGasTankRefills()
         local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
         if not gate then return end
         
-        -- สแกนหา Refill โดยตรงจาก Gate:GetChildren()[1-300]
-        for idx = 1, 300 do
+        for idx = 1, Settings.GasTank.MaxIndex do
             local child = gate:FindFirstChild("GasTanks") or gate:FindFirstChild("GasTank")
             if not child then
                 child = gate:FindChildren()[idx]
@@ -7174,16 +7316,17 @@ local function scanGasTankRefills()
 end
 
 --// =====================================================
---// FIRE GAS TANK REFILL (RAPID SCAN VERSION)
+--// FIRE GAS TANK REFILL
 --// =====================================================
 
 local lastGasTankFire = 0
-local GAS_TANK_FIRE_COOLDOWN = 2
 local fireIndex = 1
 
 local function FireGasTankRefill()
+    if not Settings.GasTank.Enabled then return false end
+    
     local now = tick()
-    if now - lastGasTankFire < GAS_TANK_FIRE_COOLDOWN then
+    if now - lastGasTankFire < Settings.GasTank.Cooldown then
         return false
     end
     
@@ -7194,72 +7337,163 @@ local function FireGasTankRefill()
     
     lastGasTankFire = now
     
-    -- ยิงทีละตัวแบบ輪換 (round-robin)
-    local targetRefill = refills[fireIndex]
+    local targetRefill = nil
+    if Settings.GasTank.RoundRobin then
+        targetRefill = refills[fireIndex]
+        fireIndex = fireIndex + 1
+        if fireIndex > #refills then fireIndex = 1 end
+    else
+        targetRefill = refills[math.random(1, #refills)]
+    end
+    
     if targetRefill then
         pcall(function()
             POST:FireServer("Attacks", "Reload", targetRefill)
         end)
+        return true
     end
     
-    fireIndex = fireIndex + 1
-    if fireIndex > #refills then
-        fireIndex = 1
-    end
-    
-    return true
+    return false
 end
 
 --// =====================================================
---// REFILL FUNCTIONS (UPDATED WITH TIMER LOGIC)
+--// ========== REFILL METHODS (ALL CUSTOMIZABLE) ==========
+--// =====================================================
+
+-- 1. ยิง Refill จาก Waves:GetChildren()[index].Refill
+local function FireWavesFixedRefill()
+    if not Settings.WavesFixed.Enabled then return false end
+    
+    local success, refill = pcall(function()
+        local waves = workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves")
+        local target = waves:GetChildren()[Settings.WavesFixed.TargetIndex]
+        if target then
+            return target:FindFirstChild("Refill")
+        end
+        return nil
+    end)
+    if success and refill then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", refill)
+        end)
+        return true
+    end
+    return false
+end
+
+-- 2. ยิง Refill จาก Waves.GasTanks.Refill
+local function FireWavesGasTanksRefill()
+    if not Settings.WavesGasTanks.Enabled then return false end
+    
+    local success, refill = pcall(function()
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves"):WaitForChild("GasTanks"):WaitForChild("Refill")
+    end)
+    if success and refill then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", refill)
+        end)
+        return true
+    end
+    return false
+end
+
+-- 3. ยิง Refill จาก HQ.GasTanks.Refill
+local function FireHQDirectRefill()
+    if not Settings.HQDirect.Enabled then return false end
+    
+    local success, refill = pcall(function()
+        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
+    end)
+    if success and refill then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", refill)
+        end)
+        return true
+    end
+    return false
+end
+
+-- 4. ยิง Refill จาก HQ:GetChildren()[ParentIndex]:GetChildren()[ChildIndex]
+local function FireHQIndexedRefill()
+    if not Settings.HQIndexed.Enabled then return false end
+    
+    local success, target = pcall(function()
+        local hq = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ")
+        local parent = hq:GetChildren()[Settings.HQIndexed.ParentIndex]
+        if parent then
+            return parent:GetChildren()[Settings.HQIndexed.ChildIndex]
+        end
+        return nil
+    end)
+    if success and target and target:IsA("BasePart") then
+        pcall(function()
+            POST:FireServer("Attacks", "Reload", target)
+        end)
+        return true
+    end
+    return false
+end
+
+-- 5. ยิงแบบสุ่มใน Waves (ฉุกเฉิน)
+local function FireRandomWaveRefillRapid()
+    if not Settings.RandomWave.Enabled then return end
+    
+    local startTime = tick()
+    local waves = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves")
+    if not waves then return end
+    local children = waves:GetChildren()
+    
+    repeat
+        local randomIndex = math.random(Settings.RandomWave.MinIndex, Settings.RandomWave.MaxIndex)
+        local target = children[randomIndex]
+        if target and target:FindFirstChild("Refill") then
+            pcall(function()
+                POST:FireServer("Attacks", "Reload", target.Refill)
+            end)
+        end
+        task.wait(Settings.RandomWave.FireDelay)
+    until tick() - startTime >= Settings.RandomWave.Duration
+end
+
+-- รวมทุกวิธีลองทีละอันตามลำดับที่ตั้งค่า
+local function AttemptAllRefills()
+    local refillOrder = {
+        {name = "GasTank", func = FireGasTankRefill, enabled = Settings.GasTank.Enabled},
+        {name = "WavesFixed", func = FireWavesFixedRefill, enabled = Settings.WavesFixed.Enabled},
+        {name = "WavesGasTanks", func = FireWavesGasTanksRefill, enabled = Settings.WavesGasTanks.Enabled},
+        {name = "HQDirect", func = FireHQDirectRefill, enabled = Settings.HQDirect.Enabled},
+        {name = "HQIndexed", func = FireHQIndexedRefill, enabled = Settings.HQIndexed.Enabled},
+    }
+    
+    for _, method in ipairs(refillOrder) do
+        if method.enabled then
+            local success = method.func()
+            if success then return true end
+        end
+    end
+    
+    -- ถ้าทั้งหมดล้มเหลว ให้ใช้ Random Wave (ถ้าเปิดใช้งาน)
+    if Settings.RandomWave.Enabled then
+        FireRandomWaveRefillRapid()
+    end
+    
+    return false
+end
+
+--// =====================================================
+--// REFILL FUNCTIONS (WITH TIMER LOGIC)
 --// =====================================================
 
 local zeroThreeStartTime = nil
 local isRefillTriggered = false
 local refillFailedStartTime = nil
 local isRapidFiring = false
-local rapidFireStopTime = nil
 
 local function RapidFireRandomRefill()
     if isRapidFiring then return end
     isRapidFiring = true
-    rapidFireStopTime = tick() + 5
-    
-    task.spawn(function()
-        while isRapidFiring and tick() < rapidFireStopTime do
-            local success, currentText = pcall(function()
-                return tostring(Sets.Text)
-            end)
-            if success and currentText and currentText:gsub("%s+", "") ~= "0/3" then
-                break
-            end
-            
-            local randomIndex = math.random(1, 300)
-            local success, hq = pcall(function()
-                return workspace:FindFirstChild("Unclimbable") 
-                    and workspace.Unclimbable:FindFirstChild("Props") 
-                    and workspace.Unclimbable.Props:FindFirstChild("HQ")
-            end)
-            
-            if success and hq then
-                local children = hq:GetChildren()
-                if randomIndex <= #children then
-                    local targetChild = children[randomIndex]
-                    if targetChild then
-                        local refill = targetChild:FindFirstChild("Refill")
-                        if refill then
-                            pcall(function()
-                                POST:FireServer("Attacks", "Reload", refill)
-                            end)
-                        end
-                    end
-                end
-            end
-            
-            task.wait(0.01)
-        end
-        isRapidFiring = false
-    end)
+    FireRandomWaveRefillRapid()
+    isRapidFiring = false
 end
 
 local function FireRefillWithDelay()
@@ -7273,39 +7507,24 @@ local function FireRefillWithDelay()
         return
     end
     
-    if now - zeroThreeStartTime >= 5 and not isRefillTriggered then
+    if now - zeroThreeStartTime >= Settings.Refill.WaitTimeBeforeRefill and not isRefillTriggered then
         isRefillTriggered = true
         LastRefillFire = now
         getgenv().IsRefilling = true
         
-        local refillSuccess = false
+        local refillSuccess = AttemptAllRefills()
         
-        -- ลองใช้ Gas Tank Refill ก่อน
-        if FireGasTankRefill() then
-            refillSuccess = true
-        end
-        
-        -- ถ้าไม่ได้ ให้ใช้วิธีเดิม
         if not refillSuccess then
+            -- Fallback to original method
             local refillObj = FindRefillObject()
             if refillObj then
                 pcall(function()
                     POST:FireServer("Attacks", "Reload", refillObj)
                 end)
-            else
-                pcall(function()
-                    local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-                    if gate then
-                        local children = gate:GetChildren()
-                        if children[50] and children[50]:FindFirstChild("Refill") then
-                            POST:FireServer("Attacks", "Reload", children[50].Refill)
-                        end
-                    end
-                end)
             end
         end
         
-        task.wait(0.5)
+        task.wait(Settings.Refill.RefillSuccessDelay)
         getgenv().IsRefilling = false
         refillFailedStartTime = tick()
     end
@@ -7316,7 +7535,7 @@ local function CheckRefillResult()
     if refillFailedStartTime == nil then return end
     
     local now = tick()
-    if now - refillFailedStartTime >= 3 then
+    if now - refillFailedStartTime >= Settings.Refill.RefillFailedWaitTime then
         refillFailedStartTime = nil
         
         local success, text = pcall(function()
@@ -7324,7 +7543,7 @@ local function CheckRefillResult()
         end)
         if success then
             text = text:gsub("%s+", "")
-            if text == "0/3" then
+            if text == "0/3" and Settings.RandomWave.Enabled then
                 RapidFireRandomRefill()
             end
         end
@@ -7340,25 +7559,26 @@ local function RapidReloadBlades()
     
     IsReloadingRapid = true
     getgenv().IsReloading = true
+    reloadAttempts = 0
     
     task.spawn(function()
-        local reloadCount = 0
-        while getgenv().AutoReloadBlade and AreBladesEmpty() do
+        while getgenv().AutoReloadBlade and AreBladesEmpty() and reloadAttempts < Settings.BladeReload.MaxRetries do
             local now = tick()
             if now - LastBladeReload >= Settings.BladeReload.Cooldown then
                 LastBladeReload = now
                 PressR()
-                reloadCount = reloadCount + 1
+                reloadAttempts = reloadAttempts + 1
             end
-            task.wait(0.08)
+            task.wait(Settings.BladeReload.RetryDelay)
         end
         getgenv().IsReloading = false
         IsReloadingRapid = false
+        reloadAttempts = 0
     end)
 end
 
 --// =====================================================
---// MAIN LOOP (UPDATED)
+--// MAIN LOOP
 --// =====================================================
 task.spawn(function()
     local lastLogState = ""
@@ -7408,9 +7628,6 @@ task.spawn(function()
                 CheckRefillResult()
             end
         else
-            if BladeEmptyConfirmCounter ~= 0 or IsReloadingRapid or getgenv().IsReloading or getgenv().IsRefilling or zeroThreeStartTime then
-                -- Silent reset
-            end
             BladeEmptyConfirmCounter = 0
             IsReloadingRapid = false
             getgenv().IsReloading = false
@@ -7427,7 +7644,6 @@ end)
 
 -- ========== WATCHDOG (PREVENTS STUCK RELOAD/REFILL) ==========
 task.spawn(function()
-    local STUCK_TIMEOUT = 5
     while true do
         task.wait(0.5)
         pcall(function()
@@ -7435,7 +7651,7 @@ task.spawn(function()
                 local now = tick()
                 if getgenv().IsReloading then
                     if not _G.ReloadStartTime then _G.ReloadStartTime = now end
-                    if now - _G.ReloadStartTime > STUCK_TIMEOUT then
+                    if now - _G.ReloadStartTime > Settings.BladeReload.WatchdogTimeout then
                         getgenv().IsReloading = false
                         if IsReloadingRapid then IsReloadingRapid = false end
                         BladeEmptyConfirmCounter = 0
@@ -7447,7 +7663,7 @@ task.spawn(function()
                 end
                 if getgenv().IsRefilling then
                     if not _G.RefillStartTime then _G.RefillStartTime = now end
-                    if now - _G.RefillStartTime > STUCK_TIMEOUT then
+                    if now - _G.RefillStartTime > Settings.BladeReload.WatchdogTimeout then
                         getgenv().IsRefilling = false
                         _G.RefillStartTime = nil
                     end
@@ -7463,16 +7679,12 @@ task.spawn(function()
 end)
 
 --// =====================================================
---// HQ REFILL CHECKER (UPDATED WITH DELAY AND RAPID FIRE)
+--// HQ REFILL CHECKER (SECONDARY MONITOR)
 --// =====================================================
 task.spawn(function()
-    local hqFired = false
-    local lastHQNotify = 0
     local hqZeroStartTime = nil
     local hqRefillTriggered = false
     local hqRefillFailedStart = nil
-    local hqRapidFiring = false
-    local hqRapidStopTime = nil
 
     local function checkAllBladesTransparentSilent()
         local charFolder = workspace:FindFirstChild("Characters")
@@ -7507,47 +7719,6 @@ task.spawn(function()
         return tonumber(string.match(text, "^(%d+)")) or -1
     end
 
-    local function rapidFireHQ()
-        if hqRapidFiring then return end
-        hqRapidFiring = true
-        hqRapidStopTime = tick() + 5
-        
-        task.spawn(function()
-            while hqRapidFiring and tick() < hqRapidStopTime do
-                local success, currentText = pcall(function()
-                    return tostring(Sets.Text)
-                end)
-                if success and currentText and currentText:gsub("%s+", "") ~= "0/3" then
-                    break
-                end
-                
-                local randomIndex = math.random(1, 300)
-                local success2, hq = pcall(function()
-                    return workspace:FindFirstChild("Unclimbable") 
-                        and workspace.Unclimbable:FindFirstChild("Props") 
-                        and workspace.Unclimbable.Props:FindFirstChild("HQ")
-                end)
-                
-                if success2 and hq then
-                    local children = hq:GetChildren()
-                    if randomIndex <= #children then
-                        local targetChild = children[randomIndex]
-                        if targetChild then
-                            local refill = targetChild:FindFirstChild("Refill")
-                            if refill then
-                                pcall(function()
-                                    POST:FireServer("Attacks", "Reload", refill)
-                                end)
-                            end
-                        end
-                    end
-                end
-                task.wait(0.01)
-            end
-            hqRapidFiring = false
-        end)
-    end
-
     while true do
         task.wait(2)
 
@@ -7562,39 +7733,43 @@ task.spawn(function()
                     hqRefillTriggered = false
                 end
                 
-                if not hqRefillTriggered and (tick() - hqZeroStartTime >= 5) then
+                if not hqRefillTriggered and (tick() - hqZeroStartTime >= Settings.Refill.WaitTimeBeforeRefill) then
                     hqRefillTriggered = true
-                    -- ใช้ Gas Tank Refill แทนการ hardcode
-                    FireGasTankRefill()
+                    AttemptAllRefills()
                     hqRefillFailedStart = tick()
                 end
                 
-                if hqRefillFailedStart and (tick() - hqRefillFailedStart >= 3) then
+                if hqRefillFailedStart and (tick() - hqRefillFailedStart >= Settings.Refill.RefillFailedWaitTime) then
                     local stillZero = (getCurrentAmountSilent() == 0 and checkAllBladesTransparentSilent())
-                    if stillZero then
-                        rapidFireHQ()
+                    if stillZero and Settings.HQRapidFire.Enabled then
+                        -- Rapid fire using HQ (if enabled)
+                        local startTime = tick()
+                        while tick() - startTime < Settings.HQRapidFire.Duration do
+                            FireRandomWaveRefillRapid()
+                            task.wait(Settings.HQRapidFire.FireDelay)
+                        end
                     end
                     hqRefillFailedStart = nil
                 end
-                
-                hqFired = true
             else
                 if hqZeroStartTime ~= nil then
                     hqZeroStartTime = nil
                     hqRefillTriggered = false
                     hqRefillFailedStart = nil
                 end
-                hqFired = false
             end
         else
             hqZeroStartTime = nil
             hqRefillTriggered = false
             hqRefillFailedStart = nil
-            hqFired = false
-            hqRapidFiring = false
         end
     end
 end)
+
+--// =====================================================
+--// EXPORT SETTINGS TO GLOBAL (FOR EXTERNAL ACCESS)
+--// =====================================================
+getgenv().ReloadBladeSettings = Settings
 -- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
@@ -8610,9 +8785,9 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats (เพิ่ม Shards)
+    -- หมวดที่ 1: Stats
     local statsFields = {
-        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time", "Shards"
+        "Level", "Prestige", "Slot", "Gold", "Gems", "Spins", "Time"
     }
     local selectedStats = {
         ["Level"] = true,
@@ -8622,7 +8797,6 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Gems"] = true,
         ["Spins"] = true,
         ["Time"] = true,
-        ["Shards"] = true,
     }
 
     -- หมวดที่ 2: Items
@@ -8649,7 +8823,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท
+    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8721,7 +8895,6 @@ if IsIngameLobby() and Tabs.Webhook then
                             Gems = slotData.Currency and slotData.Currency.Gems or 0,
                             Spins = data.Spins or 0,
                             Time = getThaiTime(),
-                            Shards = slotData.Currency and slotData.Currency.Shards or 0,
                         }
 
                         -- Items
@@ -8738,7 +8911,7 @@ if IsIngameLobby() and Tabs.Webhook then
 
                         -- Emoji mapping
                         local emoji = {
-                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐", Shards = ":",
+                            Level = "🎖️", Prestige = "👑", Slot = "💾", Gold = "💰", Gems = "💎", Spins = "🎲", Time = "🕐",
                             ["Memory Scroll"] = "📜", ["Emperor's Key"] = "|", ["Female Serum"] = "💉",
                             ["Attack Serum"] = "|", ["armored serum"] = "|",
                             ["Angel's Halo"] = "|", ["Kitsune Ribbon"] = "|", ["Radiant Headband"] = "|",
@@ -8791,6 +8964,7 @@ if IsIngameLobby() and Tabs.Webhook then
         end
     })
 end
+
 
 
 -- ============================== MISC (SKIP CUTSCENE) ==============================
@@ -8967,7 +9141,6 @@ if Tabs.AutoFarm then
         end
     })
 end
-
 -- ============================== WAVE TAB ==============================
 if IsIngameLobby() then
 
@@ -9013,6 +9186,595 @@ if IsIngameLobby() then
 
 end
 
+-- ============================== WAVE TAB ==============================
+if IsIngameLobby() then
+
+    local WaveGroup = Tabs.Safety:AddRightGroupbox("Wave Upgrade")
+
+    local autoUpgradeEnabled = false
+    local upgradeTask = nil
+    local autoUpgradeBladeEnabled = false
+    local upgradeBladeTask = nil
+    local autoRefillEnabled = false
+    local refillTask = nil
+    local zeroThreeStartTime = nil
+    local isRefilling = false
+    
+    -- Auto Buy + Equip Spears
+    local autoBuyEquipSpearsEnabled = false
+    local buyEquipSpearsTask = nil
+    
+    -- Auto Upgrade Spears
+    local autoUpgradeSpearsEnabled = false
+    local upgradeSpearsTask = nil
+    
+    -- Auto Crates
+    local autoCratesEnabled = false
+    local cratesTask = nil
+    
+    -- รายการ Upgrade ทั้งหมด
+    local UPGRADE_OPTIONS = {
+        "Max",
+        "Regen",
+        "Replenish",
+        "Refills",
+        "Revive"
+    }
+    
+    -- ตัวแปรเก็บค่าที่เลือก (multi select)
+    local selectedUpgrades = {
+        ["Max"] = true,
+        ["Regen"] = true,
+        ["Replenish"] = true,
+        ["Refills"] = true,
+        ["Revive"] = true
+    }
+    
+    -- Remote
+    local GET = game:GetService("ReplicatedStorage")
+        :WaitForChild("Assets")
+        :WaitForChild("Remotes")
+        :WaitForChild("GET")
+    
+    local POST = game:GetService("ReplicatedStorage")
+        :WaitForChild("Assets")
+        :WaitForChild("Remotes")
+        :WaitForChild("POST")
+    
+    -- ========== ตัวแปรสำหรับระบบ Priority (Refill สำคัญที่สุด) ==========
+    local isAnyActionRunning = false
+    local actionQueue = {}
+    
+    -- ฟังก์ชันรอให้ Refill เสร็จก่อนทำงานอื่น
+    local function WaitForRefillToFinish()
+        while autoRefillEnabled and isRefilling do
+            task.wait(0.05)
+        end
+    end
+    
+    -- UI Element สำหรับตรวจสอบ 0/3
+    local function getBladesSetsText()
+        local success, text = pcall(function()
+            local sets = game:GetService("Players").LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
+            if sets and sets:IsA("TextLabel") then
+                return sets.Text
+            end
+            return ""
+        end)
+        return success and text or ""
+    end
+    
+    -- ========== ฟังก์ชันค้นหา Refill แบบอัตโนมัติจากหลาย path ==========
+    local function FindAnyRefill()
+        local candidates = {
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[285] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[287] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[284] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[286] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[236] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[275] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[253] end,
+            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[283] end,
+            function() return workspace.Unclimbable.Objective.Waves:FindFirstChild("GasTanks") end,
+        }
+        
+        for _, getTarget in ipairs(candidates) do
+            local success, target = pcall(getTarget)
+            if success and target then
+                local refill = target:FindFirstChild("Refill")
+                if refill and refill:IsA("BasePart") then
+                    return refill
+                end
+            end
+        end
+        
+        local waves = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves")
+        if waves then
+            for _, child in ipairs(waves:GetChildren()) do
+                local refill = child:FindFirstChild("Refill")
+                if refill and refill:IsA("BasePart") then
+                    return refill
+                end
+            end
+        end
+        
+        return nil
+    end
+    
+    -- ฟังก์ชัน Refill ที่ใช้การค้นหาอัตโนมัติ (Priority สูงสุด)
+    local function PerformRefill()
+        if isRefilling then return false end
+        isRefilling = true
+        
+        local refillPart = FindAnyRefill()
+        if refillPart then
+            pcall(function()
+                POST:FireServer("Attacks", "Reload", refillPart)
+            end)
+            task.wait(1.5)
+            isRefilling = false
+            return true
+        end
+        isRefilling = false
+        return false
+    end
+    
+    -- ========== ระบบ Refill Loop (Priority สูงสุด ทำงานแบบ Real-time) ==========
+    local function StartAutoRefill()
+        if refillTask then return end
+        
+        refillTask = task.spawn(function()
+            while autoRefillEnabled do
+                local currentText = getBladesSetsText()
+                local isZeroThree = (currentText:gsub("%s+", "") == "0/3")
+                
+                if isZeroThree then
+                    if zeroThreeStartTime == nil then
+                        zeroThreeStartTime = tick()
+                    elseif tick() - zeroThreeStartTime >= 3 and not isRefilling then
+                        PerformRefill()
+                        zeroThreeStartTime = nil
+                    end
+                else
+                    zeroThreeStartTime = nil
+                end
+                
+                task.wait(0.2) -- ตรวจสอบถี่มาก
+            end
+            refillTask = nil
+        end)
+    end
+    
+    local function StopAutoRefill()
+        autoRefillEnabled = false
+        if refillTask then
+            task.cancel(refillTask)
+            refillTask = nil
+        end
+        zeroThreeStartTime = nil
+        isRefilling = false
+    end
+    
+    -- ฟังก์ชัน Buy Spears
+    local function BuySpears()
+        local args = {
+            "Equipment",
+            "Weapon",
+            "Spears"
+        }
+        local success, result = pcall(function()
+            return GET:InvokeServer(unpack(args))
+        end)
+        return success
+    end
+    
+    -- ฟังก์ชัน Equip Spears
+    local function EquipSpears()
+        local args = {
+            "Equipment",
+            "Weapon",
+            "Spears"
+        }
+        local success, result = pcall(function()
+            return GET:InvokeServer(unpack(args))
+        end)
+        return success
+    end
+    
+    -- ฟังก์ชัน Upgrade Spears
+    local function UpgradeSpears()
+        local args = {
+            "Equipment",
+            "Upgrade",
+            {
+                "Blast_Radius",
+                "TS_Damage",
+                "TS_Gas",
+                "TS_Range",
+                "TS_Control",
+                "Crit_Chance",
+                "Crit_Damage",
+                "TS_Speed"
+            }
+        }
+        local success, result = pcall(function()
+            return GET:InvokeServer(unpack(args))
+        end)
+        return success
+    end
+    
+    -- ฟังก์ชันอัปเกรดทีละอัน
+    local function DoUpgrade(upgradeType)
+        local args = {
+            "Waves",
+            "Upgrade",
+            { upgradeType }
+        }
+        local success, result = pcall(function()
+            return GET:InvokeServer(unpack(args))
+        end)
+        return success
+    end
+    
+    -- ฟังก์ชันอัปเกรดทั้งหมดที่ถูกเลือก (จะรอ Refill ก่อนทำงาน)
+    local function UpgradeAllSelected()
+        WaitForRefillToFinish()
+        if not autoUpgradeEnabled then return end
+        
+        for _, upgradeType in ipairs(UPGRADE_OPTIONS) do
+            if selectedUpgrades[upgradeType] then
+                DoUpgrade(upgradeType)
+                task.wait(0.1)
+            end
+        end
+    end
+    
+    -- Loop อัปเกรดอัตโนมัติ (เช็ค Refill ทุกครั้งก่อนทำงาน)
+    local function StartAutoUpgrade()
+        if upgradeTask then return end
+        
+        upgradeTask = task.spawn(function()
+            while autoUpgradeEnabled do
+                WaitForRefillToFinish()
+                if autoUpgradeEnabled then
+                    pcall(function()
+                        UpgradeAllSelected()
+                    end)
+                end
+                task.wait(1.5)
+            end
+            upgradeTask = nil
+        end)
+    end
+    
+    local function StopAutoUpgrade()
+        autoUpgradeEnabled = false
+        if upgradeTask then
+            task.cancel(upgradeTask)
+            upgradeTask = nil
+        end
+    end
+    
+    -- ฟังก์ชันอัปเกรด Blade (จะรอ Refill ก่อนทำงาน)
+    local function UpgradeBlade()
+        WaitForRefillToFinish()
+        if not autoUpgradeBladeEnabled then return end
+        
+        local args = {
+            "Equipment",
+            "Upgrade",
+            {
+                "ODM_Speed",
+                "Crit_Damage",
+                "ODM_Range",
+                "ODM_Control",
+                "Blade_Durability",
+                "Crit_Chance",
+                "ODM_Gas",
+                "ODM_Damage"
+            }
+        }
+        pcall(function()
+            GET:InvokeServer(unpack(args))
+        end)
+    end
+    
+    -- Loop อัปเกรด Blade อัตโนมัติ (เช็ค Refill ทุกครั้งก่อนทำงาน)
+    local function StartAutoUpgradeBlade()
+        if upgradeBladeTask then return end
+        
+        upgradeBladeTask = task.spawn(function()
+            while autoUpgradeBladeEnabled do
+                WaitForRefillToFinish()
+                if autoUpgradeBladeEnabled then
+                    pcall(function()
+                        UpgradeBlade()
+                    end)
+                end
+                task.wait(3)
+            end
+            upgradeBladeTask = nil
+        end)
+    end
+    
+    local function StopAutoUpgradeBlade()
+        autoUpgradeBladeEnabled = false
+        if upgradeBladeTask then
+            task.cancel(upgradeBladeTask)
+            upgradeBladeTask = nil
+        end
+    end
+    
+    -- Loop Buy + Equip Spears (เช็ค Refill ทุกครั้งก่อนทำงาน)
+    local function StartAutoBuyEquipSpears()
+        if buyEquipSpearsTask then return end
+        
+        buyEquipSpearsTask = task.spawn(function()
+            while autoBuyEquipSpearsEnabled do
+                WaitForRefillToFinish()
+                if autoBuyEquipSpearsEnabled then
+                    pcall(function()
+                        BuySpears()
+                        task.wait(0.2)
+                        EquipSpears()
+                    end)
+                end
+                task.wait(3)
+            end
+            buyEquipSpearsTask = nil
+        end)
+    end
+    
+    local function StopAutoBuyEquipSpears()
+        autoBuyEquipSpearsEnabled = false
+        if buyEquipSpearsTask then
+            task.cancel(buyEquipSpearsTask)
+            buyEquipSpearsTask = nil
+        end
+    end
+    
+    -- Loop Upgrade Spears (เช็ค Refill ทุกครั้งก่อนทำงาน)
+    local function StartAutoUpgradeSpears()
+        if upgradeSpearsTask then return end
+        
+        upgradeSpearsTask = task.spawn(function()
+            while autoUpgradeSpearsEnabled do
+                WaitForRefillToFinish()
+                if autoUpgradeSpearsEnabled then
+                    pcall(function()
+                        UpgradeSpears()
+                    end)
+                end
+                task.wait(3)
+            end
+            upgradeSpearsTask = nil
+        end)
+    end
+    
+    local function StopAutoUpgradeSpears()
+        autoUpgradeSpearsEnabled = false
+        if upgradeSpearsTask then
+            task.cancel(upgradeSpearsTask)
+            upgradeSpearsTask = nil
+        end
+    end
+    
+    -- ฟังก์ชันหยุดการเคลื่อนไหวทั้งหมด
+    local function StopAllMovement()
+        pcall(function()
+            if CleanupSmoothMovement then CleanupSmoothMovement() end
+            local char = game:GetService("Players").LocalPlayer.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                end
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.PlatformStand = false
+                end
+            end
+        end)
+    end
+    
+    -- ฟังก์ชันหาและเทเลพอร์ตไปยัง Crate (จะรอ Refill ก่อนทำงาน)
+    local function TeleportToCrate()
+        WaitForRefillToFinish()
+        if not autoCratesEnabled then return end
+        
+        local player = game:GetService("Players").LocalPlayer
+        local character = player.Character
+        local hrp = character and character:FindFirstChild("HumanoidRootPart")
+        
+        if not hrp then return end
+        
+        StopAllMovement()
+        task.wait(0.05)
+        
+        local waves = workspace:FindFirstChild("Waves")
+        if not waves then return end
+        
+        local crates = waves:FindFirstChild("Crates")
+        if not crates then return end
+        
+        local targetCrate = nil
+        for _, child in ipairs(crates:GetChildren()) do
+            if child.Name:match("^Crate_") then
+                targetCrate = child
+                break
+            end
+        end
+        
+        if not targetCrate then return end
+        
+        local cratePart = nil
+        if targetCrate:IsA("BasePart") then
+            cratePart = targetCrate
+        else
+            cratePart = targetCrate:FindFirstChild("Position")
+            if not cratePart or not cratePart:IsA("BasePart") then
+                cratePart = targetCrate:FindFirstChildWhichIsA("BasePart")
+            end
+        end
+        
+        if cratePart then
+            hrp.CFrame = cratePart.CFrame
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+            task.wait(0.2)
+        end
+        
+        local zones = waves:FindFirstChild("Zones")
+        if zones then
+            local skills = zones:FindFirstChild("Skills")
+            if skills then
+                local hitbox = skills:FindFirstChild("Hitbox")
+                if hitbox and hitbox:IsA("BasePart") then
+                    hrp.CFrame = hitbox.CFrame
+                    hrp.AssemblyLinearVelocity = Vector3.zero
+                    hrp.AssemblyAngularVelocity = Vector3.zero
+                    task.wait(0.2)
+                end
+            end
+        end
+    end
+    
+    -- Loop Auto Crates (เช็ค Refill ทุกครั้งก่อนทำงาน)
+    local function StartAutoCrates()
+        if cratesTask then return end
+        
+        cratesTask = task.spawn(function()
+            while autoCratesEnabled do
+                WaitForRefillToFinish()
+                if autoCratesEnabled then
+                    pcall(function()
+                        TeleportToCrate()
+                    end)
+                end
+                task.wait(2)
+            end
+            cratesTask = nil
+        end)
+    end
+    
+    local function StopAutoCrates()
+        autoCratesEnabled = false
+        if cratesTask then
+            task.cancel(cratesTask)
+            cratesTask = nil
+        end
+        StopAllMovement()
+    end
+    
+    -- Dropdown Multi Select
+    WaveGroup:AddDropdown("WaveUpgradeDropdown", {
+        Text = "Upgrade",
+        Values = UPGRADE_OPTIONS,
+        Default = {
+            ["Max"] = true,
+            ["Regen"] = true,
+            ["Replenish"] = true,
+            ["Refills"] = true,
+            ["Revive"] = true
+        },
+        Multi = true,
+        Callback = function(v)
+            selectedUpgrades = v
+        end
+    })
+    
+    -- Toggle Auto Upgrade
+    WaveGroup:AddToggle("AutoWaveUpgradeToggle", {
+        Text = "Auto Upgrade",
+        Default = false,
+        Callback = function(v)
+            autoUpgradeEnabled = v
+            if v then
+                StartAutoUpgrade()
+            else
+                StopAutoUpgrade()
+            end
+        end
+    })
+    
+    -- Toggle Auto Crates
+    WaveGroup:AddToggle("AutoCratesToggle", {
+        Text = "Auto Crates",
+        Default = false,
+        Callback = function(v)
+            autoCratesEnabled = v
+            if v then
+                StartAutoCrates()
+            else
+                StopAutoCrates()
+            end
+        end
+    })
+    
+    -- Divider
+    WaveGroup:AddDivider()
+    
+    -- Toggle Upgrade Blade
+    WaveGroup:AddToggle("AutoUpgradeBladeToggle", {
+        Text = "Upgrade Blade",
+        Default = false,
+        Callback = function(v)
+            autoUpgradeBladeEnabled = v
+            if v then
+                StartAutoUpgradeBlade()
+            else
+                StopAutoUpgradeBlade()
+            end
+        end
+    })
+    
+    -- Toggle Refill (สำคัญที่สุด จะถูกเช็คก่อนทุกการทำงาน)
+    WaveGroup:AddToggle("AutoRefillToggle", {
+        Text = "Refill Blades",
+        Default = false,
+        Callback = function(v)
+            autoRefillEnabled = v
+            if v then
+                StartAutoRefill()
+            else
+                StopAutoRefill()
+            end
+        end
+    })
+    
+    -- Divider
+    WaveGroup:AddDivider()
+    
+    -- Toggle Buy + Equip Spears
+    WaveGroup:AddToggle("AutoBuyEquipSpearsToggle", {
+        Text = "Auto Buy + Equip Spears",
+        Default = false,
+        Callback = function(v)
+            autoBuyEquipSpearsEnabled = v
+            if v then
+                StartAutoBuyEquipSpears()
+            else
+                StopAutoBuyEquipSpears()
+            end
+        end
+    })
+    
+    -- Toggle Upgrade Spears
+    WaveGroup:AddToggle("AutoUpgradeSpearsToggle", {
+        Text = "Upgrade Spears",
+        Default = false,
+        Callback = function(v)
+            autoUpgradeSpearsEnabled = v
+            if v then
+                StartAutoUpgradeSpears()
+            else
+                StopAutoUpgradeSpears()
+            end
+        end
+    })
+
+end
 --[[
 -- ============================== FAST TITAN KILL COUNTER + AUTO KILL (RELIABLE POLLING) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
