@@ -3892,7 +3892,8 @@ if Tabs.Lobby then
     local wavesRunning = false
     local wavesBusy = false
     local wavesSessionId = 0
-    local wavesDelay = 0  -- เพิ่มตัวแปร delay สำหรับ Waves
+    local wavesDelay = 0
+    local wavesCooldownUntil = 0  -- เพิ่มตัวแปร cooldown
 
     -- ========== RETRY WRAPPER FOR CREATE WAVE ==========
     local function CreateWaveWithRetry()
@@ -3937,7 +3938,18 @@ if Tabs.Lobby then
 
     local function WavesLoop(mySession)
         task.wait(1)
+        
         while wavesRunning and wavesSessionId == mySession do
+            -- เช็ค cooldown ก่อนทำงาน
+            local now = tick()
+            if now < wavesCooldownUntil then
+                local remaining = math.ceil(wavesCooldownUntil - now)
+                if remaining > 0 then
+                    task.wait(remaining)
+                end
+                continue
+            end
+            
             if wavesBusy then
                 task.wait(0.05)
                 continue
@@ -3947,7 +3959,10 @@ if Tabs.Lobby then
             CreateWave()
             task.wait(0.2)
 
-            if not wavesRunning then break end
+            if not wavesRunning then 
+                wavesBusy = false
+                break 
+            end
 
             Library:Notify("Creating wave", 2)
             Library:Notify("Starting wave", 2)
@@ -3959,9 +3974,9 @@ if Tabs.Lobby then
                 if not wavesRunning or wavesSessionId ~= mySession then break end
             until tick() - startTick >= 0.45
 
-            -- เพิ่ม delay หลังจากจบแต่ละ Wave
+            -- ตั้ง cooldown หลังจากจบแต่ละ Wave
             if wavesDelay > 0 then
-                task.wait(wavesDelay)
+                wavesCooldownUntil = tick() + wavesDelay
             end
 
             wavesBusy = false
@@ -3981,7 +3996,7 @@ if Tabs.Lobby then
         end
     })
 
-    -- ========== ปรับ Toggle Waves ==========
+    -- ========== ปรับ Toggle Waves (พร้อม cooldown เริ่มต้น) ==========
     local wavesPendingStart = false
     local wavesStartTask = nil
 
@@ -4011,6 +4026,11 @@ if Tabs.Lobby then
                         task.wait(0.5)
                     end
                     if wavesPendingStart then
+                        -- ตั้ง cooldown เริ่มต้นตามค่า wavesDelay (ถ้ามากกว่า 0)
+                        if wavesDelay > 0 then
+                            wavesCooldownUntil = tick() + wavesDelay
+                            Library:Notify(string.format("Wave cooldown started: %d seconds", wavesDelay), 2)
+                        end
                         wavesRunning = true
                         wavesBusy = false
                         wavesSessionId = wavesSessionId + 1
@@ -4027,6 +4047,7 @@ if Tabs.Lobby then
                 wavesRunning = false
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
+                wavesCooldownUntil = 0  -- รีเซ็ต cooldown
                 LeaveWave()
                 if activeAutoContent == "waves" then activeAutoContent = nil end
             end
