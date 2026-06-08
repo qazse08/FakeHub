@@ -6216,7 +6216,7 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-   -- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
+-- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
 TeleportGroup:AddDivider()
 
 local combinedDelay = 0
@@ -6241,7 +6241,7 @@ TeleportGroup:AddSlider("CombinedActionDelaySlider", {
 })
 
 TeleportGroup:AddDropdown("CombinedActionsDropdown", {
-    Values = {"Teleport to Main Menu", "Kill Character", "AUTO Leave Game"},
+    Values = {"Teleport to Main Menu", "Teleport to Lobby", "Kill Character", "AUTO Leave Game"},
     Default = {},
     Multi = true,
     Text = "Select [ Multi ]",
@@ -6253,6 +6253,14 @@ TeleportGroup:AddDropdown("CombinedActionsDropdown", {
 local function performTeleportToMainMenu()
     teleportAttempts = teleportAttempts + 1
     pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+    if teleportAttempts >= maxAttempts then
+        game:Shutdown()
+    end
+end
+
+local function performTeleportToLobby()
+    teleportAttempts = teleportAttempts + 1
+    pcall(function() TeleportService:Teleport(LOBBY_ID, Player) end)
     if teleportAttempts >= maxAttempts then
         game:Shutdown()
     end
@@ -6284,6 +6292,8 @@ local function executeCombinedActions()
     for _, action in ipairs(actionsToRun) do
         if action == "Teleport to Main Menu" then
             performTeleportToMainMenu()
+        elseif action == "Teleport to Lobby" then
+            performTeleportToLobby()
         elseif action == "Kill Character" then
             performKillCharacter()
         elseif action == "AUTO Leave Game" then
