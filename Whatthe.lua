@@ -8285,7 +8285,7 @@ if IsIngameLobby() and Tabs.Webhook then
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats (เพิ่ม Shards)
+    -- หมวดที่ 1: Stats
     local statsFields = {
         "Level", "Prestige", "Slot", "Gold", "Gems", "Shards", "Spins", "Time"
     }
@@ -8302,14 +8302,14 @@ if IsIngameLobby() and Tabs.Webhook then
 
     -- หมวดที่ 2: Items
     local itemsFields = {
-        "Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "armored serum"
+        "Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "Armored Serum"
     }
     local selectedItems = {
         ["Memory Scroll"] = true,
         ["Emperor's Key"] = true,
         ["Female Serum"] = true,
         ["Attack Serum"] = true,
-        ["armored serum"] = true,
+        ["Armored Serum"] = true,
     }
 
     -- หมวดที่ 3: Cosmetics
@@ -8324,7 +8324,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท (เหลือไว้ แต่มีแค่ Horst)
+    -- Dropdown ประเภท
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8388,60 +8388,62 @@ if IsIngameLobby() and Tabs.Webhook then
 
                     if slotData then
                         -- เตรียม map ค่า
-                        local valueMap = {
-                            Level = slotData.Progression and slotData.Progression.Level or 0,
-                            Prestige = slotData.Progression and slotData.Progression.Prestige or 0,
-                            Slot = currentSlot,
-                            Gold = slotData.Currency and slotData.Currency.Gold or 0,
-                            Gems = slotData.Currency and slotData.Currency.Gems or 0,
-                            Shards = slotData.Currency and slotData.Currency.Shards or 0,
-                            Spins = data.Spins or 0,
-                            Time = getThaiTime(),
-                        }
+                        local valueMap = {}
+                        
+                        -- Stats
+                        valueMap.Level = (slotData.Progression and slotData.Progression.Level) or 0
+                        valueMap.Prestige = (slotData.Progression and slotData.Progression.Prestige) or 0
+                        valueMap.Slot = currentSlot
+                        valueMap.Gold = (slotData.Currency and slotData.Currency.Gold) or 0
+                        valueMap.Gems = (slotData.Currency and slotData.Currency.Gems) or 0
+                        valueMap.Shards = (slotData.Currency and slotData.Currency.Shards) or 0
+                        valueMap.Spins = data.Spins or 0
+                        valueMap.Time = getThaiTime()
 
                         -- Items
-                        local items = slotData.Inventory and slotData.Inventory.Items or {}
+                        local items = (slotData.Inventory and slotData.Inventory.Items) or {}
                         for _, field in ipairs(itemsFields) do
                             valueMap[field] = items[field] or 0
                         end
 
                         -- Cosmetics
-                        local cosmetics = slotData.Inventory and slotData.Inventory.Cosmetics or {}
+                        local cosmetics = (slotData.Inventory and slotData.Inventory.Cosmetics) or {}
                         for _, field in ipairs(cosmeticsFields) do
                             valueMap[field] = cosmetics[field] or 0
                         end
 
-                        -- สร้าง description (ไม่มีอิโมจิ)
+                        -- สร้าง description
                         local parts = {}
 
-                        -- เรียงลำดับ: Stats -> Items -> Cosmetics
-                        local order = {}
-                        for _, f in ipairs(statsFields) do table.insert(order, f) end
-                        for _, f in ipairs(itemsFields) do table.insert(order, f) end
-                        for _, f in ipairs(cosmeticsFields) do table.insert(order, f) end
-
-                        for _, field in ipairs(order) do
-                            local selected = false
-                            if table.find(statsFields, field) then
-                                selected = selectedStats[field]
-                            elseif table.find(itemsFields, field) then
-                                selected = selectedItems[field]
-                            elseif table.find(cosmeticsFields, field) then
-                                selected = selectedCosmetics[field]
-                            end
-
-                            if selected then
+                        -- รวบรวมรายการที่ถูกเลือกทั้งหมด
+                        for _, field in ipairs(statsFields) do
+                            if selectedStats[field] and valueMap[field] ~= nil then
                                 local val = valueMap[field]
                                 if field ~= "Slot" and field ~= "Time" then
                                     val = formatNumber(val)
                                 end
-                                -- เปลี่ยนจาก "field: value" เป็น "field value" (ไม่มี colon)
-                                table.insert(parts, string.format("%s %s", field, val))
+                                table.insert(parts, string.format("%s: %s", field, val))
                             end
                         end
 
-                        -- รวมด้วย " | " (space pipe space)
-                        local description = table.concat(parts, " | ")
+                        for _, field in ipairs(itemsFields) do
+                            if selectedItems[field] and valueMap[field] ~= nil and valueMap[field] > 0 then
+                                local val = valueMap[field]
+                                val = formatNumber(val)
+                                table.insert(parts, string.format("%s: %s", field, val))
+                            end
+                        end
+
+                        for _, field in ipairs(cosmeticsFields) do
+                            if selectedCosmetics[field] and valueMap[field] ~= nil and valueMap[field] > 0 then
+                                local val = valueMap[field]
+                                val = formatNumber(val)
+                                table.insert(parts, string.format("%s: %s", field, val))
+                            end
+                        end
+
+                        -- รวมด้วย space (ไม่ใช้ | เพื่อประหยัดพื้นที่)
+                        local description = table.concat(parts, "  ")
 
                         if _G and _G.Horst_SetDescription then
                             _G.Horst_SetDescription(description)
@@ -8458,7 +8460,6 @@ if IsIngameLobby() and Tabs.Webhook then
         end
     })
 end
-
 
 -- ============================== MISC (SKIP CUTSCENE) ==============================
 if Tabs.AutoFarm then
