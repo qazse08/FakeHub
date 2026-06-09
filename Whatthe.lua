@@ -7088,7 +7088,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(2) do
+    while task.wait(0.15) do
         if not FarmConn or not FarmConn.Connected then
             CreateFarmLoop()
         end
