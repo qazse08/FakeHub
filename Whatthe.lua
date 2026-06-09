@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(0.25)
+task.wait(3)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
