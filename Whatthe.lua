@@ -7103,7 +7103,7 @@ task.spawn(function()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
     -- Cooldown settings
-    local COOLDOWN_REFILL = 3
+    local COOLDOWN_REFILL = 1.5
     local COOLDOWN_R_PRESS = 1
     local FORCE_RELOAD_LOOP_DELAY = 0.1
     local FORCE_RELOAD_MAX_DURATION = 5
