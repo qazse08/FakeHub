@@ -3096,6 +3096,18 @@ if Tabs.Lobby then
         task.wait(0.3)
     end
 
+    -- ฟังก์ชัน Modify Modifier แบบมีผลลัพท์ตรวจสอบ
+    local function ApplyModifier(mod)
+        local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
+        local success, result = pcall(function()
+            return Event:InvokeServer("S_Missions", "Modify", mod)
+        end)
+        if success and result == true then
+            return true
+        end
+        return false
+    end
+
     local function ApplyMissionModifiers()
         if not missionRunning then return end
         local selected = {}
@@ -3124,11 +3136,11 @@ if Tabs.Lobby then
             local success = false
             for retry = 1, 3 do
                 if not missionRunning then break end
-                success = SafeMissionCall("S_Missions", "Modify", mod)
+                success = ApplyModifier(mod)
                 if success then break end
-                task.wait(0.2)
+                task.wait(0.3)
             end
-            task.wait(0.2)  -- เปลี่ยนจาก 0.15 เป็น 0.2 เพื่อป้องกันการยิงรัว
+            task.wait(0.5)  -- เพิ่มดีเลย์ 0.5 วิ ระหว่าง modifiers
         end
         task.wait(0.4)
     end
@@ -3282,15 +3294,15 @@ if Tabs.Lobby then
                     end
                     task.wait(0.3)
                     
-                    -- Apply ทีละอัน (เพิ่ม delay 0.2 ระหว่างอัน)
+                    -- Apply ทีละอัน (เพิ่ม delay 0.5 ระหว่างอัน)
                     local applied = 0
                     for _, mod in ipairs(selectedMods) do
                         if not missionRunning then break end
                         local success = false
                         for retry = 1, 3 do
-                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            success = ApplyModifier(mod)
                             if success then break end
-                            task.wait(0.2)
+                            task.wait(0.3)
                         end
                         if success then
                             applied = applied + 1
@@ -3298,7 +3310,7 @@ if Tabs.Lobby then
                         else
                             Library:Notify(string.format("  Failed to apply: %s", mod), 2)
                         end
-                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
+                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3389,12 +3401,12 @@ if Tabs.Lobby then
                         if not missionRunning then break end
                         local success = false
                         for retry = 1, 3 do
-                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            success = ApplyModifier(mod)
                             if success then break end
-                            task.wait(0.2)
+                            task.wait(0.3)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
+                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3603,11 +3615,11 @@ if Tabs.Lobby then
             local success = false
             for retry = 1, 3 do
                 if not raidRunning then break end
-                success = SafeMissionCall("S_Missions", "Modify", mod)
+                success = ApplyModifier(mod)
                 if success then break end
-                task.wait(0.2)
+                task.wait(0.3)
             end
-            task.wait(0.2)  -- เปลี่ยนจาก 0.15 เป็น 0.2
+            task.wait(0.5)  -- เปลี่ยนจาก 0.2 เป็น 0.5
         end
         task.wait(0.4)
     end
@@ -3709,12 +3721,12 @@ if Tabs.Lobby then
                         if not raidRunning then break end
                         local success = false
                         for retry = 1, 3 do
-                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            success = ApplyModifier(mod)
                             if success then break end
-                            task.wait(0.2)
+                            task.wait(0.3)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.2)  -- หน่วง 0.2 ระหว่าง modifier
+                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3784,12 +3796,12 @@ if Tabs.Lobby then
                         if not raidRunning then break end
                         local success = false
                         for retry = 1, 3 do
-                            success = SafeMissionCall("S_Missions", "Modify", mod)
+                            success = ApplyModifier(mod)
                             if success then break end
-                            task.wait(0.2)
+                            task.wait(0.3)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.2)
+                        task.wait(0.5)
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
