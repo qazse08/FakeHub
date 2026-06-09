@@ -3,7 +3,7 @@ repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
-task.wait(3)
+task.wait(1)
 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
@@ -5329,19 +5329,10 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับอัตโนมัติเมื่อเห็น STATUS ON)
+    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับครั้งแรกเมื่อเห็น STATUS ON และนับต่อเนื่องตลอดไป ไม่รีเซ็ต)
     getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
-    getgenv().FarmLastOnTime = getgenv().FarmLastOnTime or 0   -- เวลาล่าสุดที่ STATUS ON
-
-    -- ฟังก์ชันรีเซ็ต timer (เมื่อ OFF นานเกินไป)
-    local function resetFarmTimer()
-        if getgenv().FarmTimerStarted then
-            getgenv().FarmTimerStarted = false
-            getgenv().FarmStartTime = nil
-            getgenv().FarmLastOnTime = 0
-        end
-    end
+    getgenv().FarmLastOnTime = getgenv().FarmLastOnTime or 0   -- ใช้อัปเดตสถานะ ON/OFF ปัจจุบันเท่านั้น
 
     -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
     local function IsActuallyVisible(gui)
@@ -5389,7 +5380,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันเริ่มนับ (ทำงานอัตโนมัติ ไม่ขึ้นกับ StatsEnabled)
+    -- ฟังก์ชันเริ่มนับ (ทำงานอัตโนมัติ ไม่ขึ้นกับ StatsEnabled) – เริ่มนับครั้งแรกเท่านั้น และไม่ถูกรีเซ็ต
     local function startFarmTimerIfNeeded()
         if getgenv().FarmTimerStarted then return end
         if waitForStableOn() then
@@ -5399,7 +5390,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     end
 
-    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time
+    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time (คืนค่าตั้งแต่เริ่มนับครั้งแรก)
     local function getFarmElapsedTime()
         if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
             return tick() - getgenv().FarmStartTime
@@ -5408,21 +5399,15 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     end
 
-    -- ========== BACKGROUND TIMER MANAGER (รันตลอดเวลา) ==========
+    -- ========== BACKGROUND TIMER MANAGER (รันตลอดเวลา ไม่รีเซ็ต timer) ==========
     task.spawn(function()
         while true do
-            -- ตรวจสอบและเริ่มนับถ้ายังไม่ได้เริ่ม
+            -- ตรวจสอบและเริ่มนับถ้ายังไม่ได้เริ่ม (จะเริ่มครั้งแรกเมื่อเจอสถานะ ON เสถียร)
             startFarmTimerIfNeeded()
 
-            -- ตรวจสอบว่า OFF นานเกิน 3 วินาทีหรือไม่ ถ้าใช่ให้รีเซ็ต timer
+            -- อัปเดตเวลาล่าสุดที่สถานะเป็น ON (ใช้เพื่อแสดงสถานะปัจจุบันใน UI เท่านั้น)
             if getgenv().FarmTimerStarted then
-                if not isObjectivesVisible() then
-                    local offDuration = tick() - (getgenv().FarmLastOnTime > 0 and getgenv().FarmLastOnTime or tick())
-                    if offDuration > 3 then
-                        resetFarmTimer()
-                    end
-                else
-                    -- อัปเดตเวลาล่าสุดที่ ON
+                if isObjectivesVisible() then
                     getgenv().FarmLastOnTime = tick()
                 end
             end
@@ -5603,7 +5588,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         local LevelVal = MakeStatRow("Level", 0, 28)
         local GemsVal  = MakeStatRow("Gems", 120, 28)
         local GoldVal  = MakeStatRow("Gold", 0, 52)
-        -- Canes removed
 
         local function FormatTime(sec)
             return string.format("%02d:%02d:%02d",
@@ -5659,7 +5643,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                             if slotData.Currency.Gems then
                                 GemsVal.Text = FormatNumber(slotData.Currency.Gems)
                             end
-                            -- Canes removed
                         end
                     end
                 end
@@ -6528,7 +6511,6 @@ local isProtectHQActive = false
 local protectHQCompleted = false
 local lastMissionCheck = 0
 
--- ฟังก์ชันอัปเดตข้อมูล Mission (เรียกทุก 3 วินาที)
 local function updateMissionInfo()
     local now = tick()
     if now - lastMissionCheck < 3 then return end
@@ -6557,7 +6539,6 @@ local function updateMissionInfo()
     end)
 end
 
--- ฟังก์ชันตรวจสอบ Protect_HQ
 local function checkProtectHQ()
     if not isShiganshinaBreachMission then return end
     
@@ -6575,7 +6556,6 @@ local function checkProtectHQ()
             Library:Notify("[DEBUG] Protect_HQ appeared - Slay check will be re-enabled after completing Protect_HQ", 3)
         end
         
-        -- ตรวจสอบความคืบหน้า
         local text = protect.Text
         local current, max = text:match("(%d+)/(%d+)")
         if current and max then
@@ -6586,13 +6566,11 @@ local function checkProtectHQ()
         end
     else
         if isProtectHQActive and not protectHQCompleted then
-            -- Protect_HQ หายไปแต่ยังไม่ครบ? อาจเป็นด่านอื่น
             isProtectHQActive = false
         end
     end
 end
 
--- เริ่มลูปตรวจจับ Mission และ Protect_HQ
 task.spawn(function()
     while true do
         updateMissionInfo()
@@ -6615,7 +6593,6 @@ local LastScan = 0
 local SCAN_RATE = 0.1
 local NapeCache = setmetatable({}, {__mode = "k"})
 
--- ตัวแปรสำหรับเก็บตำแหน่งไททันล่าสุด (เพื่อลอยไม่ตกพื้น)
 local LastTitanPosition = nil
 local LastTitanHoverHeight = 120
 
@@ -6663,7 +6640,6 @@ local function ScanTitans()
                 local isBoss = BOSS_NAMES[t.Name] or false
                 if t.Name == "Attack_Titan" then attackFound = true end
                 table.insert(ActiveTitans, {titan = t, nape = nape, isBoss = isBoss, titanName = t.Name})
-                -- อัปเดตตำแหน่งไททันล่าสุด
                 LastTitanPosition = nape.Position
             end
         end
@@ -6766,14 +6742,12 @@ local function MoveStableTeleport(hrp, targetPos)
     CleanupSmoothMovement()
 end
 
--- ฟังก์ชันลอยอยู่กับที่ (ใช้เมื่อไม่มีไททัน)
 local function HoverInPlace(hrp)
     if not hrp then return end
     NoclipOn()
     CleanupSmoothMovement()
     
     local targetY = IdleHoverY
-    -- ถ้ามีตำแหน่งไททันล่าสุด ให้ลอยที่ความสูงเท่าเดิม
     if LastTitanPosition then
         targetY = LastTitanPosition.Y + LastTitanHoverHeight
     end
@@ -6846,12 +6820,38 @@ local function getWaveProgress()
     return nil, nil, nil
 end
 
--- ========== โจมตีไททันทั้งหมด (ปรับให้เมื่อถึง Safety Time จะยกเลิกทุกการตรวจสอบ) ==========
+-- ตรวจสอบว่า blade หายหรือไม่ (ใช้ร่วมกับระบบ reload)
+local function NeedReload()
+    local char = workspace:FindFirstChild("Characters")
+    if not char then return false end
+    local playerChar = char:FindFirstChild(Player.Name)
+    if not playerChar then return false end
+    local rig = playerChar:FindFirstChild("Rig_" .. Player.Name)
+    if not rig then return false end
+
+    local leftHand = rig:FindFirstChild("LeftHand")
+    local rightHand = rig:FindFirstChild("RightHand")
+
+    if leftHand then
+        local blade = leftHand:FindFirstChild("Blade_1")
+        if blade and blade.Transparency == 1 then return true end
+    end
+
+    if rightHand then
+        local blade = rightHand:FindFirstChild("Blade_1")
+        if blade and blade.Transparency == 1 then return true end
+    end
+
+    return false
+end
+
+-- ========== โจมตีไททันทั้งหมด (โหดขึ้น ยิงครั้งเดียว 9 ตำแหน่ง) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
     
-    if getgenv().IsReloading or getgenv().IsRefilling then
+    -- ถ้า blade หาย (NeedReload) ให้หยุดโจมตีทันที
+    if NeedReload() then
         return
     end
 
@@ -6875,7 +6875,7 @@ local function AttackAllTitans()
         for _, entry in ipairs(ActiveTitans) do
             local nape = entry.nape
             if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 2500, 0)
+                SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
             end
         end
         return
@@ -6909,7 +6909,7 @@ local function AttackAllTitans()
     local slayVisible = isSlayObjectiveVisible()
     
     if not slayVisible then
-        local dmg = 2500
+        local dmg = 9999  -- เพิ่มดาเมจเป็น 9999
         SafeFire(POST, "Attacks", "Slash", true)
         for _, entry in ipairs(ActiveTitans) do
             local nape = entry.nape
@@ -6920,7 +6920,7 @@ local function AttackAllTitans()
         return
     end
     
-    local dmg = 2500
+    local dmg = 9999  -- เพิ่มดาเมจเป็น 9999
     local stopAt = G.StopAtTitansLeft or 1
     if not safe and #ActiveTitans <= stopAt then
         return
@@ -6949,7 +6949,15 @@ local function FarmUpdate()
         
         if not G.Farm or isDead then return end
         
-        if getgenv().IsReloading or getgenv().IsRefilling then
+        -- ถ้า blade หาย (NeedReload) ให้หยุดเคลื่อนที่ แต่ไม่หยุดฟาร์ม (รอให้ reload เสร็จแล้วค่อยมาเคลื่อนที่ใหม่)
+        if NeedReload() then
+            local char = Player.Character
+            if char then
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    HoverInPlace(hrp)
+                end
+            end
             return
         end
         
@@ -6986,28 +6994,23 @@ local function FarmUpdate()
 
         ScanTitans()
 
-        -- ========== ตรวจสอบสถานะรอ Safety Timer ==========
         local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
         if waveWaiting then
-            -- ถ้ายังไม่ครบเวลา ให้ลอยอยู่กับที่ ไม่เคลื่อนที่ ไม่โจมตี
             if elapsed < (G.SafetyTime or 60) then
                 HoverInPlace(hrp)
                 return
             else
-                -- ครบเวลาแล้ว รีเซ็ตสถานะและกลับมาทำงานปกติ
                 waveWaiting = false
                 Library:Notify("Safety timer reached, resuming attack!", 2)
             end
         end
 
-        -- ถ้าไม่มีไททัน ให้ลอยอยู่กับที่ (ใช้ตำแหน่งไททันล่าสุด)
         if #ActiveTitans == 0 then
             CurrentEntry = nil
             HoverInPlace(hrp)
             return
         end
 
-        -- อัปเดตความสูงล่าสุดจาก G.HoverHeight
         LastTitanHoverHeight = G.HoverHeight or 120
 
         if not CurrentEntry or not IsTitanAlive(CurrentEntry.titan) then
@@ -7022,7 +7025,6 @@ local function FarmUpdate()
             return
         end
         
-        -- อัปเดตตำแหน่งไททันล่าสุด (ใช้สำหรับลอยเมื่อไม่มีไททัน)
         LastTitanPosition = nape.Position
 
         local ty = nape.Position.Y + (G.HoverHeight or 120)
@@ -7080,745 +7082,194 @@ task.spawn(function()
         end
     end
 end)
-
---// =====================================================
---// GLOBAL TOGGLE
---// =====================================================
-
+-- ============================== SIMPLE AUTO RELOAD BLADE (ENHANCED WITH FLAGS) ==============================
 getgenv().AutoReloadBlade = false
-getgenv().IsReloading = false
-getgenv().IsRefilling = false
 
---// =====================================================
---// AUTO BLADE RELOAD + REFILL SYSTEM (POST + KEYPRESS ONLY)
---// =====================================================
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local LocalPlayer = Players.LocalPlayer
+    -- Cooldown settings
+    local COOLDOWN_REFILL = 3
+    local COOLDOWN_R_PRESS = 1
+    local FORCE_RELOAD_LOOP_DELAY = 0.1
+    local FORCE_RELOAD_MAX_DURATION = 5
 
---// =====================================================
---// DEBUG NOTIFY HELPER (DISABLED)
---// =====================================================
-local function DebugNotify(msg, duration)
-    -- Disabled - no output
-end
+    local lastRefillTime = 0
+    local lastRPressTime = 0
 
---// =====================================================
---// ========== ADVANCED SETTINGS (FULLY CUSTOMIZABLE) ==========
---// =====================================================
+    -- Cache for valid refill parts
+    local validRefills = {}
+    local lastCacheRefresh = 0
+    local CACHE_REFRESH_INTERVAL = 30
 
-local Settings = {
-    -- Master delay for main loop (seconds)
-    CheckDelay = 0.01,
-    
-    -- Blade Reload Settings (กด R)
-    BladeReload = {
-        Cooldown = 0.01,           -- Delay between R key presses (seconds)
-        ConfirmCountRequired = 10, -- Number of consecutive empty checks before reload
-        MaxRetries = 50,           -- Maximum reload attempts before giving up
-        RetryDelay = 0.08,         -- Delay between reload attempts
-        WatchdogTimeout = 5,       -- Timeout before watchdog resets stuck reload (seconds)
-    },
-    
-    -- Refill Settings (ยิงไปที่ GasTank/Refill)
-    Refill = {
-        Cooldown = 3,              -- Cooldown between refill attempts (seconds)
-        WaitTimeBeforeRefill = 5,  -- Time after seeing "0/3" before attempting refill (seconds)
-        RefillFailedWaitTime = 3,  -- Time to wait after failed refill before retry (seconds)
-        RefillSuccessDelay = 0.5,  -- Delay after refill success (seconds)
-    },
-    
-    -- Gas Tank Refill Settings (Climbable Gate)
-    GasTank = {
-        Enabled = true,            -- Enable/disable GasTank refill method
-        Cooldown = 2,              -- Cooldown between GasTank fires (seconds)
-        ScanInterval = 30,         -- How often to rescan GasTanks (seconds)
-        MaxIndex = 300,            -- Max index to scan for GasTanks
-        RoundRobin = true,         -- Use round-robin (true) or random (false)
-    },
-    
-    -- Waves Fixed Refill Settings (Unclimbable.Objective.Waves[index].Refill)
-    WavesFixed = {
-        Enabled = true,            -- Enable/disable Waves fixed index refill
-        TargetIndex = 233,         -- Which index to target (default 233)
-    },
-    
-    -- Waves GasTanks Refill Settings
-    WavesGasTanks = {
-        Enabled = true,            -- Enable/disable Waves.GasTanks.Refill method
-    },
-    
-    -- HQ Direct Refill Settings (Unclimbable.Props.HQ.GasTanks.Refill)
-    HQDirect = {
-        Enabled = true,            -- Enable/disable HQ direct refill method
-    },
-    
-    -- HQ Indexed Refill Settings
-    HQIndexed = {
-        Enabled = true,            -- Enable/disable HQ indexed refill method
-        ParentIndex = 273,         -- Which child index in HQ (default 273)
-        ChildIndex = 3,            -- Which grandchild index (default 3)
-    },
-    
-    -- Random Wave Refill Settings (ฉุกเฉิน)
-    RandomWave = {
-        Enabled = true,            -- Enable/disable random wave refill fallback
-        Duration = 2,              -- How long to keep firing randomly (seconds)
-        MinIndex = 1,              -- Minimum random index
-        MaxIndex = 300,            -- Maximum random index
-        FireDelay = 0.05,          -- Delay between random fires (seconds)
-    },
-    
-    -- HQ Rapid Fire Settings (ฉุกเฉินอีกระดับ)
-    HQRapidFire = {
-        Enabled = true,            -- Enable/disable HQ rapid fire fallback
-        Duration = 5,              -- How long to keep firing rapidly (seconds)
-        FireDelay = 0.01,          -- Delay between rapid fires (seconds)
-    },
-    
-    -- Notification Settings
-    Notifications = {
-        Enabled = false,           -- Enable/disable debug notifications
-        Cooldown = 5,              -- Cooldown between same notifications (seconds)
-    },
-}
-
---// =====================================================
---// REMOTES
---// =====================================================
-
-local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-
---// =====================================================
---// KEY PRESS (R) - MULTIPLE METHODS FOR COMPATIBILITY
---// =====================================================
-
-local VIM = game:GetService("VirtualInputManager")
-local VirtualUser = game:GetService("VirtualUser")
-
-local function PressR_VIM()
-    pcall(function()
-        VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
-        task.wait(0.02)
-        VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
-    end)
-end
-
-local function PressR_VirtualUser()
-    pcall(function()
-        VirtualUser:KeyDown(Enum.KeyCode.R)
-        task.wait(0.02)
-        VirtualUser:KeyUp(Enum.KeyCode.R)
-    end)
-end
-
-local function PressR_Context()
-    pcall(function()
-        local ContextActionService = game:GetService("ContextActionService")
-        ContextActionService:Simulate(Enum.UserInputType.Keyboard, Enum.KeyCode.R, true)
-        task.wait(0.02)
-        ContextActionService:Simulate(Enum.UserInputType.Keyboard, Enum.KeyCode.R, false)
-    end)
-end
-
-local PressR = nil
-if pcall(function() return VIM.SendKeyEvent end) and VIM then
-    PressR = PressR_VIM
-elseif pcall(function() return VirtualUser.KeyDown end) and VirtualUser then
-    PressR = PressR_VirtualUser
-else
-    PressR = PressR_Context
-end
-
---// =====================================================
---// UI
---// =====================================================
-
-local Sets = LocalPlayer
-    :WaitForChild("PlayerGui")
-    :WaitForChild("Interface")
-    :WaitForChild("HUD")
-    :WaitForChild("Main")
-    :WaitForChild("Top")
-    :WaitForChild("7")
-    :WaitForChild("Blades")
-    :WaitForChild("Sets")
-
---// =====================================================
---// INTERNAL
---// =====================================================
-
-local LastBladeReload = 0
-local LastRefillFire = 0
-local BladeEmptyConfirmCounter = 0
-local IsReloadingRapid = false
-local reloadAttempts = 0
-
---// =====================================================
---// CHECK REAL BLADES
---// =====================================================
-
-local function GetBladeMissingCount()
-    local CharacterFolder = workspace:FindFirstChild("Characters")
-    if not CharacterFolder then return nil, nil end
-
-    local Character = CharacterFolder:FindFirstChild(LocalPlayer.Name)
-    if not Character then return nil, nil end
-
-    local Rig = Character:FindFirstChild("Rig_" .. LocalPlayer.Name)
-    if not Rig then return nil, nil end
-
-    local LeftHand = Rig:FindFirstChild("LeftHand")
-    local RightHand = Rig:FindFirstChild("RightHand")
-    if not LeftHand or not RightHand then return nil, nil end
-
-    local leftMissing = 0
-    local rightMissing = 0
-
-    for i = 1,7 do
-        local L = LeftHand:FindFirstChild("Blade_" .. i)
-        local R = RightHand:FindFirstChild("Blade_" .. i)
-        if L and L.Transparency == 1 then leftMissing = leftMissing + 1 end
-        if R and R.Transparency == 1 then rightMissing = rightMissing + 1 end
-    end
-
-    return leftMissing, rightMissing
-end
-
-local function AreBladesEmpty()
-    local leftMissing, rightMissing = GetBladeMissingCount()
-    if leftMissing == nil then return false end
-    return leftMissing == 7 and rightMissing == 7
-end
-
---// =====================================================
---// FIND REFILL OBJECT (DYNAMIC - FALLBACK)
---// =====================================================
-local function FindRefillObject()
-    local success, refill = pcall(function()
-        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-        if gate then
-            local children = gate:GetChildren()
-            for i, child in ipairs(children) do
-                local ref = child:FindFirstChild("Refill")
-                if ref then return ref end
-            end
+    local function getRefillIfExists(pathFunc)
+        local success, obj = pcall(pathFunc)
+        if success and obj and obj:IsA("BasePart") then
+            return obj
         end
         return nil
-    end)
-    if success and refill then return refill end
-
-    success, refill = pcall(function()
-        local gasTanks = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:FindFirstChild("GasTanks")
-        if gasTanks then
-            return gasTanks:FindFirstChild("Refill")
-        end
-        return nil
-    end)
-    if success and refill then return refill end
-
-    success, refill = pcall(function()
-        return workspace:FindFirstChild("Refill", true)
-    end)
-    if success and refill then return refill end
-
-    return nil
-end
-
---// =====================================================
---// SCAN AND CACHE GAS TANK REFILLS (1-300)
---// =====================================================
-
-local cachedGasTankRefills = {}
-local lastGasTankScan = 0
-
-local function scanGasTankRefills()
-    if not Settings.GasTank.Enabled then return {} end
-    
-    local now = tick()
-    if now - lastGasTankScan < Settings.GasTank.ScanInterval and #cachedGasTankRefills > 0 then
-        return cachedGasTankRefills
     end
-    lastGasTankScan = now
-    cachedGasTankRefills = {}
-    
-    pcall(function()
-        local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
-        if not gate then return end
-        
-        for idx = 1, Settings.GasTank.MaxIndex do
-            local child = gate:FindFirstChild("GasTanks") or gate:FindFirstChild("GasTank")
-            if not child then
-                child = gate:FindChildren()[idx]
+
+    local refillPathFunctions = {
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[224] and workspace.Unclimbable.Props.HQ:GetChildren()[224].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[274] and workspace.Unclimbable.Props.HQ:GetChildren()[274].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[276] and workspace.Unclimbable.Props.HQ:GetChildren()[276].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[128] and workspace.Unclimbable.Props.HQ:GetChildren()[128].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[167] and workspace.Unclimbable.Props.HQ:GetChildren()[167].Refill end,
+        function() return workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:GetChildren()[50] and workspace.Climbable._Walls.Gate:GetChildren()[50].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Camps") and workspace.Unclimbable.Camps:FindFirstChild("Camp") and workspace.Unclimbable.Camps.Camp:GetChildren()[55] and workspace.Unclimbable.Camps.Camp:GetChildren()[55].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("World") and workspace.Unclimbable.World:FindFirstChild("Buildings") and workspace.Unclimbable.World.Buildings:FindFirstChild("Hanger") and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19] and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves") and workspace.Unclimbable.Objective.Waves:GetChildren()[281] and workspace.Unclimbable.Objective.Waves:GetChildren()[281].Refill end,
+    }
+
+    local function refreshRefillCache()
+        local newCache = {}
+        for _, pathFunc in ipairs(refillPathFunctions) do
+            local ref = getRefillIfExists(pathFunc)
+            if ref then
+                table.insert(newCache, ref)
             end
-            if child then
-                local refill = child:FindFirstChild("Refill")
-                if refill and refill:IsA("BasePart") then
-                    table.insert(cachedGasTankRefills, refill)
-                end
+        end
+        if #newCache > 0 then
+            validRefills = newCache
+        end
+        lastCacheRefresh = tick()
+    end
+
+    refreshRefillCache()
+
+    task.spawn(function()
+        while true do
+            task.wait(CACHE_REFRESH_INTERVAL)
+            if getgenv().AutoReloadBlade then
+                refreshRefillCache()
             end
         end
     end)
-    
-    return cachedGasTankRefills
-end
 
---// =====================================================
---// FIRE GAS TANK REFILL
---// =====================================================
-
-local lastGasTankFire = 0
-local fireIndex = 1
-
-local function FireGasTankRefill()
-    if not Settings.GasTank.Enabled then return false end
-    
-    local now = tick()
-    if now - lastGasTankFire < Settings.GasTank.Cooldown then
-        return false
-    end
-    
-    local refills = scanGasTankRefills()
-    if #refills == 0 then
-        return false
-    end
-    
-    lastGasTankFire = now
-    
-    local targetRefill = nil
-    if Settings.GasTank.RoundRobin then
-        targetRefill = refills[fireIndex]
-        fireIndex = fireIndex + 1
-        if fireIndex > #refills then fireIndex = 1 end
-    else
-        targetRefill = refills[math.random(1, #refills)]
-    end
-    
-    if targetRefill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", targetRefill)
-        end)
-        return true
-    end
-    
-    return false
-end
-
---// =====================================================
---// ========== REFILL METHODS (ALL CUSTOMIZABLE) ==========
---// =====================================================
-
--- 1. ยิง Refill จาก Waves:GetChildren()[index].Refill
-local function FireWavesFixedRefill()
-    if not Settings.WavesFixed.Enabled then return false end
-    
-    local success, refill = pcall(function()
-        local waves = workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves")
-        local target = waves:GetChildren()[Settings.WavesFixed.TargetIndex]
-        if target then
-            return target:FindFirstChild("Refill")
+    local refillIndex = 1
+    local function PerformRefill()
+        local now = tick()
+        if now - lastRefillTime < COOLDOWN_REFILL then
+            return false
         end
-        return nil
-    end)
-    if success and refill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refill)
-        end)
-        return true
-    end
-    return false
-end
 
--- 2. ยิง Refill จาก Waves.GasTanks.Refill
-local function FireWavesGasTanksRefill()
-    if not Settings.WavesGasTanks.Enabled then return false end
-    
-    local success, refill = pcall(function()
-        return workspace:WaitForChild("Unclimbable"):WaitForChild("Objective"):WaitForChild("Waves"):WaitForChild("GasTanks"):WaitForChild("Refill")
-    end)
-    if success and refill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refill)
-        end)
-        return true
-    end
-    return false
-end
-
--- 3. ยิง Refill จาก HQ.GasTanks.Refill
-local function FireHQDirectRefill()
-    if not Settings.HQDirect.Enabled then return false end
-    
-    local success, refill = pcall(function()
-        return workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ"):WaitForChild("GasTanks"):WaitForChild("Refill")
-    end)
-    if success and refill then
-        pcall(function()
-            POST:FireServer("Attacks", "Reload", refill)
-        end)
-        return true
-    end
-    return false
-end
-
--- 4. ยิง Refill จาก HQ:GetChildren()[ParentIndex]:GetChildren()[ChildIndex]
-local function FireHQIndexedRefill()
-    if not Settings.HQIndexed.Enabled then return false end
-    
-    local success, target = pcall(function()
-        local hq = workspace:WaitForChild("Unclimbable"):WaitForChild("Props"):WaitForChild("HQ")
-        local parent = hq:GetChildren()[Settings.HQIndexed.ParentIndex]
-        if parent then
-            return parent:GetChildren()[Settings.HQIndexed.ChildIndex]
+        if #validRefills == 0 then
+            refreshRefillCache()
+            if #validRefills == 0 then
+                return false
+            end
         end
-        return nil
-    end)
-    if success and target and target:IsA("BasePart") then
+
+        lastRefillTime = now
+
+        getgenv().IsRefilling = true
+
+        local target = validRefills[refillIndex]
+        refillIndex = (refillIndex % #validRefills) + 1
+
         pcall(function()
+            local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
             POST:FireServer("Attacks", "Reload", target)
         end)
+
+        task.wait(1.5)
+        getgenv().IsRefilling = false
         return true
     end
-    return false
-end
 
--- 5. ยิงแบบสุ่มใน Waves (ฉุกเฉิน)
-local function FireRandomWaveRefillRapid()
-    if not Settings.RandomWave.Enabled then return end
-    
-    local startTime = tick()
-    local waves = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves")
-    if not waves then return end
-    local children = waves:GetChildren()
-    
-    repeat
-        local randomIndex = math.random(Settings.RandomWave.MinIndex, Settings.RandomWave.MaxIndex)
-        local target = children[randomIndex]
-        if target and target:FindFirstChild("Refill") then
-            pcall(function()
-                POST:FireServer("Attacks", "Reload", target.Refill)
-            end)
+    local function PressR()
+        local now = tick()
+        if now - lastRPressTime < COOLDOWN_R_PRESS then
+            return
         end
-        task.wait(Settings.RandomWave.FireDelay)
-    until tick() - startTime >= Settings.RandomWave.Duration
-end
+        lastRPressTime = now
 
--- รวมทุกวิธีลองทีละอันตามลำดับที่ตั้งค่า
-local function AttemptAllRefills()
-    local refillOrder = {
-        {name = "GasTank", func = FireGasTankRefill, enabled = Settings.GasTank.Enabled},
-        {name = "WavesFixed", func = FireWavesFixedRefill, enabled = Settings.WavesFixed.Enabled},
-        {name = "WavesGasTanks", func = FireWavesGasTanksRefill, enabled = Settings.WavesGasTanks.Enabled},
-        {name = "HQDirect", func = FireHQDirectRefill, enabled = Settings.HQDirect.Enabled},
-        {name = "HQIndexed", func = FireHQIndexedRefill, enabled = Settings.HQIndexed.Enabled},
-    }
-    
-    for _, method in ipairs(refillOrder) do
-        if method.enabled then
-            local success = method.func()
-            if success then return true end
-        end
-    end
-    
-    -- ถ้าทั้งหมดล้มเหลว ให้ใช้ Random Wave (ถ้าเปิดใช้งาน)
-    if Settings.RandomWave.Enabled then
-        FireRandomWaveRefillRapid()
-    end
-    
-    return false
-end
+        getgenv().IsReloading = true
 
---// =====================================================
---// REFILL FUNCTIONS (WITH TIMER LOGIC)
---// =====================================================
-
-local zeroThreeStartTime = nil
-local isRefillTriggered = false
-local refillFailedStartTime = nil
-local isRapidFiring = false
-
-local function RapidFireRandomRefill()
-    if isRapidFiring then return end
-    isRapidFiring = true
-    FireRandomWaveRefillRapid()
-    isRapidFiring = false
-end
-
-local function FireRefillWithDelay()
-    if not getgenv().AutoReloadBlade then return end
-    
-    local now = tick()
-    if now - LastRefillFire < Settings.Refill.Cooldown then return end
-    
-    if zeroThreeStartTime == nil then
-        zeroThreeStartTime = now
-        return
-    end
-    
-    if now - zeroThreeStartTime >= Settings.Refill.WaitTimeBeforeRefill and not isRefillTriggered then
-        isRefillTriggered = true
-        LastRefillFire = now
-        getgenv().IsRefilling = true
-        
-        local refillSuccess = AttemptAllRefills()
-        
-        if not refillSuccess then
-            -- Fallback to original method
-            local refillObj = FindRefillObject()
-            if refillObj then
-                pcall(function()
-                    POST:FireServer("Attacks", "Reload", refillObj)
-                end)
-            end
-        end
-        
-        task.wait(Settings.Refill.RefillSuccessDelay)
-        getgenv().IsRefilling = false
-        refillFailedStartTime = tick()
-    end
-end
-
-local function CheckRefillResult()
-    if not getgenv().AutoReloadBlade then return end
-    if refillFailedStartTime == nil then return end
-    
-    local now = tick()
-    if now - refillFailedStartTime >= Settings.Refill.RefillFailedWaitTime then
-        refillFailedStartTime = nil
-        
-        local success, text = pcall(function()
-            return tostring(Sets.Text)
-        end)
-        if success then
-            text = text:gsub("%s+", "")
-            if text == "0/3" and Settings.RandomWave.Enabled then
-                RapidFireRandomRefill()
-            end
-        end
-    end
-end
-
---// =====================================================
---// RAPID RELOAD (PRESSES R REPEATEDLY)
---// =====================================================
-local function RapidReloadBlades()
-    if not getgenv().AutoReloadBlade then return end
-    if IsReloadingRapid then return end
-    
-    IsReloadingRapid = true
-    getgenv().IsReloading = true
-    reloadAttempts = 0
-    
-    task.spawn(function()
-        while getgenv().AutoReloadBlade and AreBladesEmpty() and reloadAttempts < Settings.BladeReload.MaxRetries do
-            local now = tick()
-            if now - LastBladeReload >= Settings.BladeReload.Cooldown then
-                LastBladeReload = now
-                PressR()
-                reloadAttempts = reloadAttempts + 1
-            end
-            task.wait(Settings.BladeReload.RetryDelay)
-        end
-        getgenv().IsReloading = false
-        IsReloadingRapid = false
-        reloadAttempts = 0
-    end)
-end
-
---// =====================================================
---// MAIN LOOP
---// =====================================================
-task.spawn(function()
-    local lastLogState = ""
-    while true do
-        if getgenv().AutoReloadBlade then
-            local success, text = pcall(function()
-                return tostring(Sets.Text)
-            end)
-
-            if success then
-                text = text:gsub("%s+", "")
-                local bladesEmpty = AreBladesEmpty()
-                local isZeroThree = (text == "0/3")
-                
-                if isZeroThree then
-                    if lastLogState ~= "zero" then
-                        zeroThreeStartTime = tick()
-                        isRefillTriggered = false
-                        lastLogState = "zero"
-                    end
-                    FireRefillWithDelay()
-                else
-                    if zeroThreeStartTime ~= nil or isRefillTriggered then
-                        zeroThreeStartTime = nil
-                        isRefillTriggered = nil
-                        refillFailedStartTime = nil
-                    end
-                    lastLogState = "normal"
-                    
-                    if bladesEmpty then
-                        BladeEmptyConfirmCounter = BladeEmptyConfirmCounter + 1
-                        if BladeEmptyConfirmCounter >= Settings.BladeReload.ConfirmCountRequired then
-                            if lastLogState ~= "reload" then
-                                lastLogState = "reload"
-                            end
-                            RapidReloadBlades()
-                            BladeEmptyConfirmCounter = 0
-                        end
-                    else
-                        if BladeEmptyConfirmCounter > 0 and lastLogState ~= "idle" then
-                            lastLogState = "idle"
-                        end
-                        BladeEmptyConfirmCounter = 0
-                    end
-                end
-                
-                CheckRefillResult()
-            end
-        else
-            BladeEmptyConfirmCounter = 0
-            IsReloadingRapid = false
-            getgenv().IsReloading = false
-            getgenv().IsRefilling = false
-            zeroThreeStartTime = nil
-            isRefillTriggered = false
-            refillFailedStartTime = nil
-            isRapidFiring = false
-            lastLogState = ""
-        end
-        task.wait(Settings.CheckDelay)
-    end
-end)
-
--- ========== WATCHDOG (PREVENTS STUCK RELOAD/REFILL) ==========
-task.spawn(function()
-    while true do
-        task.wait(0.5)
         pcall(function()
-            if getgenv().AutoReloadBlade then
-                local now = tick()
-                if getgenv().IsReloading then
-                    if not _G.ReloadStartTime then _G.ReloadStartTime = now end
-                    if now - _G.ReloadStartTime > Settings.BladeReload.WatchdogTimeout then
-                        getgenv().IsReloading = false
-                        if IsReloadingRapid then IsReloadingRapid = false end
-                        BladeEmptyConfirmCounter = 0
-                        PressR()
-                        _G.ReloadStartTime = nil
-                    end
-                else
-                    _G.ReloadStartTime = nil
-                end
-                if getgenv().IsRefilling then
-                    if not _G.RefillStartTime then _G.RefillStartTime = now end
-                    if now - _G.RefillStartTime > Settings.BladeReload.WatchdogTimeout then
-                        getgenv().IsRefilling = false
-                        _G.RefillStartTime = nil
-                    end
-                else
-                    _G.RefillStartTime = nil
-                end
-            else
-                _G.ReloadStartTime = nil
-                _G.RefillStartTime = nil
-            end
+            local VIM = game:GetService("VirtualInputManager")
+            VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            task.wait(0.02)
+            VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
         end)
+
+        -- รอสั้น ๆ ให้ reload เริ่มทำงาน
+        task.wait(0.3)
+
+        -- ตรวจสอบว่ายังต้อง reload อีกหรือไม่ (Blade ยังหาย)
+        if getgenv().AutoReloadBlade and NeedReload() then
+            local startLoop = tick()
+            while getgenv().AutoReloadBlade and NeedReload() and (tick() - startLoop < FORCE_RELOAD_MAX_DURATION) do
+                pcall(function()
+                    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    GET:InvokeServer("Blades", "Reload")
+                end)
+                task.wait(FORCE_RELOAD_LOOP_DELAY)
+            end
+        end
+
+        task.wait(0.2)
+        getgenv().IsReloading = false
     end
-end)
 
---// =====================================================
---// HQ REFILL CHECKER (SECONDARY MONITOR)
---// =====================================================
-task.spawn(function()
-    local hqZeroStartTime = nil
-    local hqRefillTriggered = false
-    local hqRefillFailedStart = nil
-
-    local function checkAllBladesTransparentSilent()
-        local charFolder = workspace:FindFirstChild("Characters")
-        if not charFolder then return false end
-        local character = charFolder:FindFirstChild(LocalPlayer.Name)
-        if not character then return false end
-        local rig = character:FindFirstChild("Rig_" .. LocalPlayer.Name)
+    local function NeedReload()
+        local char = workspace:FindFirstChild("Characters")
+        if not char then return false end
+        local playerChar = char:FindFirstChild(LocalPlayer.Name)
+        if not playerChar then return false end
+        local rig = playerChar:FindFirstChild("Rig_" .. LocalPlayer.Name)
         if not rig then return false end
+
         local leftHand = rig:FindFirstChild("LeftHand")
         local rightHand = rig:FindFirstChild("RightHand")
-        if not leftHand or not rightHand then return false end
 
-        for i = 1, 7 do
-            local bladeL = leftHand:FindFirstChild("Blade_" .. i)
-            if bladeL and bladeL:IsA("BasePart") and bladeL.Transparency ~= 1 then
-                return false
-            end
-            local bladeR = rightHand:FindFirstChild("Blade_" .. i)
-            if bladeR and bladeR:IsA("BasePart") and bladeR.Transparency ~= 1 then
-                return false
-            end
+        if leftHand then
+            local blade = leftHand:FindFirstChild("Blade_1")
+            if blade and blade.Transparency == 1 then return true end
         end
-        return true
+
+        if rightHand then
+            local blade = rightHand:FindFirstChild("Blade_1")
+            if blade and blade.Transparency == 1 then return true end
+        end
+
+        return false
     end
 
-    local function getCurrentAmountSilent()
+    local function isZeroThree()
         local success, text = pcall(function()
-            return tostring(Sets.Text)
+            local sets = LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
+            if sets and sets:IsA("TextLabel") then
+                return sets.Text
+            end
+            return ""
         end)
-        if not success then return -1 end
-        text = text:gsub("%s+", "")
-        return tonumber(string.match(text, "^(%d+)")) or -1
+        if success then
+            local clean = text:gsub("%s+", "")
+            return clean == "0/3"
+        end
+        return false
     end
 
     while true do
-        task.wait(2)
-
         if getgenv().AutoReloadBlade then
-            local bladesAllClear = checkAllBladesTransparentSilent()
-            local amountZero = (getCurrentAmountSilent() == 0)
-            local isZeroThree = (amountZero and bladesAllClear)
+            local needReload = NeedReload()
+            local zeroThree = isZeroThree()
 
-            if isZeroThree then
-                if hqZeroStartTime == nil then
-                    hqZeroStartTime = tick()
-                    hqRefillTriggered = false
-                end
-                
-                if not hqRefillTriggered and (tick() - hqZeroStartTime >= Settings.Refill.WaitTimeBeforeRefill) then
-                    hqRefillTriggered = true
-                    AttemptAllRefills()
-                    hqRefillFailedStart = tick()
-                end
-                
-                if hqRefillFailedStart and (tick() - hqRefillFailedStart >= Settings.Refill.RefillFailedWaitTime) then
-                    local stillZero = (getCurrentAmountSilent() == 0 and checkAllBladesTransparentSilent())
-                    if stillZero and Settings.HQRapidFire.Enabled then
-                        -- Rapid fire using HQ (if enabled)
-                        local startTime = tick()
-                        while tick() - startTime < Settings.HQRapidFire.Duration do
-                            FireRandomWaveRefillRapid()
-                            task.wait(Settings.HQRapidFire.FireDelay)
-                        end
-                    end
-                    hqRefillFailedStart = nil
-                end
-            else
-                if hqZeroStartTime ~= nil then
-                    hqZeroStartTime = nil
-                    hqRefillTriggered = false
-                    hqRefillFailedStart = nil
-                end
+            if needReload and zeroThree then
+                PerformRefill()
+                task.wait(0.5)
+            elseif needReload then
+                PressR()
+                task.wait(0.5)
             end
-        else
-            hqZeroStartTime = nil
-            hqRefillTriggered = false
-            hqRefillFailedStart = nil
         end
+        task.wait(0.1)
     end
 end)
-
---// =====================================================
---// EXPORT SETTINGS TO GLOBAL (FOR EXTERNAL ACCESS)
---// =====================================================
-getgenv().ReloadBladeSettings = Settings
 -- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
@@ -9037,15 +8488,15 @@ if Tabs.AutoFarm then
         if GuiService.MenuIsOpen then
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
-            task.wait(0.1)
+            task.wait(0.05)
         end
         
         GuiService.SelectedObject = interactBtn
-        task.wait(0.05)
+        task.wait(0.02)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
-        task.wait(0.05)
+        task.wait(0.02)
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
-        task.wait(0.05)
+        task.wait(0.02)
         GuiService.SelectedObject = nil
         
         return true
@@ -9056,7 +8507,7 @@ if Tabs.AutoFarm then
         local hasClicked = false
         
         while true do
-            task.wait(0.3)
+            task.wait(0.1)
             
             if not skipEnabled then
                 detectedTime = 0
@@ -9071,7 +8522,7 @@ if Tabs.AutoFarm then
                 if not hasClicked then
                     if detectedTime == 0 then
                         detectedTime = tick()
-                    elseif tick() - detectedTime >= 1 then
+                    elseif tick() - detectedTime >= 0.3 then
                         clickSkipButton()
                         hasClicked = true
                         detectedTime = 0
