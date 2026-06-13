@@ -1,10 +1,10 @@
--- ============================== FULL LOAD CHECK ==============================
 repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
 repeat task.wait() until game:GetService("Players").LocalPlayer.PlayerGui:FindFirstChild("Interface")
 task.wait(1)
 
+-- ระบบ AFK 
 local Players = game:GetService("Players")
 local player = Players.LocalPlayer
 
@@ -17,14 +17,13 @@ player.Idled:Connect(function()
 	task.wait(1)
 	VirtualUser:Button2Up(Vector2.zero, currentCamera.CFrame)
 end)
-
+----------------------------------------------------------------------
 
 local repo="https://raw.githubusercontent.com/violin-suzutsuki/LinoriaLib/main/"
 local Library=loadstring(game:HttpGet(repo.."Library.lua"))()
 local ThemeManager=loadstring(game:HttpGet(repo.."addons/ThemeManager.lua"))()
 local SaveManager=loadstring(game:HttpGet(repo.."addons/SaveManager.lua"))()
 
--- ============================== SERVICES ==============================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -44,7 +43,6 @@ local Assets = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes")
 local POST = Assets:WaitForChild("POST")
 local GET = Assets:WaitForChild("GET")
 
--- ============================== STABILITY SYSTEM ==============================
 local function SafeInvoke(remote, ...)
     local args = {...}
     local maxRetries = 3
@@ -127,7 +125,6 @@ task.spawn(function()
     end
 end)
 
--- ============================== PLACE CHECK ==============================
 local PlaceId = game.PlaceId
 local MAIN_MENU_ID = 13379208636
 local LOBBY_ID = 14916516914
@@ -145,10 +142,8 @@ task.spawn(function()
     until tick() - start > 3
 end)
 
--- ============================== WINDOW ==============================
-local Window = Library:CreateWindow({Title="FakeHUB", Center=true, AutoShow=true})
+local Window = Library:CreateWindow({Title="#นาย เจมส์", Center=true, AutoShow=true})
 
--- ============================== GLOBAL UI FUNCTIONS ==============================
 local function isUIHiddenGlobal()
     local ok, hidden = pcall(function()
         return Window and Window.Holder and not Window.Holder.Visible
@@ -180,15 +175,14 @@ getgenv().isUIHidden = isUIHiddenGlobal
 getgenv().hideUI = hideUIGlobal
 getgenv().showUI = showUIGlobal
 
--- ============================== FOLDER SETUP ==============================
-local FakeHUBFolder = "FakeHUB"
-if not isfolder(FakeHUBFolder) then makefolder(FakeHUBFolder) end
+local JaMeHUBFolder = "JaMeHUB"
+if not isfolder(JaMeHUBFolder) then makefolder(JaMeHUBFolder) end
 
 local activeFolder
-if IsMainmenuLobby() then activeFolder = FakeHUBFolder.."/Mainmenu"
-elseif IsLobbyLobby() then activeFolder = FakeHUBFolder.."/Lobby"
-elseif IsIngameLobby() then activeFolder = FakeHUBFolder.."/Ingame"
-else activeFolder = FakeHUBFolder.."/Default" end
+if IsMainmenuLobby() then activeFolder = JaMeHUBFolder.."/Mainmenu"
+elseif IsLobbyLobby() then activeFolder = JaMeHUBFolder.."/Lobby"
+elseif IsIngameLobby() then activeFolder = JaMeHUBFolder.."/Ingame"
+else activeFolder = JaMeHUBFolder.."/Default" end
 if not isfolder(activeFolder) then makefolder(activeFolder) end
 
 pcall(function()
@@ -197,7 +191,6 @@ pcall(function()
 end)
 
 
--- ============================== SAVE/THEME ==============================
 local oldBuildFolderTree = SaveManager.BuildFolderTree
 SaveManager.BuildFolderTree = function(...) if oldBuildFolderTree then return oldBuildFolderTree(...) end end
 SaveManager:SetLibrary(Library)
@@ -205,10 +198,9 @@ SaveManager:SetFolder(activeFolder)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({"MenuKeybind"})
 ThemeManager:SetLibrary(Library)
-ThemeManager:SetFolder(FakeHUBFolder)
+ThemeManager:SetFolder(JaMeHUBFolder)
 pcall(function() SaveManager:BuildFolderTree() end)
 
--- ============================== TABS ==============================
 local Tabs = {}
 if IsMainmenuLobby() then Tabs.MainMenu = Window:AddTab("Main Menu") end
 if IsLobbyLobby() then
@@ -221,12 +213,8 @@ if IsIngameLobby() then
     Tabs.Safety = Window:AddTab("Wave")
     Tabs.Webhook = Window:AddTab("Webhook")
 end
-
-
-
--- ============================== SHARED SPIN STATE ==============================
 if IsMainmenuLobby() then
-    -- สร้าง shared state ถ้ายังไม่มี
+  
     if not getgenv().SpinState then
         getgenv().SpinState = {
             storedSpins = 0,
@@ -234,12 +222,60 @@ if IsMainmenuLobby() then
         }
     end
 
-    -- ============================== WEBHOOK NOTIFICATION SECTION ==============================
     Tabs.Webhook = Window:AddTab("Family")
 
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Webhook")
 
-    -- ========== อ่าน Family จาก Slot A โดยตรง ==========
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then
+            return false
+        end
+        if not gui.Visible then
+            return false
+        end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") then
+                if not current.Visible then
+                    return false
+                end
+            end
+            if current:IsA("ScreenGui") then
+                if not current.Enabled then
+                    return false
+                end
+            end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function isSlotAVisible()
+        local targetGui = PlayerGui:FindFirstChild("Interface")
+        if targetGui then
+            targetGui = targetGui:FindFirstChild("Title_Screen")
+            if targetGui then
+                targetGui = targetGui:FindFirstChild("Slots")
+                if targetGui then
+                    targetGui = targetGui:FindFirstChild("A")
+                    if targetGui then
+                        return IsActuallyVisible(targetGui)
+                    end
+                end
+            end
+        end
+        return false
+    end
+
+    local slotReady = false
+
+    task.spawn(function()
+        while true do
+            slotReady = isSlotAVisible()
+            task.wait(0.5)
+        end
+    end)
+
     local function getCurrentFamilyFromSlotA()
         local success, label = pcall(function()
             return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
@@ -254,7 +290,6 @@ if IsMainmenuLobby() then
         return nil
     end
 
-    -- ========== ฟังก์ชันหา Rarity ==========
     local function GetFamilyRarity(familyName)
         if not familyName then return "Common" end
         local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
@@ -278,10 +313,12 @@ if IsMainmenuLobby() then
         else return 0x95a5a6 end
     end
 
-    -- ========== ส่ง Webhook ==========
-    local function SendTargetWebhook(currentFamily)
+    local function SendTargetWebhook(currentFamily, spinNumber)
         local webhookURL = getgenv().WebhookURL or webhookURL
         if webhookURL == "" then return false end
+        if spinNumber == "?" or spinNumber == nil or tonumber(spinNumber) == nil then
+            return false
+        end
 
         local pingMode = getgenv().WebhookPingMode or pingMode
         local rarity = GetFamilyRarity(currentFamily)
@@ -292,10 +329,6 @@ if IsMainmenuLobby() then
 
         local player = game:GetService("Players").LocalPlayer
         local userName = player.Name
-
-        -- ใช้ SpinState แทนการดึงจาก Customisation UI
-        local spinState = getgenv().SpinState
-        local spinNumber = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "?"
 
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
@@ -318,21 +351,20 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- ========== ตัวแปรควบคุม ==========
     local autoNotifyEnabled = false
     local lastSentFamily = nil
+    local lastSentSpins = nil
 
-    -- ========== MAIN LOOP: ตรวจสอบ Family ใน Slot A ทุก 0.5 วินาที ==========
     task.spawn(function()
         while true do
             task.wait(0.5)
 
             if not autoNotifyEnabled then
                 lastSentFamily = nil
+                lastSentSpins = nil
                 continue
             end
 
-            -- อ่าน target families จาก Auto Spin dropdown (ใช้ร่วมกัน)
             local targetFamilies = {}
             if Options and Options.AutoSpinFamilies then
                 for name, enabled in pairs(Options.AutoSpinFamilies.Value or {}) do
@@ -343,12 +375,17 @@ if IsMainmenuLobby() then
             end
             if #targetFamilies == 0 then
                 lastSentFamily = nil
+                lastSentSpins = nil
                 continue
             end
 
             local currentFamily = getCurrentFamilyFromSlotA()
+            local spinState = getgenv().SpinState
+            local currentSpins = (spinState and spinState.hasRolled) and tostring(spinState.storedSpins) or "?"
+
             if not currentFamily then
                 lastSentFamily = nil
+                lastSentSpins = nil
                 continue
             end
 
@@ -362,9 +399,10 @@ if IsMainmenuLobby() then
             end
 
             if isTarget then
-                if lastSentFamily ~= currentFamily then
+                if (lastSentFamily ~= currentFamily or lastSentSpins ~= currentSpins) and currentSpins ~= "?" then
                     lastSentFamily = currentFamily
-                    SendTargetWebhook(currentFamily)
+                    lastSentSpins = currentSpins
+                    SendTargetWebhook(currentFamily, currentSpins)
                     local rarity = GetFamilyRarity(currentFamily)
                     local colorCodes = {Common="\27[90m", Rare="\27[94m", Epic="\27[95m", Legendary="\27[93m", Mythic="\27[91m"}
                     local code = colorCodes[rarity] or "\27[97m"
@@ -373,12 +411,12 @@ if IsMainmenuLobby() then
             else
                 if lastSentFamily ~= nil then
                     lastSentFamily = nil
+                    lastSentSpins = nil
                 end
             end
         end
     end)
 
-    -- ========== UI COMPONENTS ==========
     local webhookURL = ""
     local pingMode = "None"
 
@@ -398,7 +436,7 @@ if IsMainmenuLobby() then
     })
 
     WebhookGroup:AddButton("Test Send", function()
-        SendTargetWebhook("Test Family (Fake)")
+        SendTargetWebhook("Test Family (JaMe)", "?")
     end)
 
     WebhookGroup:AddToggle("AutoNotifyToggle", {
@@ -408,26 +446,26 @@ if IsMainmenuLobby() then
             autoNotifyEnabled = v
             if v then
                 lastSentFamily = nil
-                print("[Webhook] Monitoring started (checking Slot A). Will send when family changes to target.")
+                lastSentSpins = nil
+                print("[Webhook] Monitoring started (checking Slot A). Will send when family changes to target and spins are known.")
             else
                 print("[Webhook] Monitoring stopped.")
             end
         end
     })
 
-    -- ============================== AUTO SPIN (MAIN MENU) - ใช้ SPIN STATE ร่วมกับ Webhook ==============================
     local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
 
     local selectedFamilies = {}
     local rollDelay = 0.01
     local autoActive = false
     local spinTask = nil
+    local waitingForSlot = false
 
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
     local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 
-    -- ดึงสปินจาก Remote (ใช้เฉพาะตอน Roll เท่านั้น)
     local function getRealSpinCount()
         local success, data = pcall(function()
             return Event:InvokeServer("Data", "Copy")
@@ -438,7 +476,6 @@ if IsMainmenuLobby() then
         return 0
     end
 
-    -- Helper: UI Elements
     local function getSlotLabel()
         local success, label = pcall(function()
             return playerGui.Interface.Title_Screen.Slots.A.Details.Label
@@ -553,13 +590,11 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- แก้ไขการอ่านค่า spins ให้ตรงกับรูปแบบที่ server ส่งกลับมา
     local function performRoll()
         local result = {Event:InvokeServer("Family", "Roll")}
-        local spinsLeft = result[2] or 0   -- ค่า spins ที่เหลืออยู่ (index 2)
-        local familyGot = result[3] or nil -- ชื่อตระกูลที่สุ่มได้ (index 3)
+        local spinsLeft = result[2] or 0   
+        local familyGot = result[3] or nil
         if familyGot then
-            -- อัปเดต shared spin state
             local spinState = getgenv().SpinState
             if not spinState then
                 getgenv().SpinState = { storedSpins = 0, hasRolled = false }
@@ -580,11 +615,19 @@ if IsMainmenuLobby() then
     }
     local function isHeader(name) return string.sub(name, 1, 3) == "---" end
 
-    -- ========== AUTO SPIN LOOP ==========
     local function startAutoSpin()
         if spinTask then return end
         spinTask = task.spawn(function()
             while autoActive do
+                if not slotReady then
+                    if not waitingForSlot then
+                        waitingForSlot = true
+                        Library:Notify("Waiting for Slot A to appear...", 2)
+                    end
+                    task.wait(1)
+                    continue
+                end
+                waitingForSlot = false
                 syncUIFamilies()
                 if isCurrentFamilyTarget() then
                     local currentFamily = getCurrentFamilyFromUI()
@@ -614,10 +657,10 @@ if IsMainmenuLobby() then
             end
             autoActive = false
             spinTask = nil
+            waitingForSlot = false
         end)
     end
 
-    -- ========== UI COMPONENTS ==========
     SpinGroup:AddLabel("Slot A (only)")
     SpinGroup:AddDivider()
 
@@ -652,53 +695,82 @@ if IsMainmenuLobby() then
         Suffix = "s",
         Callback = function(v) rollDelay = v end
     })
+
     SpinGroup:AddToggle("AutoSpinToggle", {
         Text = "Auto Spin",
         Default = false,
         Callback = function(v)
             if v then
                 if #selectedFamilies == 0 then
+                    task.wait(0.5)
+                    if #selectedFamilies == 0 and Options and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
+                        local temp = {}
+                        for k, val in pairs(Options.AutoSpinFamilies.Value) do
+                            if val and not isHeader(k) then
+                                table.insert(temp, k)
+                            end
+                        end
+                        if #temp > 0 then
+                            selectedFamilies = temp
+                        end
+                    end
+                end
+
+                if #selectedFamilies == 0 then
                     Library:Notify("Please select target families first!", 3)
-                    pcall(function()
-                        if Options and Options.AutoSpinToggle then Options.AutoSpinToggle:SetValue(false) end
-                    end)
+                    Options.AutoSpinToggle:SetValue(false)
                     return
-                end
-                syncUIFamilies()
-                if isCurrentFamilyTarget() then
-                    local currentFamily = getCurrentFamilyFromUI()
-                    local display = FormatFamilyDisplay(currentFamily)
-                    Library:Notify(string.format("⚠️ Slot A already has target family: %s! Cannot Roll.", display), 5)
-                    pcall(function()
-                        if Options and Options.AutoSpinToggle then Options.AutoSpinToggle:SetValue(false) end
-                    end)
-                    return
-                end
-                local spinState = getgenv().SpinState
-                if not spinState or not spinState.hasRolled then
-                    Library:Notify("Auto Spin started (spins will appear after first roll)", 2)
-                else
-                    Library:Notify(string.format("Auto Spin started | Last known spins: %d", spinState.storedSpins), 2)
                 end
                 autoActive = true
                 startAutoSpin()
             else
                 autoActive = false
                 if spinTask then task.cancel(spinTask); spinTask = nil end
+                waitingForSlot = false
             end
         end
     })
+
+    if Options and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
+        selectedFamilies = {}
+        for k, val in pairs(Options.AutoSpinFamilies.Value) do
+            if val and not isHeader(k) then
+                table.insert(selectedFamilies, k)
+            end
+        end
+    end
+
+    task.spawn(function()
+        repeat task.wait(0.1) until Window and Window.Holder
+        repeat task.wait(0.1) until Options and Options.AutoSpinFamilies
+        task.wait(0.5)
+
+        if Options.AutoSpinToggle and Options.AutoSpinToggle.Value then
+            local hasTarget = (#selectedFamilies > 0)
+            if not hasTarget and Options.AutoSpinFamilies and Options.AutoSpinFamilies.Value then
+                for k, v in pairs(Options.AutoSpinFamilies.Value) do
+                    if v and not string.match(k, "^%-%-%-") then
+                        hasTarget = true
+                        break
+                    end
+                end
+            end
+
+            if not hasTarget then
+                Options.AutoSpinToggle:SetValue(false)
+                Library:Notify("Auto Spin disabled: No target families selected", 3)
+            else
+                Options.AutoSpinToggle:SetValue(true)
+            end
+        end
+
+        if Options.AutoNotifyToggle and Options.AutoNotifyToggle.Value then
+            Options.AutoNotifyToggle:SetValue(true)
+        end
+    end)
 end
 
 
-
-
-
-
-
-
-
--- ============================== POPUP REAL-TIME FAMILY DISPLAY (ใช้ Slot A + SpinState) ==============================
 if IsMainmenuLobby() then
     while not Tabs.Webhook do task.wait(0.1) end
 
@@ -714,8 +786,6 @@ if IsMainmenuLobby() then
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
     local RunService = game:GetService("RunService")
 
-    -- ใช้ฟังก์ชัน getCurrentFamilyFromSlotA() ที่ประกาศไว้ใน Webhook section แล้ว
-    -- ถ้าไม่มีให้สร้าง fallback
     local getSlotAFamily = getCurrentFamilyFromSlotA or function()
         local success, label = pcall(function()
             return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
@@ -728,7 +798,6 @@ if IsMainmenuLobby() then
         return nil
     end
 
-    -- ฟังก์ชันหา Rarity (ใช้ของเดิม หรือสร้างใหม่)
     local function GetRarity(familyName)
         if not familyName then return "Common" end
         local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
@@ -761,7 +830,6 @@ if IsMainmenuLobby() then
         )
     end
 
-    -- ดึงจำนวนสปินจาก SpinState (ซิงค์กับ Webhook/Auto Spin)
     local function GetTotalSpins()
         local spinState = getgenv().SpinState
         if spinState and spinState.hasRolled then
@@ -771,7 +839,6 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- อัปเดตขนาด UI
     local function UpdateUIScale()
         if popupGui then
             local scaleObj = popupGui:FindFirstChild("UIScale")
@@ -779,7 +846,6 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- เอฟเฟกต์ Pulse
     local function StartSmoothPulse(innerBorder, outerGlow, baseColor)
         if glowConnection then glowConnection:Disconnect() end
         local brightColor = getBrightColor(baseColor)
@@ -810,7 +876,7 @@ if IsMainmenuLobby() then
         if glowConnection then glowConnection:Disconnect() end
 
         local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "FakeHUBRealTimePopup"
+        screenGui.Name = "JaMeHUBRealTimePopup"
         screenGui.ResetOnSpawn = false
         screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
         screenGui.DisplayOrder = 999
@@ -822,7 +888,6 @@ if IsMainmenuLobby() then
         uiScale.Scale = currentScale
         uiScale.Parent = screenGui
 
-        -- เพิ่มความสูงจาก 100 เป็น 130 เพื่อให้มีพื้นที่ว่างเพียงพอ
         local mainFrame = Instance.new("Frame")
         mainFrame.Size = UDim2.new(0, 300, 0, 130)
         mainFrame.Position = UDim2.new(0.5, -150, 0.5, -65)
@@ -899,7 +964,6 @@ if IsMainmenuLobby() then
         familyLabel.TextWrapped = true
         familyLabel.Parent = mainFrame
 
-        -- ปรับ spinLabel ใช้ absolute position แทน bottom anchor
         local spinLabel = Instance.new("TextLabel")
         spinLabel.Size = UDim2.new(1, -40, 0, 18)
         spinLabel.Position = UDim2.new(0, 12, 0, 86)
@@ -911,12 +975,11 @@ if IsMainmenuLobby() then
         spinLabel.TextXAlignment = Enum.TextXAlignment.Left
         spinLabel.Parent = mainFrame
 
-        -- ปรับ footerLabel เป็น absolute position
         local footerLabel = Instance.new("TextLabel")
         footerLabel.Size = UDim2.new(1, -40, 0, 14)
         footerLabel.Position = UDim2.new(0, 12, 0, 110)
         footerLabel.BackgroundTransparency = 1
-        footerLabel.Text = "FAKEHUB"
+        footerLabel.Text = "JaMeHUB"
         footerLabel.Font = Enum.Font.GothamMedium
         footerLabel.TextSize = 9
         footerLabel.TextColor3 = Color3.fromHex("#888888")
@@ -956,7 +1019,6 @@ if IsMainmenuLobby() then
         UpdateDisplay()
     end
 
-    -- UI Components
     PopupGroup:AddSlider("PopupUIScale", {
         Text = "UI Scale (%)",
         Default = 100,
@@ -994,16 +1056,14 @@ end
 
 
 
--- ============================== TRADE SYSTEM (UPDATED) ==============================
 if IsLobbyLobby() then
     task.defer(function()
         local Players = game:GetService("Players")
         local Player = Players.LocalPlayer
         local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
         
-        local file1, file2 = "FakeHUB/saved_players.txt", "FakeHUB/saved_players_2.txt"
+        local file1, file2 = "JaMeHUB/saved_players.txt", "JaMeHUB/saved_players_2.txt"
 
-        -- ไฟล์ utilities
         local function loadList(f) 
             local t={} 
             if isfile(f) then 
@@ -1057,7 +1117,6 @@ if IsLobbyLobby() then
             return new 
         end
         
-        -- Trade logic
         local function isTradeOpen() 
             local success, result = pcall(function() 
                 return Player.PlayerGui.Interface.Trading.Prompt.Visible 
@@ -1098,7 +1157,6 @@ if IsLobbyLobby() then
             end
         end)
         
-        -- Send Trade (ใช้รูปแบบ args ที่ถูกต้อง)
         local function sendTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
             local now=tick()
@@ -1112,7 +1170,6 @@ if IsLobbyLobby() then
             end)
         end
         
-        -- Accept Trade (ใช้รูปแบบ args ที่ถูกต้อง)
         local function acceptTrade(n)
             if n:lower()==Player.Name:lower() or not inGame(n) then return end
             local now=tick()
@@ -1234,7 +1291,6 @@ if IsLobbyLobby() then
             addToggles(box, cacheName, function() return State.Cache end)
         end
         
-        -- Current Players (Online)
         local currentState = { Cache = nil }
         local g1 = Tabs.Trade:AddLeftGroupbox("Current Players")
         local cd = g1:AddDropdown("Trade_CurrentDropdown", {
@@ -1264,7 +1320,6 @@ if IsLobbyLobby() then
         buildSavedBox("Account 1", file1, "Trade_Acc1")
         buildSavedBox("Account 2", file2, "Trade_Acc2")
         
-        -- Refresh Online Players List
         task.spawn(function()
             while true do
                 task.wait(1.5)
@@ -1281,7 +1336,6 @@ if IsLobbyLobby() then
 end
 
 
--- ============================== SETTING TRADING ==============================
 if IsLobbyLobby() then
     local SettingBox = Tabs.Trade:AddLeftGroupbox("Setting Trading")
     
@@ -1322,7 +1376,8 @@ if IsLobbyLobby() then
         end
     })
 end
--- ============================== AUTO TRADE ALT 2 ==============================
+
+----- ระบบเทรด
 if IsLobbyLobby() then
     task.spawn(function()
         while not Tabs.Trade do task.wait(0.1) end
@@ -1336,7 +1391,6 @@ if IsLobbyLobby() then
         local pendingTargetChange = false
         local newTargetValue = 1
 
-        -- 🔥 ปรับค่าความเร็วให้เร็วที่สุด (คลิกไวมาก)
         local ClickInterval = 0.015
         local MainLoopDelay = 0.001
         local AddPanelOpenDelay = 0.08
@@ -1351,14 +1405,12 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
 
-        -- 🔥 Item Mapping
         local itemMapping = {
             ["Memory Scroll"] = "600_Memory Scroll",
             ["Emperor's Key"] = "500_Emperor's Key",
         }
         local SelectedItems = {"Memory Scroll"}
 
-        -- 🔥 Cosmetics Mapping
         local cosmeticMapping = {
             ["Angel's Halo"] = "200_Angel's Halo",
             ["Radiant Headband"] = "200_Radiant Headband",
@@ -1368,7 +1420,6 @@ if IsLobbyLobby() then
         }
         local SelectedCosmetics = {}
 
-        -- 🔥 ฟังก์ชันเช็คว่า GUI Object ยังใช้งานได้จริงหรือไม่
         local function isGuiAlive(obj)
             if not obj then return false end
             if typeof(obj) ~= "Instance" then return false end
@@ -1397,7 +1448,6 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- 🔥 ฟังก์ชันคลิกด้วยเมาส์ (เร็วสุด ไม่มี task.wait)
         local function clickWithMouse(target)
             if not isGuiAlive(target) then
                 return false
@@ -1454,7 +1504,6 @@ if IsLobbyLobby() then
             end)
         end
 
-        -- สำหรับ Items
         local function getTradeItem(itemName)
             if not isYouBoxVisible() then return nil end
             local realName = itemMapping[itemName] or itemName
@@ -1464,7 +1513,6 @@ if IsLobbyLobby() then
             return success and item or nil
         end
 
-        -- สำหรับ Cosmetics
         local function getCosmeticTradeItem(cosmeticName)
             if not isYouBoxVisible() then return nil end
             local realName = cosmeticMapping[cosmeticName] or cosmeticName
@@ -1493,7 +1541,6 @@ if IsLobbyLobby() then
             end) and player.PlayerGui.Interface.Trading.Prompt.Review.Rate.Title or nil
         end
 
-        -- Inventory Count สำหรับ Items
         local function getInventoryCount(itemName)
             if not isYouBoxVisible() then return 0 end
             local realName = itemMapping[itemName] or itemName
@@ -1507,7 +1554,6 @@ if IsLobbyLobby() then
             return 0
         end
 
-        -- Inventory Count สำหรับ Cosmetics
         local function getCosmeticInventoryCount(cosmeticName)
             if not isYouBoxVisible() then return 0 end
             local realName = cosmeticMapping[cosmeticName] or cosmeticName
@@ -1521,7 +1567,6 @@ if IsLobbyLobby() then
             return 0
         end
 
-        -- Current Added Count สำหรับ Items
         local function getCurrentAddedCount(itemName)
             if not isYouBoxVisible() then return 0 end
             local realName = itemMapping[itemName] or itemName
@@ -1535,7 +1580,6 @@ if IsLobbyLobby() then
             return 0
         end
 
-        -- Current Added Count สำหรับ Cosmetics
         local function getCosmeticCurrentAddedCount(cosmeticName)
             if not isYouBoxVisible() then return 0 end
             local realName = cosmeticMapping[cosmeticName] or cosmeticName
@@ -1549,7 +1593,6 @@ if IsLobbyLobby() then
             return 0
         end
 
-        -- เช็คว่าทุกอย่างครบ target หรือยัง
         local function allItemsMatchTarget(target)
             for _, itemName in ipairs(SelectedItems) do
                 if getCurrentAddedCount(itemName) ~= target then
@@ -1564,7 +1607,6 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- รอให้ stable (สำหรับ Items)
         local function waitForAddedStable(itemName, target, timeout)
             local start = tick()
             local lastAdded = getCurrentAddedCount(itemName)
@@ -1590,7 +1632,6 @@ if IsLobbyLobby() then
             return false
         end
 
-        -- รอให้ stable (สำหรับ Cosmetics)
         local function waitForCosmeticAddedStable(cosmeticName, target, timeout)
             local start = tick()
             local lastAdded = getCosmeticCurrentAddedCount(cosmeticName)
@@ -1616,7 +1657,6 @@ if IsLobbyLobby() then
             return false
         end
 
-        -- Dropdown สำหรับ Items
         Alt2Box:AddDropdown("Alt2_ItemSelectDropdown", {
             Text = "Select Items",
             Values = {"Memory Scroll", "Emperor's Key"},
@@ -1636,7 +1676,6 @@ if IsLobbyLobby() then
             end
         })
 
-        -- Dropdown สำหรับ Cosmetics
         Alt2Box:AddDropdown("Alt2_CosmeticSelectDropdown", {
             Text = "Select Cosmetics",
             Values = {"Angel's Halo", "Radiant Headband", "Kitsune Mask", "Blood Vial", "Kitsune Ribbon"},
@@ -1685,7 +1724,6 @@ if IsLobbyLobby() then
             end
         })
 
-        -- Confirm click handler
         task.spawn(function()
             local lastConfirmClick = 0
             local confirmCooldown = 0.05
@@ -1714,7 +1752,6 @@ if IsLobbyLobby() then
             end
         end)
 
-        -- Process Item
         local function processItem(itemName, target)
             if not isYouBoxVisible() then return false end
             
@@ -1786,7 +1823,6 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- Process Cosmetic
         local function processCosmetic(cosmeticName, target)
             if not isYouBoxVisible() then return false end
             
@@ -1858,7 +1894,6 @@ if IsLobbyLobby() then
             return true
         end
 
-        -- Main loop
         task.spawn(function()
             while true do
                 task.wait(MainLoopDelay)
@@ -1927,8 +1962,7 @@ if IsLobbyLobby() then
             end
         end)
     end)
-end
--- ============================== MISC: AUTO TELEPORT ==============================
+end     
 if IsLobbyLobby() then
     task.spawn(function()
         while not Tabs.Trade do task.wait(0.1) end
@@ -1948,7 +1982,7 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
         
-        local CONFIG_FILE = "FakeHUB/teleport_config.json"
+        local CONFIG_FILE = "JaMeHUB/teleport_config.json"
         local MonitorEnabled = false
         local minScrolls = 1
         
@@ -1967,7 +2001,7 @@ if IsLobbyLobby() then
                 lastSaved = os.date("%Y-%m-%d %H:%M:%S")
             }
             pcall(function()
-                if not isfolder("FakeHUB") then makefolder("FakeHUB") end
+                if not isfolder("JaMeHUB") then makefolder("JaMeHUB") end
                 writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(data))
             end)
         end
@@ -2116,17 +2150,14 @@ if IsLobbyLobby() then
         end)
     end)
 end
--- ============================== UI SETTINGS (SaveManager only, no extra file) ==============================
 local UISettingsTab = Window:AddTab("Settings")
 local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
 
--- ============================== SAFE TOGGLE FUNCTIONS ==============================
 local function IsUIVisible()
     return Window and Window.Holder and Window.Holder.Visible
 end
 
 local function HideUI()
-    -- Behaves exactly like pressing the "End" keybind
     pcall(function()
         if IsUIVisible() then
             Library:Toggle()
@@ -2134,24 +2165,17 @@ local function HideUI()
     end)
 end
 
--- ============================== AUTO HIDE TOGGLE (Saved by SaveManager) ==============================
 MenuGroup:AddToggle("HideUIToggle", {
     Text = "Auto Hide UI",
-    Default = false,                       -- will be overridden by SaveManager on load
+    Default = false,                       
     Callback = function(v)
-        -- Do NOT hide/show immediately. This setting only affects the next time the script loads.
-        -- The actual hiding is done in the autoload block below.
-        -- SaveManager will save the value automatically, no extra file needed.
-        -- Note: The user can still manually hide using the keybind.
     end
 })
 
--- ============================== UNLOAD ==============================
 MenuGroup:AddButton("Unload", function()
     Library:Unload()
 end)
 
--- ============================== KEYBIND ==============================
 MenuGroup:AddLabel("Menu Bind"):AddKeyPicker(
     "MenuKeybind",
     {
@@ -2174,7 +2198,6 @@ task.defer(function()
     end)
 end)
 
--- ============================== CONFIG SECTION PATCH (Delete config) ==============================
 local oldBuildConfigSection = SaveManager.BuildConfigSection
 function SaveManager:BuildConfigSection(tab)
     if oldBuildConfigSection then
@@ -2198,7 +2221,6 @@ end
 
 SaveManager:BuildConfigSection(UISettingsTab)
 
--- ============================== THEME ==============================
 pcall(function()
     if ThemeManager and ThemeManager.BuiltInThemes and ThemeManager.BuiltInThemes["Jester"] then
         ThemeManager:ApplyTheme("Jester")
@@ -2208,30 +2230,24 @@ pcall(function()
     end
 end)
 
--- ============================== AUTOLOAD + AUTO HIDE ==============================
 task.spawn(function()
     task.wait(0.25)
-
-    -- Load the config (this will set the value of HideUIToggle, but the callback will not hide because we removed the immediate hide)
     pcall(function()
         SaveManager:LoadAutoloadConfig()
     end)
 
-    -- Wait until the window actually exists
     for i = 1, 40 do
         if Window and Window.Holder then break end
         task.wait(0.05)
     end
-    task.wait(0.15) -- extra delay to ensure everything is ready
+    task.wait(0.15) 
 
-    -- If the toggle is ON, hide the UI once (this happens only when the script loads, i.e., "next time the UI opens")
     if Toggles["HideUIToggle"] and Toggles["HideUIToggle"].Value and IsUIVisible() then
         HideUI()
     end
 end)
--- ============================== MAIN MENU UI (SELECT START + CLICK JOIN COMMUNITY ONLY) ==============================
 if IsMainmenuLobby() then
-    local g = Tabs.MainMenu:AddRightGroupbox("Select Start")
+    local g = Tabs.MainMenu:AddRightGroupbox("Start GaMe")
 
     local d, s, a = 1, false, "A"
 
@@ -2289,7 +2305,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    -- คลิกปุ่มแบบแม่นยำ
     local function clickButton(target)
         if not target or not target.Visible then return false end
         
@@ -2336,7 +2351,7 @@ if IsMainmenuLobby() then
     })
     g:AddDivider()
     g:AddToggle("AutoClickSelectToggle", {
-        Text = "Auto Click [ SELECT ]", Default = false,
+        Text = "Auto Slot [ SELECT ]", Default = false,
         Callback = function(x)
             s = x
             if not x then return end
@@ -2353,7 +2368,6 @@ if IsMainmenuLobby() then
         end
     })
 
- -- ============================== CLICK JOIN COMMUNITY ==============================
 local C = Tabs.MainMenu:AddRightGroupbox("Join Community")
 
 local autoJoinEnabled = false
@@ -2367,7 +2381,6 @@ local function IsJoinCommunityDialogVisible()
     return dialog.Visible == true
 end
 
--- 🔥 ดึงปุ่มทั้งหมดใน ActionsContainer ที่เป็น GuiButton และ Visible
 local function getDialogButtons()
     local success, actionsContainer = pcall(function()
         return game:GetService("CoreGui").RobloxGui
@@ -2385,7 +2398,6 @@ local function getDialogButtons()
     return buttons
 end
 
--- 🔥 คลิกปุ่มแรก → Join Community
 local function clickJoinButton()
     local buttons = getDialogButtons()
     if #buttons >= 1 then
@@ -2394,7 +2406,6 @@ local function clickJoinButton()
     return false
 end
 
--- 🔥 คลิกปุ่มที่สอง → Not Now
 local function clickNotNowButton()
     local buttons = getDialogButtons()
     if #buttons >= 2 then
@@ -2411,7 +2422,7 @@ C:AddToggle("AutoDialogClickerToggle", {
 })
 
 C:AddToggle("AutoNotNowClickerToggle", {
-    Text = "Not Click Join Commu", Default = false,
+    Text = "Not Click 'Join Community'", Default = false,
     Callback = function(v)
         autoNotNowEnabled = v
     end
@@ -2433,7 +2444,6 @@ task.spawn(function()
 end)
 end
 
--- ============================== AUTO JOIN ==============================
 if IsMainmenuLobby() then
     local J = Tabs.MainMenu:AddRightGroupbox("Auto Join")
 
@@ -2494,7 +2504,6 @@ if IsMainmenuLobby() then
         end
     })
 end
--- ============================== TELEPORT NOW ==============================
 if IsMainmenuLobby() or IsLobbyLobby() then
     local tab = Tabs.MainMenu or Tabs.Lobby
     local g = tab:AddLeftGroupbox("Teleport Now")
@@ -2514,8 +2523,7 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     AddConfirm("Teleport to Lobby", LOBBY_ID)
     AddConfirm("Teleport to Trading", TRADE_LOBBY_ID)
     
-    -- ============================== AUTO TELEPORT AFTER TIME ==============================
-    g:AddDivider()
+        g:AddDivider()
     
     local autoTeleportEnabled = false
     local autoTeleportTime = 0
@@ -2524,7 +2532,6 @@ if IsMainmenuLobby() or IsLobbyLobby() then
     local isTeleporting = false
     local startTime = 0
     
-    -- Slider สำหรับตั้งเวลา (0-600 วินาที)
     g:AddSlider("AutoTeleportTimeSlider", {
         Text = "Teleport Main Menu After x Minute",
         Default = 0,
@@ -2537,7 +2544,6 @@ if IsMainmenuLobby() or IsLobbyLobby() then
         end
     })
     
-    -- Toggle สำหรับเปิด/ปิดระบบ
     g:AddToggle("AutoTeleportToggle", {
         Text = "Enable Auto Teleport",
         Default = false,
@@ -2555,10 +2561,9 @@ if IsMainmenuLobby() or IsLobbyLobby() then
         end
     })
     
-    -- Loop สำหรับตรวจสอบเวลาและ Teleport (ทำงานทุก place id)
     task.spawn(function()
         while true do
-            task.wait(1) -- ตรวจสอบทุก 1 วินาที
+            task.wait(1) 
             
             if autoTeleportEnabled and not isTeleporting then
                 local elapsed = tick() - startTime
@@ -2571,37 +2576,31 @@ if IsMainmenuLobby() or IsLobbyLobby() then
             if autoTeleportEnabled and isTeleporting then
                 teleportAttempts = teleportAttempts + 1
                 
-                -- พยายาม Teleport
                 pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
                 
-                -- ถ้าพยายามครบ 5 ครั้งแล้ว ให้ปิดเกม
                 if teleportAttempts >= maxAttempts then
                     game:Shutdown()
                 end
                 
-                task.wait(5) -- รอ 5 วินาทีก่อนพยายามครั้งต่อไป
+                task.wait(5) 
             end
         end
     end)
 end
 
-
--- ============================== CODE REDEEMER (STORE & REDEEM CODES) ==============================
 if IsMainmenuLobby() then
     local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeem")
 
-    local codesFile = "FakeHUB/codes.txt"
+    local codesFile = "JaMeHUB/codes.txt"
     local codeList = {}
-    local selectedCodes = {}   -- table { ["code"] = true, ... } สำหรับ multi selection
+    local selectedCodes = {}  
     local autoRedeemActive = false
     local autoRedeemTask = nil
 
-    -- ฟังก์ชันบันทึกโค้ดลงไฟล์
     local function saveCodes()
         writefile(codesFile, table.concat(codeList, "\n"))
     end
 
-    -- ฟังก์ชันโหลดโค้ดจากไฟล์
     local function loadCodes()
         codeList = {}
         if isfile(codesFile) then
@@ -2615,7 +2614,6 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- ฟังก์ชันเพิ่มโค้ดใหม่
     local function addCode(newCode)
         newCode = newCode:gsub("^%s+", ""):gsub("%s+$", "")
         if newCode == "" then return false end
@@ -2627,7 +2625,6 @@ if IsMainmenuLobby() then
         return true
     end
 
-    -- ฟังก์ชันลบโค้ดที่เลือก (หลายตัว)
     local function removeSelectedCodes()
         local removed = false
         for code, isSelected in pairs(selectedCodes) do
@@ -2648,29 +2645,24 @@ if IsMainmenuLobby() then
         return removed
     end
 
-    -- โหลดโค้ดตอนเริ่ม
     loadCodes()
 
-    -- Dropdown สำหรับเลือกโค้ด (multi)
     local codeDropdown = CodeGroup:AddDropdown("CodeListDropdown", {
         Text = "Stored Codes",
         Values = codeList,
-        Default = {},  -- ไม่มีเลือก default
+        Default = {},
         Multi = true,
         Callback = function(v)
-            selectedCodes = v   -- v เป็น table { [code] = true/false }
+            selectedCodes = v
         end
     })
 
-    -- ฟังก์ชันอัปเดต dropdown
     local function refreshDropdown()
         codeDropdown:SetValues(codeList)
-        -- เคลียร์การเลือกทั้งหมด (เพราะ code list อาจเปลี่ยน)
         selectedCodes = {}
         codeDropdown:SetValue(selectedCodes)
     end
 
-    -- Input สำหรับเพิ่มโค้ดใหม่
     local newCodeInput = ""
     CodeGroup:AddInput("NewCodeInput", {
         Text = "New Code",
@@ -2682,7 +2674,6 @@ if IsMainmenuLobby() then
         end
     })
 
-    -- ปุ่ม Store (เพิ่มโค้ด)
     CodeGroup:AddButton("Store Code", function()
         if newCodeInput ~= "" then
             if addCode(newCodeInput) then
@@ -2700,7 +2691,6 @@ if IsMainmenuLobby() then
         end
     end)
 
-    -- ปุ่ม Remove Selected Codes (ลบโค้ดที่เลือกทั้งหมด)
     CodeGroup:AddButton("Remove Selected Codes", function()
         local hasSelected = false
         for _, selected in pairs(selectedCodes) do
@@ -2719,23 +2709,47 @@ if IsMainmenuLobby() then
 
     CodeGroup:AddDivider()
 
-    -- ฟังก์ชัน Redeem พร้อมแจ้งเตือน (คืนค่า success/failed)
-    local function redeemCode(code)
-        if not code or code == "" then
-            return false, "No code provided!"
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
         end
+        return true
+    end
 
+    local function isRedeemPageVisible()
+        local interface = PlayerGui:FindFirstChild("Interface")
+        if not interface then return false end
+        local followVisible = false
+        local familyVisible = false
+        local titleScreen = interface:FindFirstChild("Title_Screen")
+        if titleScreen then
+            local follow = titleScreen:FindFirstChild("Follow")
+            if follow then followVisible = IsActuallyVisible(follow) end
+        end
+        local customisation = interface:FindFirstChild("Customisation")
+        if customisation then
+            local categories = customisation:FindFirstChild("Categories")
+            if categories then
+                local family = categories:FindFirstChild("Family")
+                if family then familyVisible = IsActuallyVisible(family) end
+            end
+        end
+        return followVisible or familyVisible
+    end
+
+    local function redeemCode(code)
+        if not code or code == "" then return false, "No code provided!" end
         local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
         local success, result = pcall(function()
             return GET:InvokeServer("Functions", "Redeem", code)
         end)
-
-        if not success then
-            return false, tostring(result)
-        end
-
+        if not success then return false, tostring(result) end
         local resultStr = tostring(result)
-
         if resultStr:find("SUCCESSFUL") then
             return true, "✅ Redeemed successfully! (" .. code .. ")"
         elseif resultStr:find("USED") then
@@ -2749,61 +2763,42 @@ if IsMainmenuLobby() then
         end
     end
 
-    -- สร้างรายชื่อโค้ดที่เลือก (เฉพาะอันที่มีค่า true)
     local function getSelectedCodeList()
         local list = {}
         for code, isSelected in pairs(selectedCodes) do
-            if isSelected then
-                table.insert(list, code)
-            end
+            if isSelected then table.insert(list, code) end
         end
         return list
     end
 
-    -- Auto Redeem Loop (สำหรับหลายโค้ด)
     local function startAutoRedeem()
         if autoRedeemTask then return end
-        
         autoRedeemTask = task.spawn(function()
-            local selectedList = getSelectedCodeList()
-            if #selectedList == 0 then
-                Library:Notify("No code selected! Please select at least one code.", 3)
-                autoRedeemActive = false
-                if Options and Options.AutoRedeemToggle then
-                    Options.AutoRedeemToggle:SetValue(false)
-                end
-                autoRedeemTask = nil
-                return
-            end
-
-            Library:Notify(string.format("Auto Redeem started for %d code(s).", #selectedList), 3)
-            
-            local successCount = 0
-            local failCount = 0
-            
-            for i, code in ipairs(selectedList) do
-                if not autoRedeemActive then break end
-                
-                Library:Notify(string.format("Redeeming (%d/%d): %s", i, #selectedList, code), 2)
-                local success, message = redeemCode(code)
-                Library:Notify(message, 4)
-                print("[Code Redeemer] " .. message)
-                
-                if success then
-                    successCount = successCount + 1
-                else
-                    failCount = failCount + 1
-                end
-                
-                -- รอเล็กน้อยระหว่าง redeem แต่ละตัว (ป้องกัน spam)
-                if i < #selectedList then
+            while autoRedeemActive do
+                if not isRedeemPageVisible() then
                     task.wait(1)
+                    continue
                 end
+                local selectedList = getSelectedCodeList()
+                if #selectedList == 0 then
+                    break
+                end
+                local successCount = 0
+                local failCount = 0
+                for i, code in ipairs(selectedList) do
+                    if not autoRedeemActive then break end
+                    local success, message = redeemCode(code)
+                    print("[Code Redeemer] " .. message)
+                    if success then
+                        successCount = successCount + 1
+                    else
+                        failCount = failCount + 1
+                    end
+                    if i < #selectedList then task.wait(1) end
+                end
+                Library:Notify(string.format("Auto Redeem finished. Success: %d, Failed: %d", successCount, failCount), 5)
+                break
             end
-            
-            Library:Notify(string.format("Auto Redeem finished. Success: %d, Failed: %d", successCount, failCount), 5)
-            
-            -- ปิด Toggle อัตโนมัติ
             autoRedeemActive = false
             if Options and Options.AutoRedeemToggle then
                 Options.AutoRedeemToggle:SetValue(false)
@@ -2812,7 +2807,6 @@ if IsMainmenuLobby() then
         end)
     end
 
-    -- Toggle สำหรับ Auto Redeem (แบบ multi)
     CodeGroup:AddToggle("AutoRedeemToggle", {
         Text = "Auto Redeem Selected Codes",
         Default = false,
@@ -2820,7 +2814,6 @@ if IsMainmenuLobby() then
             if v then
                 local selectedList = getSelectedCodeList()
                 if #selectedList == 0 then
-                    Library:Notify("No code selected! Please select at least one code.", 3)
                     pcall(function()
                         if Options and Options.AutoRedeemToggle then
                             Options.AutoRedeemToggle:SetValue(false)
@@ -2829,7 +2822,6 @@ if IsMainmenuLobby() then
                     return
                 end
                 if #codeList == 0 then
-                    Library:Notify("No codes in list! Please add codes first.", 3)
                     pcall(function()
                         if Options and Options.AutoRedeemToggle then
                             Options.AutoRedeemToggle:SetValue(false)
@@ -2845,17 +2837,14 @@ if IsMainmenuLobby() then
                     task.cancel(autoRedeemTask)
                     autoRedeemTask = nil
                 end
-                Library:Notify("Auto Redeem stopped.", 2)
             end
         end
     })
 end
--- ============================== END CODE REDEEMER ==============================
 
 
 
--- ============================== AUTO MISSION / RAID / WAVES (TABBED) ==============================
--- หา Remote แบบไดนามิก (Us Suite style)
+
 local function findMissionRemote()
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local remotesFolder = ReplicatedStorage:FindFirstChild("Assets") 
@@ -2883,7 +2872,6 @@ end
 
 local MissionGET = findMissionRemote()
 
--- Fallback รอ Remote โหลด
 if not MissionGET then
     local waited = 0
     while not MissionGET and waited < 5 do
@@ -2893,7 +2881,6 @@ if not MissionGET then
     end
 end
 
--- ฟังก์ชันเรียก Remote แบบปลอดภัย (Us Suite style)
 local function SafeMissionCall(...)
     if not MissionGET then return false, nil end
     local args = {...}
@@ -2903,10 +2890,8 @@ local function SafeMissionCall(...)
     return success, result
 end
 
--- ใช้ Tabs.Lobby เหมือนของเก่า
 if Tabs.Lobby then
 
-    -- ========== ฟังก์ชันตรวจสอบ Lobby Key หรือ Inventory ==========
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
 
@@ -2923,7 +2908,6 @@ if Tabs.Lobby then
     end
 
     local function isUIActive()
-        -- ตรวจสอบ Interface.Gear_Up.Lobby.Key
         local keyGui = player.PlayerGui:FindFirstChild("Interface")
         if keyGui then
             keyGui = keyGui:FindFirstChild("Gear_Up")
@@ -2936,7 +2920,6 @@ if Tabs.Lobby then
         end
         local keyVisible = (keyGui and IsActuallyVisible(keyGui)) or false
 
-        -- ตรวจสอบ Interface.Topbar.Main.Categories.Inventory
         local invGui = player.PlayerGui:FindFirstChild("Interface")
         if invGui then
             invGui = invGui:FindFirstChild("Topbar")
@@ -2954,11 +2937,9 @@ if Tabs.Lobby then
 
         return (keyVisible or inventoryVisible)
     end
-    -- =====================================================
-
+  
     local AutoMissionTabbox = Tabs.Lobby:AddLeftTabbox("Auto Content")
 
-    -- ============================== TAB: MISSION ==============================
     local MissionTab = AutoMissionTabbox:AddTab("Mission")
 
     local MissionObjectives = {
@@ -3054,8 +3035,7 @@ if Tabs.Lobby then
         return "Modifiers:\n" .. table.concat(sorted, "\n")
     end
 
-    -- ========== RETRY WRAPPER FOR CREATE MISSION ==========
-    local function CreateMissionWithRetry(missionName, objective, difficulty)
+     local function CreateMissionWithRetry(missionName, objective, difficulty)
         local maxRetries = 3
         for attempt = 1, maxRetries do
             if not missionRunning then return false end
@@ -3080,7 +3060,6 @@ if Tabs.Lobby then
         return false
     end
 
-    -- แทนที่ฟังก์ชัน CreateMission เดิม
     local function CreateMission(missionName, objective, difficulty)
         return CreateMissionWithRetry(missionName, objective, difficulty)
     end
@@ -3096,7 +3075,6 @@ if Tabs.Lobby then
         task.wait(0.3)
     end
 
-    -- ฟังก์ชัน Modify Modifier แบบมีผลลัพท์ตรวจสอบ
     local function ApplyModifier(mod)
         local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
         local success, result = pcall(function()
@@ -3140,8 +3118,8 @@ if Tabs.Lobby then
                 if success then break end
                 task.wait(0.3)
             end
-            task.wait(0.5)  -- เพิ่มดีเลย์ 0.5 วิ ระหว่าง modifiers
-        end
+            task.wait(0.5)  
+			end
         task.wait(0.4)
     end
 
@@ -3171,7 +3149,6 @@ if Tabs.Lobby then
         return nil
     end
 
-    -- ========== MISSION LOOP (UPDATED WITH PRECISE LEAVE + RECREATE + MODIFIERS) ==========
     local function MissionLoop(mySession)
         task.wait(1)
         if MissionDelay > 0 then task.wait(MissionDelay) end
@@ -3202,12 +3179,10 @@ if Tabs.Lobby then
                         obj = filtered[math.random(#filtered)]
                     end
                     
-                    -- สร้าง Mission ครั้งแรกเพื่อทดสอบระดับ
                     CreateMission(currentMission, obj, diff)
                     task.wait(0.2)
                     
                     if GetMyMission() then
-                        -- พบระดับที่เหมาะสม
                         Library:Notify(string.format("Found suitable difficulty: %s", diff), 3)
                         targetDiff = diff
                         targetObj = obj
@@ -3228,7 +3203,7 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- 2) LEAVE ครั้งเดียว (รอให้ Mission หายไปจาก ReplicatedStorage)
+               
                 Library:Notify("🔄 Leaving current mission to reset state...", 3)
                 LeaveMission()
                 local leaveStart = tick()
@@ -3248,12 +3223,10 @@ if Tabs.Lobby then
                 end
                 task.wait(0.3)
                 
-                -- 3) สร้างใหม่ด้วย difficulty ที่พบ
                 Library:Notify(string.format("Recreating mission with exact difficulty: %s", targetDiff), 3)
                 CreateMission(currentMission, targetObj, targetDiff)
                 task.wait(0.2)
                 
-                -- ตรวจสอบว่าสร้างสำเร็จ
                 local recreateSuccess = false
                 for retry = 1, 3 do
                     if GetMyMission() then
@@ -3271,7 +3244,6 @@ if Tabs.Lobby then
                 end
                 Library:Notify("Mission recreated successfully!", 3)
                 
-                -- 4) Apply Modifiers ครบทุกตัว
                 Library:Notify("Applying modifiers...", 3)
                 local selectedMods = {}
                 pcall(function()
@@ -3286,7 +3258,6 @@ if Tabs.Lobby then
                 end)
                 
                 if #selectedMods > 0 then
-                    -- Clear ก่อน
                     for retry = 1, 2 do
                         if not missionRunning then break end
                         SafeMissionCall("S_Missions", "ClearModifiers")
@@ -3294,7 +3265,6 @@ if Tabs.Lobby then
                     end
                     task.wait(0.3)
                     
-                    -- Apply ทีละอัน (เพิ่ม delay 0.5 ระหว่างอัน)
                     local applied = 0
                     for _, mod in ipairs(selectedMods) do
                         if not missionRunning then break end
@@ -3310,7 +3280,7 @@ if Tabs.Lobby then
                         else
                             Library:Notify(string.format("  Failed to apply: %s", mod), 2)
                         end
-                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
+                        task.wait(0.5)  
                     end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
@@ -3323,7 +3293,6 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- 5) Start Mission
                 Library:Notify("Starting mission", 2)
                 StartMission()
                 local startTick = tick()
@@ -3331,7 +3300,6 @@ if Tabs.Lobby then
                 if MissionDelay > 0 then task.wait(MissionDelay) end
                 
             else
-                -- Fixed difficulty mode
                 local objList = MissionObjectives[currentMission] or {"Skirmish"}
                 local obj = currentObjective
                 if obj == "Random" then
@@ -3340,7 +3308,6 @@ if Tabs.Lobby then
                     obj = filtered[math.random(#filtered)]
                 end
                 
-                -- 1) สร้าง Mission ครั้งแรก
                 CreateMission(currentMission, obj, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3352,7 +3319,6 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- 2) LEAVE + RECREATE (เพื่อความแม่นยำ)
                 Library:Notify("Recreating mission to ensure stability...", 3)
                 LeaveMission()
                 task.wait(0.3)
@@ -3376,7 +3342,6 @@ if Tabs.Lobby then
                 end
                 Library:Notify("Mission ready", 3)
                 
-                -- 3) Apply Modifiers
                 local selectedMods = {}
                 pcall(function()
                     if Options and Options.MissionModifiersDropdown and Options.MissionModifiersDropdown.Value then
@@ -3406,8 +3371,7 @@ if Tabs.Lobby then
                             task.wait(0.3)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
-                    end
+                        task.wait(0.5)                      end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
                 end
@@ -3470,11 +3434,9 @@ if Tabs.Lobby then
         Callback = function(v) MissionDelay = v end
     })
 
-    -- ตัวแปรกลางสำหรับ Auto Content (เพิ่มตรงนี้)
-    local activeAutoContent = nil  -- "mission", "raid", "waves"
+        local activeAutoContent = nil  
 
-    -- ========== ปรับ Toggle Mission ==========
-    local missionPendingStart = false
+        local missionPendingStart = false
     local missionStartTask = nil
 
     local missionToggle = MissionTab:AddToggle("AutoStartMissionToggle", {
@@ -3521,8 +3483,7 @@ if Tabs.Lobby then
         end
     })
 
-    -- ============================== TAB: RAID ==============================
-    local RaidTab = AutoMissionTabbox:AddTab("Raid")
+        local RaidTab = AutoMissionTabbox:AddTab("Raid")
 
     local RaidObjectives = {
         ["Attack Titan"] = {name = "Trost", objective = "Attack Titan", hasMinimum = false},
@@ -3544,8 +3505,7 @@ if Tabs.Lobby then
         if Options and Options.RaidDelaySlider and Options.RaidDelaySlider.Value then RaidDelay = tonumber(Options.RaidDelaySlider.Value) or 0 end
     end)
 
-    -- ========== RETRY WRAPPER FOR CREATE RAID ==========
-    local function CreateRaidWithRetry(bossName, difficulty)
+        local function CreateRaidWithRetry(bossName, difficulty)
         local maxRetries = 3
         for attempt = 1, maxRetries do
             if not raidRunning then return false end
@@ -3574,8 +3534,7 @@ if Tabs.Lobby then
         return false
     end
 
-    -- แทนที่ฟังก์ชัน CreateRaid เดิม
-    local function CreateRaid(bossName, difficulty)
+        local function CreateRaid(bossName, difficulty)
         return CreateRaidWithRetry(bossName, difficulty)
     end
 
@@ -3619,8 +3578,7 @@ if Tabs.Lobby then
                 if success then break end
                 task.wait(0.3)
             end
-            task.wait(0.5)  -- เปลี่ยนจาก 0.2 เป็น 0.5
-        end
+            task.wait(0.5)          end
         task.wait(0.4)
     end
 
@@ -3634,8 +3592,7 @@ if Tabs.Lobby then
         SafeMissionCall("S_Missions", "Leave")
     end
 
-    -- ========== RAID LOOP (UPDATED WITH PRECISE LEAVE + RECREATE + MODIFIERS) ==========
-    local function RaidLoop(mySession)
+        local function RaidLoop(mySession)
         task.wait(1)
         if RaidDelay > 0 then task.wait(RaidDelay) end
         
@@ -3677,12 +3634,12 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- LEAVE
+                
                 Library:Notify("Leaving current raid...", 3)
                 LeaveRaid()
                 task.wait(0.3)
                 
-                -- RECREATE
+               
                 Library:Notify(string.format("Recreating raid with difficulty: %s", targetDiff), 3)
                 CreateRaid(currentBoss, targetDiff)
                 task.wait(0.2)
@@ -3700,7 +3657,6 @@ if Tabs.Lobby then
                 end
                 Library:Notify("Raid recreated successfully!", 3)
                 
-                -- APPLY MODIFIERS
                 local selectedMods = {}
                 pcall(function()
                     if Options and Options.RaidModifiersDropdown and Options.RaidModifiersDropdown.Value then
@@ -3726,8 +3682,7 @@ if Tabs.Lobby then
                             task.wait(0.3)
                         end
                         if success then applied = applied + 1 end
-                        task.wait(0.5)  -- หน่วง 0.5 ระหว่าง modifier
-                    end
+                        task.wait(0.5)                      end
                     task.wait(0.4)
                     Library:Notify(string.format("Applied %d/%d modifiers", applied, #selectedMods), 3)
                 end
@@ -3744,7 +3699,6 @@ if Tabs.Lobby then
                 if RaidDelay > 0 then task.wait(RaidDelay) end
                 
             else
-                -- Fixed difficulty mode
                 CreateRaid(currentBoss, currentDifficulty)
                 task.wait(0.2)
                 
@@ -3756,7 +3710,6 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- LEAVE + RECREATE
                 Library:Notify("Recreating raid for stability...", 3)
                 LeaveRaid()
                 task.wait(0.3)
@@ -3775,7 +3728,6 @@ if Tabs.Lobby then
                     continue
                 end
                 
-                -- APPLY MODIFIERS
                 local selectedMods = {}
                 pcall(function()
                     if Options and Options.RaidModifiersDropdown and Options.RaidModifiersDropdown.Value then
@@ -3850,8 +3802,7 @@ if Tabs.Lobby then
         Callback = function(v) RaidDelay = v end
     })
 
-    -- ========== ปรับ Toggle Raid ==========
-    local raidPendingStart = false
+        local raidPendingStart = false
     local raidStartTask = nil
 
     local raidToggle = RaidTab:AddToggle("AutoRaidToggle", {
@@ -3898,17 +3849,14 @@ if Tabs.Lobby then
         end
     })
 
-    -- ============================== TAB: WAVES ==============================
-    local WavesTab = AutoMissionTabbox:AddTab("Waves")
+        local WavesTab = AutoMissionTabbox:AddTab("Waves")
 
     local wavesRunning = false
     local wavesBusy = false
     local wavesSessionId = 0
     local wavesDelay = 0
-    local wavesCooldownUntil = 0  -- เพิ่มตัวแปร cooldown
-
-    -- ========== RETRY WRAPPER FOR CREATE WAVE ==========
-    local function CreateWaveWithRetry()
+    local wavesCooldownUntil = 0  
+        local function CreateWaveWithRetry()
         local maxRetries = 3
         for attempt = 1, maxRetries do
             if not wavesRunning then return false end
@@ -3933,8 +3881,7 @@ if Tabs.Lobby then
         return false
     end
 
-    -- แทนที่ฟังก์ชัน CreateWave เดิม
-    local function CreateWave()
+        local function CreateWave()
         return CreateWaveWithRetry()
     end
 
@@ -3952,8 +3899,7 @@ if Tabs.Lobby then
         task.wait(1)
         
         while wavesRunning and wavesSessionId == mySession do
-            -- เช็ค cooldown ก่อนทำงาน
-            local now = tick()
+                        local now = tick()
             if now < wavesCooldownUntil then
                 local remaining = math.ceil(wavesCooldownUntil - now)
                 if remaining > 0 then
@@ -3986,8 +3932,7 @@ if Tabs.Lobby then
                 if not wavesRunning or wavesSessionId ~= mySession then break end
             until tick() - startTick >= 0.45
 
-            -- ตั้ง cooldown หลังจากจบแต่ละ Wave
-            if wavesDelay > 0 then
+                        if wavesDelay > 0 then
                 wavesCooldownUntil = tick() + wavesDelay
             end
 
@@ -3995,8 +3940,7 @@ if Tabs.Lobby then
         end
     end
 
-    -- เพิ่ม Slider Delay สำหรับ Waves
-    WavesTab:AddSlider("WavesDelaySlider", {
+        WavesTab:AddSlider("WavesDelaySlider", {
         Text = "Wave Delay",
         Default = 0,
         Min = 0,
@@ -4008,8 +3952,7 @@ if Tabs.Lobby then
         end
     })
 
-    -- ========== ปรับ Toggle Waves (พร้อม cooldown เริ่มต้น) ==========
-    local wavesPendingStart = false
+        local wavesPendingStart = false
     local wavesStartTask = nil
 
     local wavesToggle = WavesTab:AddToggle("AutoWavesToggle", {
@@ -4038,8 +3981,7 @@ if Tabs.Lobby then
                         task.wait(0.5)
                     end
                     if wavesPendingStart then
-                        -- ตั้ง cooldown เริ่มต้นตามค่า wavesDelay (ถ้ามากกว่า 0)
-                        if wavesDelay > 0 then
+                                                if wavesDelay > 0 then
                             wavesCooldownUntil = tick() + wavesDelay
                             Library:Notify(string.format("Wave cooldown started: %d seconds", wavesDelay), 2)
                         end
@@ -4059,31 +4001,26 @@ if Tabs.Lobby then
                 wavesRunning = false
                 wavesBusy = false
                 wavesSessionId = wavesSessionId + 1
-                wavesCooldownUntil = 0  -- รีเซ็ต cooldown
-                LeaveWave()
+                wavesCooldownUntil = 0                  LeaveWave()
                 if activeAutoContent == "waves" then activeAutoContent = nil end
             end
         end
     })
 
 end
--- ============================== AUTO UPGRADE ==============================
 if IsLobbyLobby() then
     local UpgradeTabbox = Tabs.Session:AddLeftTabbox("Auto Upgrade")
 
-    -- ตัวแปรกลางสำหรับห้ามเปิดพร้อมกัน
-    local activeUpgradeType = nil  -- "blade" or "spear"
+        local activeUpgradeType = nil 
 
-    -- ========== ฟังก์ชันเปลี่ยนอาวุธ (ใช้รูปแบบตามที่กำหนด) ==========
-    local function switchToBlades()
+        local function switchToBlades()
         local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
         local Result = Event:InvokeServer(
             "S_Equipment",
             "Weapon",
             "Blades"
         )
-        -- คาดว่า Result จะเป็น nil
-        return true
+                return true
     end
 
     local function switchToSpears()
@@ -4093,12 +4030,10 @@ if IsLobbyLobby() then
             "Weapon",
             "Spears"
         )
-        -- คาดว่า Result จะเป็น nil
-        return true
+                return true
     end
 
-    -- ========== ฟังก์ชันอ่านค่า Gold / Gems โดยตรง ==========
-    local function getGoldAmount()
+        local function getGoldAmount()
         local player = game:GetService("Players").LocalPlayer
         local gold = 0
         pcall(function()
@@ -4114,8 +4049,7 @@ if IsLobbyLobby() then
         return gold
     end
 
-    -- ========== ฟังก์ชันตรวจสอบว่า UI การอัปเกรดอยู่ในสถานะ "Ready" ==========
-    local function isUpgradeReady()
+        local function isUpgradeReady()
         local player = game:GetService("Players").LocalPlayer
         local ready = false
         pcall(function()
@@ -4137,8 +4071,7 @@ if IsLobbyLobby() then
         return ready
     end
 
-    -- =================== BLADE TAB ===================
-    local BladeTab = UpgradeTabbox:AddTab("Blade")
+        local BladeTab = UpgradeTabbox:AddTab("Blade")
 
     getgenv().AutoUpgradeBlade = false
     getgenv().UpgradeRunning = false
@@ -4183,8 +4116,7 @@ if IsLobbyLobby() then
                     end)
                     return
                 end
-                -- เปลี่ยนอาวุธเป็น Blades ก่อนเริ่ม
-                local success = switchToBlades()
+                                local success = switchToBlades()
                 if not success then
                     Library:Notify("Failed to switch weapon to Blades. Upgrade may not work properly.", 4)
                 else
@@ -4224,8 +4156,7 @@ if IsLobbyLobby() then
         end
     })
 
-    -- =================== THUNDER SPEAR TAB ===================
-    local SpearTab = UpgradeTabbox:AddTab("Thunder Spear")
+        local SpearTab = UpgradeTabbox:AddTab("Thunder Spear")
 
     getgenv().AutoUpgradeSpear = false
     getgenv().SpearUpgradeRunning = false
@@ -4276,8 +4207,7 @@ if IsLobbyLobby() then
                     end)
                     return
                 end
-                -- เปลี่ยนอาวุธเป็น Spears ก่อนเริ่ม
-                local success = switchToSpears()
+                                local success = switchToSpears()
                 if not success then
                     Library:Notify("Failed to switch weapon to Thunder Spear. Upgrade may not work properly.", 4)
                 else
@@ -4319,12 +4249,10 @@ if IsLobbyLobby() then
 end
 
 
--- ============================== UNLOCK SKILLS (SILENT MODE - SINGLE DELAY) ==============================
 if IsLobbyLobby() then
     local UnlockGroupLeft = Tabs.Session:AddLeftGroupbox("Unlock Skills")
 
-    -- กำหนดข้อมูลของแต่ละสาย
-    local branches = {
+        local branches = {
         ["Support Left"] = {
             ids = {
                 "70","71","72","73","74","75","76","77","78","79",
@@ -4363,16 +4291,13 @@ if IsLobbyLobby() then
         }
     }
 
-    -- ตัวแปรเก็บค่าที่เลือก
-    local selected = { Support = nil, Offense = nil, Defense = nil }
+        local selected = { Support = nil, Offense = nil, Defense = nil }
     local orderLabel = nil
     local isUnlocking = false
 
-    -- ตัวแปรสำหรับ delay เดียว
-    local unlockDelay = 0.08
+        local unlockDelay = 0.08
 
-    -- ฟังก์ชันอัปเดต Order Label
-    local function updateOrderLabel()
+        local function updateOrderLabel()
         local items = {}
         if selected.Defense then items[#items+1] = "Defense " .. selected.Defense end
         if selected.Offense then items[#items+1] = "Offense " .. selected.Offense end
@@ -4388,8 +4313,7 @@ if IsLobbyLobby() then
         if orderLabel then orderLabel:SetText(orderText) end
     end
 
-    -- สร้าง dropdown
-    local function createDropdown(category, text)
+        local function createDropdown(category, text)
         local dropdown = UnlockGroupLeft:AddDropdown(category .. "SideDropdown", {
             Text = text,
             Values = {"None", "Left", "Right"},
@@ -4407,10 +4331,8 @@ if IsLobbyLobby() then
     local offenseDropdown = createDropdown("Offense", "Offense Side")
     local defenseDropdown = createDropdown("Defense", "Defense Side")
 
-    -- Label แสดงลำดับ
     orderLabel = UnlockGroupLeft:AddLabel("Order:\n   (none selected)", true)
 
-    -- Slider เดียวสำหรับตั้งค่า Delay
     UnlockGroupLeft:AddSlider("UnlockDelaySlider", {
         Text = "Unlock Delay (sec)",
         Default = 0.08,
@@ -4420,8 +4342,7 @@ if IsLobbyLobby() then
         Callback = function(v) unlockDelay = v end
     })
 
-    -- ปุ่ม Clear All Selections
-    UnlockGroupLeft:AddButton("Clear All Selections", function()
+        UnlockGroupLeft:AddButton("Clear All Selections", function()
         supportDropdown:SetValue("None")
         offenseDropdown:SetValue("None")
         defenseDropdown:SetValue("None")
@@ -4433,8 +4354,7 @@ if IsLobbyLobby() then
 
     UnlockGroupLeft:AddDivider()
 
-    -- ฟังก์ชัน Unlock ทีละ ID (เงียบ)
-    local function unlockSingleId(id, retryCount)
+        local function unlockSingleId(id, retryCount)
         retryCount = retryCount or 0
         local success, err = pcall(function()
             GET:InvokeServer("S_Equipment", "Unlock", { id })
@@ -4446,22 +4366,18 @@ if IsLobbyLobby() then
         return success, err
     end
 
-    -- ฟังก์ชัน Unlock ทั้งสาย (เงียบ ไม่มี notify)
-    local function unlockBranch(ids)
+        local function unlockBranch(ids)
         for _, id in ipairs(ids) do
             unlockSingleId(id)
             task.wait(unlockDelay)
         end
     end
 
-    -- ฟังก์ชันรอ UI และแสดง Gold (ครั้งเดียว)
-    local function showGoldAndWait()
-        -- รอ Window.Holder แสดง
-        while not (Window and Window.Holder and Window.Holder.Visible) do
+        local function showGoldAndWait()
+                while not (Window and Window.Holder and Window.Holder.Visible) do
             task.wait(0.1)
         end
-        -- รอให้ Gold Amount มีค่า
-        local player = game:GetService("Players").LocalPlayer
+                local player = game:GetService("Players").LocalPlayer
         local goldLabel = nil
         repeat
             task.wait(0.1)
@@ -4478,7 +4394,6 @@ if IsLobbyLobby() then
         task.wait(0.2)
     end
 
-    -- Toggle สำหรับเริ่มปลดล็อค
     UnlockGroupLeft:AddToggle("UnlockSkillsToggle", {
         Text = "Start Unlock Skills Blades",
         Default = false,
@@ -4493,11 +4408,9 @@ if IsLobbyLobby() then
                 return
             end
 
-            -- แสดง Gold เพียงครั้งเดียว
-            showGoldAndWait()
+                        showGoldAndWait()
 
-            -- รวบรวมสายที่เลือก (เรียงลำดับ: Defense, Offense, Support)
-            local queue = {}
+                        local queue = {}
             if selected.Defense then
                 local side = selected.Defense
                 local branchName = "Defense " .. side
@@ -4528,8 +4441,7 @@ if IsLobbyLobby() then
                 for i, ids in ipairs(queue) do
                     unlockBranch(ids)
                     if i < #queue then
-                        task.wait(unlockDelay)  -- ใช้ delay เดียวกันระหว่าง branch
-                    end
+                        task.wait(unlockDelay)                      end
                 end
                 isUnlocking = false
                 pcall(function()
@@ -4541,7 +4453,6 @@ if IsLobbyLobby() then
         end
     })
 end
--- ============================== BOOST SELECTION ==============================
 if IsLobbyLobby() then
 
     local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
@@ -4556,7 +4467,6 @@ if IsLobbyLobby() then
         "2X XP Boost [2H]", "2X Luck [2H]", "2X Gold [2H]"
     }
 
-    -- ราคาตาม duration
     local PRICE_MAP = {
         ["30M"] = 4499,
         ["1H"] = 7999,
@@ -4572,7 +4482,6 @@ if IsLobbyLobby() then
         return 0
     end
 
-    -- ฟังก์ชันจัดรูปแบบตัวเลขแบบมี comma
     local function formatNumberWithComma(num)
         local formatted = tostring(num)
         local k = 0
@@ -4774,89 +4683,129 @@ if IsLobbyLobby() then
         return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function isLobbyUIVisible()
+        local interface = PlayerGui:FindFirstChild("Interface")
+        if not interface then return false end
+        local keyVisible = false
+        local categoriesVisible = false
+        local gearUp = interface:FindFirstChild("Gear_Up")
+        if gearUp then
+            local lobby = gearUp:FindFirstChild("Lobby")
+            if lobby then
+                local key = lobby:FindFirstChild("Key")
+                if key then keyVisible = IsActuallyVisible(key) end
+            end
+        end
+        local topbar = interface:FindFirstChild("Topbar")
+        if topbar then
+            local main = topbar:FindFirstChild("Main")
+            if main then
+                local categories = main:FindFirstChild("Categories")
+                if categories then categoriesVisible = IsActuallyVisible(categories) end
+            end
+        end
+        return keyVisible or categoriesVisible
+    end
+
+    local autoUseActive = false
+    local autoUseTask = nil
+
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
         Text = "Auto Use All Boosts",
         Default = false,
         Callback = function(v)
-            if not v then return end
-
-            local waited = 0
-            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
-                task.wait(0.05)
-                waited = waited + 0.05
-            end
-            task.wait(0.1)
-
-            if not isReady then
-                pcall(function()
+            if v then
+                if autoUseActive then return end
+                autoUseActive = true
+                if autoUseTask then task.cancel(autoUseTask) end
+                autoUseTask = task.spawn(function()
+                    while autoUseActive do
+                        if not isLobbyUIVisible() then
+                            task.wait(0.1)
+                            continue
+                        end
+                        local durations = {"2h", "1h", "30m"}
+                        local roundsPerDuration = 5
+                        for _, dur in ipairs(durations) do
+                            if not autoUseActive then break end
+                            for round = 1, roundsPerDuration do
+                                if not autoUseActive then break end
+                                if not isReady then 
+                                    task.wait(0.05)
+                                    break
+                                end
+                                local goldName = "2x Gold Boost [" .. dur .. "]"
+                                useBoost(goldName)
+                                task.wait()
+                                if not autoUseActive then break end
+                                if not isReady then 
+                                    task.wait(0.05)
+                                    break
+                                end
+                                local luckName = "2x Luck Boost [" .. dur .. "]"
+                                useBoost(luckName)
+                                task.wait()
+                                if not autoUseActive then break end
+                                if not isReady then 
+                                    task.wait(0.05)
+                                    break
+                                end
+                                local xpName = "2x XP Boost [" .. dur .. "]"
+                                useBoost(xpName)
+                                task.wait()
+                            end
+                            if not autoUseActive then break end
+                        end
+                        break
+                    end
+                    autoUseActive = false
                     if Options and Options.Boost_AutoUseToggle then
                         Options.Boost_AutoUseToggle:SetValue(false)
                     end
+                    autoUseTask = nil
                 end)
-                return
-            end
-
-            task.spawn(function()
-                -- กำหนดลำดับ duration ที่จะใช้: 2h, 1h, 30m
-                local durations = {"2h", "1h", "30m"}
-                -- จำนวนรอบต่อ duration (3 ครั้ง)
-                local roundsPerDuration = 3
-
-                for _, dur in ipairs(durations) do
-                    for round = 1, roundsPerDuration do
-                        if not isReady then break end
-                        -- gold
-                        local goldName = "2x Gold Boost [" .. dur .. "]"
-                        useBoost(goldName)
-                        task.wait(0.01)
-                        if not isReady then break end
-                        -- luck
-                        local luckName = "2x Luck Boost [" .. dur .. "]"
-                        useBoost(luckName)
-                        task.wait(0.01)
-                        if not isReady then break end
-                        -- xp
-                        local xpName = "2x XP Boost [" .. dur .. "]"
-                        useBoost(xpName)
-                        task.wait(0.01)
-                    end
-                    if not isReady then break end
+            else
+                autoUseActive = false
+                if autoUseTask then
+                    task.cancel(autoUseTask)
+                    autoUseTask = nil
                 end
-
-                pcall(function()
-                    if Options and Options.Boost_AutoUseToggle then
-                        Options.Boost_AutoUseToggle:SetValue(false)
-                    end
-                end)
-            end)
+            end
         end
     })
 
 end
--- ============================== PRESTIGE (PER-STEP GOLD REQUIREMENTS WITH CUSTOM MIN/MAX, FORCE ONLY CURRENT STEP) ==============================
 if IsLobbyLobby() then
     local PrestigeGroup = Tabs.Session:AddRightGroupbox("Prestige")
 
-    -- ตัวแปร global
-    getgenv().PrestigeEnabled = false
+        getgenv().PrestigeEnabled = false
     getgenv().SelectedBoost = "Gold Boost"
     getgenv().ForceGoldRequirement = false
 
-    -- ค่าเริ่มต้น Gold requirements (หน่วยเป็นล้าน) ตามที่กำหนด: max ของแต่ละขั้น
-    local DEFAULT_GOLD_REQUIREMENTS_M = {200, 400, 600, 800, 1000}
+        local DEFAULT_GOLD_REQUIREMENTS_M = {200, 400, 600, 800, 1000}
     getgenv().PrestigeGoldRequirement = {200, 400, 600, 800, 1000}
     
-    -- กำหนดช่วง min/max สำหรับแต่ละ slider (max = ค่า requirement, min = 0)
-    local SLIDER_RANGES = {
-        {min = 0,   max = 200},   -- 0 → 1
-        {min = 0,   max = 400},   -- 1 → 2
-        {min = 0,   max = 600},   -- 2 → 3
-        {min = 0,   max = 800},   -- 3 → 4
-        {min = 0,   max = 1000},  -- 4 → 5
+        local SLIDER_RANGES = {
+        {min = 0,   max = 200}, 
+        {min = 0,   max = 400}, 
+        {min = 0,   max = 600},   
+        {min = 0,   max = 800},  
+        {min = 0,   max = 1000}, 
     }
     
-    -- สร้างฟังก์ชัน sync ค่าเริ่มต้นจาก Options
-    local function syncFromOptions()
+        local function syncFromOptions()
         if Options then
             for i = 1, 5 do
                 local optName = "GoldReq_"..(i-1).."to"..i
@@ -4880,10 +4829,8 @@ if IsLobbyLobby() then
 
     syncFromOptions()
 
-    -- Max Level per Prestige step
     local MAX_LEVEL_FOR_PRESTIGE = {100, 125, 150, 175, 200}
 
-    -- Talents list
     local AllTalents = {
         "Crescendo", "Blitzblade", "Swiftshot", "Surgeshot",
         "Stalwart", "Stormcharged",
@@ -4917,12 +4864,10 @@ if IsLobbyLobby() then
     local PrestigeCooldown = 0.3
     local PrestigeRunning = false
 
-    -- ตัวแปรสำหรับจำกัดการแจ้งเตือน gold (แสดงครั้งเดียวต่อ step และต่อสถานะ gold พอ/ไม่พอ)
-    local lastGoldNotifyStep = -1
+        local lastGoldNotifyStep = -1
     local lastGoldNotifyStatus = nil
 
-    -- ========== Helper functions ==========
-    local function getGold()
+        local function getGold()
         local player = game:GetService("Players").LocalPlayer
         local gold = 0
         pcall(function()
@@ -4964,7 +4909,6 @@ if IsLobbyLobby() then
         return percent
     end
 
-    -- ========== UI: Sliders แต่ละตัวมี min/max และ default = ค่า max ตามขั้น ==========
     PrestigeGroup:AddSlider("GoldReq_0to1", { 
         Text = "       0 → 1  (200M)", 
         Default = getgenv().PrestigeGoldRequirement[1], 
@@ -5047,8 +4991,7 @@ if IsLobbyLobby() then
         end 
     })
 
-    -- ========== Condition & Logic ==========
-    local function canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
+        local function canPrestige(currentPrestige, currentLevel, currentXP, currentGold)
         if currentPrestige >= 5 then return false, "max" end
         local requiredLevel = MAX_LEVEL_FOR_PRESTIGE[currentPrestige + 1]
         if currentLevel < requiredLevel then return false, "level" end
@@ -5119,18 +5062,14 @@ if IsLobbyLobby() then
         return true
     end
 
-    -- Main loop ที่ทำงานเฉพาะเมื่อเปิด toggle เท่านั้น
     task.spawn(function()
         while true do
-            -- ห้ามทำงานเด็ดขาดถ้าไม่ได้เปิด toggle
-            if not getgenv().PrestigeEnabled then
+                        if not getgenv().PrestigeEnabled then
                 PrestigeRunning = false
-                task.wait(1)  -- รอแล้ววนเช็คใหม่
-                continue
+                task.wait(1)                  continue
             end
             
-            -- ถ้าเปิด toggle และไม่ติด flag running ให้ทำงาน
-            if not PrestigeRunning then
+                        if not PrestigeRunning then
                 PrestigeRunning = true
                 pcall(doPrestige)
                 PrestigeRunning = false
@@ -5140,7 +5079,6 @@ if IsLobbyLobby() then
         end
     end)
 end
--- ============================== AUTO CLAIMS (FIXED READY STATUS - NO CURRENCY DISPLAY) ==============================
 if IsLobbyLobby() then
     local AutoClaimGroup = Tabs.Session:AddLeftGroupbox("Auto Claims")
     
@@ -5150,11 +5088,9 @@ if IsLobbyLobby() then
     getgenv().ClaimAchievementRunning = false
     getgenv().ClaimDelay = 0
     
-    -- Label สำหรับแสดงสถานะ (ไม่แสดงจำนวน Gold/Gems)
     local statusLabel = AutoClaimGroup:AddLabel("Status: Checking...", true)
     
-    -- ฟังก์ชันตรวจสอบ currencies
-    local function getCurrencyValues()
+        local function getCurrencyValues()
         local player = game:GetService("Players").LocalPlayer
         local goldAmount = 0
         local gemsAmount = 0
@@ -5182,8 +5118,7 @@ if IsLobbyLobby() then
         return (gold > 0 or gems > 0)
     end
     
-    -- อัปเดตสถานะ (แสดงแค่ Ready/Not Ready)
-    task.spawn(function()
+        task.spawn(function()
         while true do
             task.wait(1)
             pcall(function()
@@ -5205,8 +5140,7 @@ if IsLobbyLobby() then
         {name="Towers", category="Spears"},{name="Escort", category="Spears"},{name="Ice Burst Stones", category="Spears"},{name="Retrieve Missing Supplies", category="Spears"},{name="Defend Missing Supplies", category="Spears"}
     }
     
-    -- ฟังก์ชันรอ Currency (ใช้ path เดียวกับที่ใช้ตรวจสอบ)
-    local function waitForCurrency()
+        local function waitForCurrency()
         while not (Window and Window.Holder and Window.Holder.Visible) do
             task.wait(0.1)
         end
@@ -5230,6 +5164,12 @@ if IsLobbyLobby() then
     end
     
     local function claimAllAchievements()
+                pcall(function()
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            GET:InvokeServer("S_Achievements", "Category", 5)
+        end)
+        task.wait(0.2)
+        
         for id = 1, 71 do
             if not getgenv().ClaimAchievementEnabled then break end
             pcall(function() SafeInvoke(GET, "S_Achievements", "Claim", id) end)
@@ -5288,7 +5228,6 @@ if IsLobbyLobby() then
         end
     })
 end
--- ============================== WEAPON GATE SYSTEM ==============================
 do
     local DETECTED_WEAPON = "Unknown"
     local detectionComplete = false
@@ -5325,12 +5264,10 @@ do
     end
 end
 
--- ============================== MISC (เฉพาะในเกม) ==============================
 if IsIngameLobby() and Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddLeftGroupbox("Misc")
 
-    -- ============================== PLAYER STATS (JESTER THEME - UNIFIED BORDER) ==============================
-    local StatsGui = nil
+        local StatsGui = nil
     local StatsEnabled = false
     local scaleFactor = 1
 
@@ -5341,13 +5278,10 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Outline = Color3.fromHex("373737")
     }
 
-    -- ตัวแปร global สำหรับ Farm Timer (เริ่มนับครั้งแรกเมื่อเห็น STATUS ON และนับต่อเนื่องตลอดไป ไม่รีเซ็ต)
-    getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
+        getgenv().FarmTimerStarted = getgenv().FarmTimerStarted or false
     getgenv().FarmStartTime = getgenv().FarmStartTime or nil
-    getgenv().FarmLastOnTime = getgenv().FarmLastOnTime or 0   -- ใช้อัปเดตสถานะ ON/OFF ปัจจุบันเท่านั้น
-
-    -- ฟังก์ชันตรวจสอบว่า GUI ปรากฏจริงหรือไม่
-    local function IsActuallyVisible(gui)
+    getgenv().FarmLastOnTime = getgenv().FarmLastOnTime or 0   
+        local function IsActuallyVisible(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
         if not gui.Visible then return false end
         local current = gui.Parent
@@ -5359,8 +5293,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return true
     end
 
-    -- ฟังก์ชันตรวจสอบว่า UI Objectives ปรากฏหรือไม่ (ใช้แสดงสถานะ ON/OFF)
-    local function isObjectivesVisible()
+        local function isObjectivesVisible()
         local player = game:GetService("Players").LocalPlayer
         local playerGui = player:FindFirstChild("PlayerGui")
         if not playerGui then return false end
@@ -5372,8 +5305,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ========== ระบบยืนยัน STATUS ON ก่อนเริ่มนับ (เช็ค 10 ครั้งใน 2 วินาที) ==========
-    local function waitForStableOn()
+        local function waitForStableOn()
         local onCount = 0
         local startTime = tick()
         local maxDuration = 2
@@ -5392,8 +5324,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         return false
     end
 
-    -- ฟังก์ชันเริ่มนับ (ทำงานอัตโนมัติ ไม่ขึ้นกับ StatsEnabled) – เริ่มนับครั้งแรกเท่านั้น และไม่ถูกรีเซ็ต
-    local function startFarmTimerIfNeeded()
+        local function startFarmTimerIfNeeded()
         if getgenv().FarmTimerStarted then return end
         if waitForStableOn() then
             getgenv().FarmTimerStarted = true
@@ -5402,8 +5333,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     end
 
-    -- ฟังก์ชันสำหรับ UI ที่เรียกใช้เพื่อเอา elapsed time (คืนค่าตั้งแต่เริ่มนับครั้งแรก)
-    local function getFarmElapsedTime()
+        local function getFarmElapsedTime()
         if getgenv().FarmTimerStarted and getgenv().FarmStartTime then
             return tick() - getgenv().FarmStartTime
         else
@@ -5411,14 +5341,11 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     end
 
-    -- ========== BACKGROUND TIMER MANAGER (รันตลอดเวลา ไม่รีเซ็ต timer) ==========
-    task.spawn(function()
+        task.spawn(function()
         while true do
-            -- ตรวจสอบและเริ่มนับถ้ายังไม่ได้เริ่ม (จะเริ่มครั้งแรกเมื่อเจอสถานะ ON เสถียร)
-            startFarmTimerIfNeeded()
+                        startFarmTimerIfNeeded()
 
-            -- อัปเดตเวลาล่าสุดที่สถานะเป็น ON (ใช้เพื่อแสดงสถานะปัจจุบันใน UI เท่านั้น)
-            if getgenv().FarmTimerStarted then
+                        if getgenv().FarmTimerStarted then
                 if isObjectivesVisible() then
                     getgenv().FarmLastOnTime = tick()
                 end
@@ -5428,8 +5355,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     end)
 
-    -- เพิ่ม Slider สำหรับปรับขนาด UI (Scale)
-    MiscGroup:AddSlider("UIScaleSlider", {
+        MiscGroup:AddSlider("UIScaleSlider", {
         Text = "UI Scale (%)",
         Default = 100,
         Min = 50,
@@ -5459,7 +5385,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
         local Gui = Instance.new("ScreenGui")
-        Gui.Name = "FakeHubPlayerStats"
+        Gui.Name = "JaMeHubPlayerStats"
         Gui.IgnoreGuiInset = true
         Gui.ResetOnSpawn = false
         Gui.Parent = PlayerGui
@@ -5495,7 +5421,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
         Stroke.Transparency = 0.55
         Stroke.Parent = Frame
 
-        -- Timer UI
         local TimerTitle = Instance.new("TextLabel")
         TimerTitle.Size = UDim2.new(0, 170, 0, 20)
         TimerTitle.Position = UDim2.new(0, 14, 0, 10)
@@ -5608,7 +5533,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 math.floor(sec % 60))
         end
 
-        -- Loop อัปเดต UI Stats และ Timer (เฉพาะเมื่อ StatsEnabled=true)
         task.spawn(function()
             while StatsEnabled and Gui.Parent do
                 task.wait(0.3)
@@ -5699,15 +5623,13 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     })
 
-    -- ============================== QUALITY CONTROL ==============================
-    MiscGroup:AddDropdown("RenderModeDropdown", {
+        MiscGroup:AddDropdown("RenderModeDropdown", {
         Text = "FPS Performance",
         Values = {"Low Graphic", "Delete Map", "Disable 3D Render", "Disable Text DMG"},
         Default = {},
         Multi = true,
         Callback = function(v)
-            -- จัดการ Low Graphic
-            if v["Low Graphic"] then
+                        if v["Low Graphic"] then
                 pcall(function()
                     game:GetService("Lighting").Brightness = 0
                     game:GetService("Lighting").GlobalShadows = false
@@ -5728,8 +5650,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end)
             end
 
-            -- จัดการ Delete Map
-            if v["Delete Map"] then
+                        if v["Delete Map"] then
                 local climbable = workspace:FindFirstChild("Climbable")
                 local unclimbable = workspace:FindFirstChild("Unclimbable")
                 if climbable or unclimbable then
@@ -5749,8 +5670,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end
             end
 
-            -- จัดการ Disable 3D Render (พร้อมปรับ Material และ Quality Level)
-            if v["Disable 3D Render"] then
+                        if v["Disable 3D Render"] then
                 pcall(function()
                     game:GetService("RunService"):Set3dRenderingEnabled(false)
                     settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
@@ -5768,8 +5688,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
                 end)
             end
 
-            -- จัดการ Disable Text DMG
-            if v["Disable Text DMG"] then
+                        if v["Disable Text DMG"] then
                 for i = 1, 5 do
                     pcall(function()
                         local args = {
@@ -5799,8 +5718,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         end
     })
 
-    -- ============================== FPS LIMITER (SLIDER) ==============================
-    MiscGroup:AddSlider("FPSLimitSlider", {
+        MiscGroup:AddSlider("FPSLimitSlider", {
         Text = "Set FPS",
         Default = 60,
         Min = 5,
@@ -5822,7 +5740,6 @@ if IsIngameLobby() and Tabs.AutoFarm then
     })
 end
 
--- ============================== SAFETY SLIDER ==============================
 if Tabs.AutoFarm then
     local SafetyGroup = Tabs.AutoFarm:AddRightGroupbox("Safety Settings")
     SafetyGroup:AddLabel(" -- 60s is safe! --")
@@ -5847,11 +5764,8 @@ if Tabs.AutoFarm then
         end
     })
 end
--- ============================== AUTO FARM TAB (SMART WEAPON DETECT) ==============================
 local PendingFarmStart = false
-local syncingWeapon = false  -- ป้องกันการวนลูปเมื่อสลับโหมดอัตโนมัติ
-
--- ฟังก์ชันตรวจสอบ UI Objectives สำหรับควบคุมการเริ่มฟาร์ม
+local syncingWeapon = false  
 local function isObjectivesVisibleForFarm()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
@@ -5879,7 +5793,6 @@ local function isObjectivesVisibleForFarm()
     return false
 end
 
--- ตัวแปรเก็บสถานะ Objectives สำหรับควบคุม Farm
 local farmObjectivesReady = false
 local lastObjectivesCheck = 0
 
@@ -5913,22 +5826,19 @@ if Tabs.AutoFarm then
     G.ThunderSpearFirePower = 8
     G.ThunderSpearExplodeRadius = 0.13
 
-    -- ========== อัปเดตอาวุธทุก 5 วินาที และสลับโหมดอัตโนมัติ ==========
-    task.spawn(function()
+        task.spawn(function()
         while true do
             task.wait(5)
             pcall(function()
                 if G.GetDetectedWeapon then
                     local oldWeapon = G.GetDetectedWeapon()
-                    G.GetDetectedWeapon() -- รีเฟรช cache
-                    local newWeapon = G.GetDetectedWeapon()
+                    G.GetDetectedWeapon()                     local newWeapon = G.GetDetectedWeapon()
                     
                     if oldWeapon ~= newWeapon and not syncingWeapon then
                         syncingWeapon = true
                         
                         if newWeapon == "Blade" then
-                            -- ถ้า Thunder Spear กำลังทำงาน ให้ปิดแล้วเปิด Blade
-                            if G.AutoThunderSpear then
+                                                        if G.AutoThunderSpear then
                                 if Options and Options.AutoThunderSpearToggle then
                                     Options.AutoThunderSpearToggle:SetValue(false)
                                 end
@@ -5937,8 +5847,7 @@ if Tabs.AutoFarm then
                                 end
                             end
                         elseif newWeapon == "Thunder Spear" then
-                            -- ถ้า Blade กำลังทำงาน ให้ปิดแล้วเปิด Thunder Spear
-                            if G.AutoFarmBlade then
+                                                        if G.AutoFarmBlade then
                                 if Options and Options.AutoFarmBlade then
                                     Options.AutoFarmBlade:SetValue(false)
                                 end
@@ -5954,8 +5863,7 @@ if Tabs.AutoFarm then
             end)
         end
     end)
-    -- ===================================================
-
+    
     local function getCurrentWeapon()
         return G.GetDetectedWeapon and G.GetDetectedWeapon() or "Unknown"
     end
@@ -5969,8 +5877,7 @@ if Tabs.AutoFarm then
     end
 
     local function resolveConflictingToggles()
-        if syncingWeapon then return end  -- หลีกเลี่ยงการทำงานซ้ำตอนสลับอัตโนมัติ
-        
+        if syncingWeapon then return end          
         if G.AutoFarmBlade and G.AutoThunderSpear then
             if isBlade() then
                 G.AutoThunderSpear = false
@@ -6211,7 +6118,6 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
--- ============================== COMBINED AUTO ACTION (TELEPORT + KILL) ==============================
 TeleportGroup:AddDivider()
 
 local combinedDelay = 0
@@ -6367,7 +6273,6 @@ TeleportGroup:AddToggle("CombinedActionToggle", {
 })
 end
 
--- ส่วนอื่นๆ ของสคริปต์ (TitansFolder, IsInCutscene) คงเดิม
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -6419,7 +6324,6 @@ if not TitansFolder then
         TitansFolder.Parent = workspace
     end
 end
--- ============================== FARM CORE (SMOOTH TWEEN MOVEMENT) ==============================
 local TitansFolder = workspace:FindFirstChild("Titans")
 
 local function IsInCutscene()
@@ -6446,7 +6350,6 @@ if not TitansFolder then
     end
 end
 
--- ==================== ฟังก์ชันตรวจสอบ Objectives ====================
 local function isObjectivesActiveForCore()
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:FindFirstChild("PlayerGui")
@@ -6474,7 +6377,6 @@ local function isObjectivesActiveForCore()
     return false
 end
 
--- ==================== ตรวจสอบ Slay UI ====================
 local slayCache = false
 local slayCacheTime = 0
 local SLAY_CACHE_DURATION = 0.1
@@ -6517,7 +6419,6 @@ local function isSlayObjectiveVisible()
     return false
 end
 
--- ==================== เพิ่มระบบตรวจจับ Mission สำหรับ Shiganshina Breach ====================
 local isShiganshinaBreachMission = false
 local isProtectHQActive = false
 local protectHQCompleted = false
@@ -6591,7 +6492,6 @@ task.spawn(function()
     end
 end)
 
--- ==================== BOSS DETECTION ====================
 local BOSS_NAMES = {
     Attack_Titan = true, Armored_Titan = true, Female_Titan = true,
     Beast_Titan = true, Colossal_Titan = true, Warhammer_Titan = true,
@@ -6599,7 +6499,6 @@ local BOSS_NAMES = {
 }
 local attackTitanSpawnTime = nil
 
--- ==================== STRUCTURE ====================
 local ActiveTitans = {}
 local LastScan = 0
 local SCAN_RATE = 0.1
@@ -6643,8 +6542,8 @@ local function ScanTitans()
     local attackFound = false
     for _, t in ipairs(titansFolder:GetChildren()) do
         if t:IsA("Model") and IsTitanAlive(t) then
-            local fake = t:FindFirstChild("Fake")
-            if fake and fake:FindFirstChild("Collision") and not fake.Collision.CanCollide then
+            local JaMe = t:FindFirstChild("JaMe")
+            if JaMe and JaMe:FindFirstChild("Collision") and not JaMe.Collision.CanCollide then
                 continue
             end
             local nape = GetNape(t)
@@ -6707,7 +6606,6 @@ local function NoclipOn()
     end
 end
 
--- ========== SMOOTH TWEEN MOVEMENT ==========
 local bodyPos = nil
 local bodyGyro = nil
 
@@ -6812,7 +6710,6 @@ local FarmConn = nil
 local FARM_ATTACK_INTERVAL = 0.05
 local LastAttackTime = 0
 
--- ==================== Wave Safety ====================
 local waveWaiting = false
 local lastDefendText = ""
 local function getWaveProgress()
@@ -6832,7 +6729,6 @@ local function getWaveProgress()
     return nil, nil, nil
 end
 
--- ตรวจสอบว่า blade หายหรือไม่ (ใช้ร่วมกับระบบ reload)
 local function NeedReload()
     local char = workspace:FindFirstChild("Characters")
     if not char then return false end
@@ -6857,13 +6753,11 @@ local function NeedReload()
     return false
 end
 
--- ========== โจมตีไททันทั้งหมด (โหดขึ้น ยิงครั้งเดียว 9 ตำแหน่ง) ==========
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
     
-    -- ถ้า blade หาย (NeedReload) ให้หยุดโจมตีทันที
-    if NeedReload() then
+        if NeedReload() then
         return
     end
 
@@ -6921,8 +6815,7 @@ local function AttackAllTitans()
     local slayVisible = isSlayObjectiveVisible()
     
     if not slayVisible then
-        local dmg = 9999  -- เพิ่มดาเมจเป็น 9999
-        SafeFire(POST, "Attacks", "Slash", true)
+        local dmg = 9999          SafeFire(POST, "Attacks", "Slash", true)
         for _, entry in ipairs(ActiveTitans) do
             local nape = entry.nape
             if nape and nape.Parent then
@@ -6932,8 +6825,7 @@ local function AttackAllTitans()
         return
     end
     
-    local dmg = 9999  -- เพิ่มดาเมจเป็น 9999
-    local stopAt = G.StopAtTitansLeft or 1
+    local dmg = 9999      local stopAt = G.StopAtTitansLeft or 1
     if not safe and #ActiveTitans <= stopAt then
         return
     end
@@ -6947,7 +6839,6 @@ local function AttackAllTitans()
     end
 end
 
--- ========== ฟังก์ชันหลักฟาร์ม ==========
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
@@ -6961,8 +6852,7 @@ local function FarmUpdate()
         
         if not G.Farm or isDead then return end
         
-        -- ถ้า blade หาย (NeedReload) ให้หยุดเคลื่อนที่ แต่ไม่หยุดฟาร์ม (รอให้ reload เสร็จแล้วค่อยมาเคลื่อนที่ใหม่)
-        if NeedReload() then
+                if NeedReload() then
             local char = Player.Character
             if char then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
@@ -7094,7 +6984,6 @@ task.spawn(function()
         end
     end
 end)
--- ============================== SIMPLE AUTO RELOAD BLADE (ENHANCED WITH FLAGS) ==============================
 getgenv().AutoReloadBlade = false
 
 task.spawn(function()
@@ -7102,7 +6991,6 @@ task.spawn(function()
     local LocalPlayer = Players.LocalPlayer
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-    -- Cooldown settings
     local COOLDOWN_REFILL = 1.5
     local COOLDOWN_R_PRESS = 1
     local FORCE_RELOAD_LOOP_DELAY = 0.1
@@ -7111,7 +6999,6 @@ task.spawn(function()
     local lastRefillTime = 0
     local lastRPressTime = 0
 
-    -- Cache for valid refill parts
     local validRefills = {}
     local lastCacheRefresh = 0
     local CACHE_REFRESH_INTERVAL = 30
@@ -7208,11 +7095,9 @@ task.spawn(function()
             VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
         end)
 
-        -- รอสั้น ๆ ให้ reload เริ่มทำงาน
-        task.wait(0.3)
+                task.wait(0.3)
 
-        -- ตรวจสอบว่ายังต้อง reload อีกหรือไม่ (Blade ยังหาย)
-        if getgenv().AutoReloadBlade and NeedReload() then
+                if getgenv().AutoReloadBlade and NeedReload() then
             local startLoop = tick()
             while getgenv().AutoReloadBlade and NeedReload() and (tick() - startLoop < FORCE_RELOAD_MAX_DURATION) do
                 pcall(function()
@@ -7282,19 +7167,14 @@ task.spawn(function()
         task.wait(0.1)
     end
 end)
--- ============================== THUNDER SPEAR CORE (ปรับปรุงแล้ว – เร็วขึ้น แรงขึ้น เสถียรขึ้น) ==============================
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
--- ตัวแปร Thunder Spear (ปรับให้แรงและไวขึ้น)
 local SpearCurrentEntry = nil
 local LastSpearAttackTime = 0
-local SPEAR_ATTACK_INTERVAL = 0.2     -- เร็วขึ้น (จาก 0.3)
-local CurrentFirePower = 8
-local EXPLODE_RADIUS = 0.14           -- แรงขึ้น (จาก 0.13)
-
+local SPEAR_ATTACK_INTERVAL = 0.2     local CurrentFirePower = 8
+local EXPLODE_RADIUS = 0.14           
 getgenv().SpearFarm = getgenv().SpearFarm or false
 
--- ==================== CACHE ระบบ Refill (ลดการค้นหาซ้ำ) ====================
 local cachedSpearRefill = nil
 local lastSpearRefillCheck = 0
 
@@ -7354,8 +7234,7 @@ end
 local function FireSpear()
     if CurrentFirePower <= 0 then
         ReloadSpears()
-        task.wait(0.15)   -- หน่วงน้อยลงเล็กน้อย (จาก 0.2)
-        if CurrentFirePower == 0 then return end
+        task.wait(0.15)           if CurrentFirePower == 0 then return end
     end
     pcall(function()
         GET:InvokeServer("Spears", "S_Fire", tostring(CurrentFirePower))
@@ -7364,8 +7243,7 @@ local function FireSpear()
 end
 
 local function ThunderAOEAttack()
-    -- ใช้ local อ้างอิงเพื่อความเร็ว
-    local activeList = ActiveTitans
+        local activeList = ActiveTitans
     for _, entry in ipairs(activeList) do
         local nape = entry.nape
         if nape then
@@ -7376,7 +7254,6 @@ local function ThunderAOEAttack()
     end
 end
 
--- โจมตีหลัก (logic คล้าย Blade แต่ปรับให้กระชับขึ้น)
 local function ThunderAttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
@@ -7443,7 +7320,6 @@ local function ThunderAttackAllTitans()
     ThunderAOEAttack()
 end
 
--- FarmUpdate (ปรับให้ดึง getgenv() ครั้งเดียว และใช้ cache)
 local function SpearFarmUpdate()
     pcall(function()
         local G = getgenv()
@@ -7533,7 +7409,6 @@ local function SpearFarmUpdate()
     end)
 end
 
--- เริ่ม loop พร้อมระบบ reconnect ถี่ขึ้น
 local SpearFarmConn = nil
 local function CreateSpearFarmLoop()
     if SpearFarmConn then SpearFarmConn:Disconnect() end
@@ -7563,15 +7438,13 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(1) do   -- เช็คถี่ขึ้นเป็น 1 วินาที
-        if not SpearFarmConn or not SpearFarmConn.Connected then
+    while task.wait(1) do           if not SpearFarmConn or not SpearFarmConn.Connected then
             CreateSpearFarmLoop()
         end
     end
 end)
 
 
--- ============================== AUTO RETRY (SILENT MODE) ==============================
 if Tabs.AutoFarm then
     task.spawn(function()
         local cooldown = 2.5
@@ -7695,7 +7568,6 @@ if Tabs.AutoFarm then
 end
 
 
--- ============================== WEBHOOK TAB ==============================
 if Tabs.Webhook then
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
     
@@ -7706,9 +7578,8 @@ if Tabs.Webhook then
     local webhookMode = "All Data"
     local webhookPingMode = "None"
     
-    -- Reward Webhook variables
     local gamesPlayed = 0
-    local gamesPlayedPath = "FakeHUB/games_played.txt"
+    local gamesPlayedPath = "JaMeHUB/games_played.txt"
     
     if isfile(gamesPlayedPath) then
         gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
@@ -7721,8 +7592,7 @@ if Tabs.Webhook then
         writefile(gamesPlayedPath, tostring(gamesPlayed))
     end
     
-    -- ========== โหลด Items Module สำหรับแมปไอคอน ==========
-    local ItemsModule = nil
+        local ItemsModule = nil
     local IconToNameMap = {}
     
     local function loadItemsModule()
@@ -7827,20 +7697,16 @@ if Tabs.Webhook then
         return findUIElements()
     end
     
-    -- ฟังก์ชันดึงรายการไอเทมทั้งหมด (ไม่รวมซ้ำ, เรียงตามลำดับที่พบ + จัดลำดับความสำคัญ)
-    local function getAllRewards()
+        local function getAllRewards()
         local player = game:GetService("Players").LocalPlayer
         local mainInfo = player.PlayerGui.Interface.Rewards.Main.Info.Main
-        local rewardsList = {} -- แต่ละ element จะเป็น {name, qty, rare}
-        
-        -- ฟังก์ชัน extract จาก Frame
-        local function extractFromFrame(frame)
+        local rewardsList = {}         
+                local function extractFromFrame(frame)
             local qtyText = nil
             local itemName = nil
             local isRare = false
             
-            -- กรณีมี Main.Inner (ไอเทมส่วนใหญ่)
-            local mainObj = frame:FindFirstChild("Main")
+                        local mainObj = frame:FindFirstChild("Main")
             local inner = mainObj and mainObj:FindFirstChild("Inner")
             if inner then
                 local qtyObj = inner:FindFirstChild("Quantity")
@@ -7848,8 +7714,7 @@ if Tabs.Webhook then
                     qtyText = qtyObj.Text
                     local num = tonumber(qtyText:match("%d+"))
                     if num and num > 0 then
-                        -- หาชื่อจาก Icon
-                        local icon = inner:FindFirstChild("Icon")
+                                                local icon = inner:FindFirstChild("Icon")
                         if icon and icon:IsA("ImageLabel") and icon.Image then
                             local assetId = tostring(icon.Image):match("rbxassetid://(%d+)") or tostring(icon.Image):match("^(%d+)$")
                             if assetId and IconToNameMap[assetId] then
@@ -7867,15 +7732,13 @@ if Tabs.Webhook then
                                 end
                             end
                         end
-                        -- ตรวจสอบ Rarity สีแดง
-                        local rarity = inner:FindFirstChild("Rarity")
+                                                local rarity = inner:FindFirstChild("Rarity")
                         if rarity and rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
                             isRare = true
                         end
                     end
                 end
             else
-                -- fallback สำหรับ Perk หรือโครงสร้างอื่น
                 local nameLabel = frame:FindFirstChild("Name") or frame:FindFirstChild("Title")
                 local amountLabel = frame:FindFirstChild("Amount") or frame:FindFirstChild("Quantity")
                 if nameLabel and nameLabel:IsA("TextLabel") and amountLabel and amountLabel:IsA("TextLabel") then
@@ -7894,13 +7757,11 @@ if Tabs.Webhook then
             return false
         end
         
-        -- สแกนแบบ recursive ทุก Frame ใน mainInfo (รวม Items, Obtained, และอื่นๆ)
-        local function scanAll(obj)
+                local function scanAll(obj)
             for _, child in ipairs(obj:GetChildren()) do
                 if child:IsA("Frame") then
                     if extractFromFrame(child) then
-                        -- พบแล้ว ไม่ต้องสแกนลึกต่อ (เพราะไอเทมอยู่ใน Frame นี้)
-                    else
+                                            else
                         scanAll(child)
                     end
                 end
@@ -7908,8 +7769,7 @@ if Tabs.Webhook then
         end
         scanAll(mainInfo)
         
-        -- จัดลำดับตามความต้องการ: EXP > Gold > Canes > ที่เหลือตามชื่อ
-        local priorityOrder = { "XP", "Gold", "Canes" }
+                local priorityOrder = { "XP", "Gold", "Canes" }
         local function getPriority(name)
             for i, p in ipairs(priorityOrder) do
                 if string.lower(name) == string.lower(p) then
@@ -7928,8 +7788,7 @@ if Tabs.Webhook then
         return rewardsList
     end
     
-    -- ฟังก์ชันหลักส่ง Reward Webhook
-    local function sendRewardWebhook()
+        local function sendRewardWebhook()
         if webhookURL == "" then return end
         incrementGamesPlayed()
         
@@ -7937,8 +7796,7 @@ if Tabs.Webhook then
             loadItemsModule()
         end
         
-        -- ดึงสถิติจาก Stats Frame
-        local statsFrame, _ = findUIElements()
+                local statsFrame, _ = findUIElements()
         local stats = {}
         if statsFrame then
             for _, v in ipairs(statsFrame:GetChildren()) do
@@ -7949,19 +7807,16 @@ if Tabs.Webhook then
             end
         end
         
-        -- ดึงรายการไอเทมทั้งหมด
-        local rewards = getAllRewards()
+                local rewards = getAllRewards()
         
-        -- แยก Special (Rarity สีแดง)
-        local specials = {}
+                local specials = {}
         for _, item in ipairs(rewards) do
             if item.rare then
                 table.insert(specials, item)
             end
         end
         
-        -- ดึงข้อมูลสะสม (Level, Gold, Gems) จาก Server
-        local player = game:GetService("Players").LocalPlayer
+                local player = game:GetService("Players").LocalPlayer
         local total = { Level = 1, Gold = 0, Gems = 0 }
         pcall(function()
             local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
@@ -7982,8 +7837,7 @@ if Tabs.Webhook then
         local hasSpecial = #specials > 0
         local executor = identifyexecutor and identifyexecutor() or "Unknown"
         
-        -- กำหนด content สำหรับ ping ตามที่ผู้ใช้เลือก
-        local pingContent = nil
+                local pingContent = nil
         if webhookPingMode == "Everyone" then
             pingContent = "@everyone"
         elseif webhookPingMode == "Here" then
@@ -8012,7 +7866,7 @@ if Tabs.Webhook then
         local payload = {
             content = (hasSpecial and pingContent) or nil,
             embeds = {{
-                title = "FakeHUB Rewards",
+                title = "JaMeHUB Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
                 fields = {
                     { name = "Information", value = string.format("\nUser: %s\nGames Played: %d\nExecutor: %s\n", player.Name, gamesPlayed, executor), inline = true },
@@ -8021,7 +7875,7 @@ if Tabs.Webhook then
                     { name = "Rewards", value = "\n" .. formatRewardsList(rewards) .. "\n", inline = false },
                     { name = "Special", value = "\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n", inline = false }
                 },
-                footer = { text = "FakeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                footer = { text = "JaMeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
                 timestamp = DateTime.now():ToIsoDate()
             }}
         }
@@ -8031,8 +7885,7 @@ if Tabs.Webhook then
         end)
     end
     
-    -- ส่วน All Data Webhook (คงเดิม)
-    local filters = {
+        local filters = {
         Currency = true,
         Progression = true,
         Loadout = true,
@@ -8170,8 +8023,7 @@ if Tabs.Webhook then
         end)
     end
     
-    -- ตรวจจับการเปิด Rewards UI
-    task.spawn(function()
+        task.spawn(function()
         local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
         local rewards = playerGui.Interface.Rewards
         rewards:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -8197,8 +8049,7 @@ if Tabs.Webhook then
         end)
     end)
     
-    -- ========== UI Components ==========
-    WebhookGroup:AddInput("WebhookURL", {
+        WebhookGroup:AddInput("WebhookURL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
         Placeholder = "https://discord.com/api/webhooks/...",
@@ -8215,8 +8066,7 @@ if Tabs.Webhook then
         Callback = function(v) webhookMode = v end
     })
     
-    -- ========== Dropdown สำหรับเลือก Ping Mode (ใช้ได้กับ Reward Webhook เท่านั้น) ==========
-    WebhookGroup:AddDropdown("WebhookPingMode", {
+        WebhookGroup:AddDropdown("WebhookPingMode", {
         Text = "Ping Mode (For Special Drops)",
         Values = {"None", "@here", "@everyone"},
         Default = "None",
@@ -8259,7 +8109,7 @@ if Tabs.Webhook then
     WebhookGroup:AddButton("Test Send", function()
         if webhookURL == "" then return end
         local testBody = game:GetService("HttpService"):JSONEncode({
-            content = "Test from FakeHUB!",
+            content = "Test from JaMeHUB!",
             embeds = {{
                 title = "Webhook Working!",
                 color = 65280,
@@ -8268,7 +8118,7 @@ if Tabs.Webhook then
                     {name = "Ping Mode", value = webhookPingMode, inline = true},
                     {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
                 },
-                footer = {text = "FakeHUB Webhook Test"}
+                footer = {text = "JaMeHUB Webhook Test"}
             }}
         })
         pcall(function()
@@ -8279,26 +8129,22 @@ if Tabs.Webhook then
 end
 
 
--- ============================== SET DESCRIPTION (INGAME) ==============================
 if IsIngameLobby() and Tabs.Webhook then
     local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
 
-    -- ฟังก์ชันจัดรูปแบบตัวเลข
-    local function formatNumber(n)
+        local function formatNumber(n)
         if type(n) ~= "number" then return "0" end
         return tostring(n):reverse():gsub("(%d%d%d)", "%1,"):reverse():gsub("^,", "")
     end
 
-    -- ฟังก์ชันดึงเวลาประเทศไทย (GMT+7)
-    local function getThaiTime()
+        local function getThaiTime()
         local utcHour = tonumber(os.date("!%H"))
         local utcMin  = tonumber(os.date("!%M"))
         local thaiHour = (utcHour + 7) % 24
         return string.format("%02d:%02d", thaiHour, utcMin)
     end
 
-    -- หมวดที่ 1: Stats
-    local statsFields = {
+        local statsFields = {
         "Level", "Prestige", "Slot", "Gold", "Gems", "Shards", "Spins", "Time"
     }
     local selectedStats = {
@@ -8312,8 +8158,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Time"] = true,
     }
 
-    -- หมวดที่ 2: Items
-    local itemsFields = {
+        local itemsFields = {
         "Memory Scroll", "Emperor's Key", "Female Serum", "Attack Serum", "Armored Serum"
     }
     local selectedItems = {
@@ -8324,8 +8169,7 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Armored Serum"] = true,
     }
 
-    -- หมวดที่ 3: Cosmetics
-    local cosmeticsFields = {
+        local cosmeticsFields = {
         "Angel's Halo", "Kitsune Ribbon", "Radiant Headband", "Blood Vial", "Kitsune Mask"
     }
     local selectedCosmetics = {
@@ -8336,7 +8180,6 @@ if IsIngameLobby() and Tabs.Webhook then
         ["Kitsune Mask"] = true,
     }
 
-    -- Dropdown ประเภท
     descGroup:AddDropdown("DescTypeDropdown", {
         Text = "Description Type",
         Values = {"Horst"},
@@ -8347,7 +8190,6 @@ if IsIngameLobby() and Tabs.Webhook then
 
     descGroup:AddDivider()
 
-    -- Dropdown Stats (multi)
     descGroup:AddDropdown("DescStatsDropdown", {
         Text = "Stats to include",
         Values = statsFields,
@@ -8358,7 +8200,6 @@ if IsIngameLobby() and Tabs.Webhook then
 
     descGroup:AddDivider()
 
-    -- Dropdown Items (multi)
     descGroup:AddDropdown("DescItemsDropdown", {
         Text = "Items to include",
         Values = itemsFields,
@@ -8369,7 +8210,6 @@ if IsIngameLobby() and Tabs.Webhook then
 
     descGroup:AddDivider()
 
-    -- Dropdown Cosmetics (multi)
     descGroup:AddDropdown("DescCosmeticsDropdown", {
         Text = "Cosmetics to include",
         Values = cosmeticsFields,
@@ -8380,7 +8220,6 @@ if IsIngameLobby() and Tabs.Webhook then
 
     descGroup:AddDivider()
 
-    -- Toggle สำหรับ apply description
     descGroup:AddToggle("SetDescToggle", {
         Text = "Apply Description (once, after 1s)",
         Default = false,
@@ -8399,10 +8238,8 @@ if IsIngameLobby() and Tabs.Webhook then
                     local slotData = data.Slots[currentSlot]
 
                     if slotData then
-                        -- เตรียม map ค่า
-                        local valueMap = {}
+                                                local valueMap = {}
                         
-                        -- Stats
                         valueMap.Level = (slotData.Progression and slotData.Progression.Level) or 0
                         valueMap.Prestige = (slotData.Progression and slotData.Progression.Prestige) or 0
                         valueMap.Slot = currentSlot
@@ -8412,23 +8249,19 @@ if IsIngameLobby() and Tabs.Webhook then
                         valueMap.Spins = data.Spins or 0
                         valueMap.Time = getThaiTime()
 
-                        -- Items
                         local items = (slotData.Inventory and slotData.Inventory.Items) or {}
                         for _, field in ipairs(itemsFields) do
                             valueMap[field] = items[field] or 0
                         end
 
-                        -- Cosmetics
                         local cosmetics = (slotData.Inventory and slotData.Inventory.Cosmetics) or {}
                         for _, field in ipairs(cosmeticsFields) do
                             valueMap[field] = cosmetics[field] or 0
                         end
 
-                        -- สร้าง description
-                        local parts = {}
+                                                local parts = {}
 
-                        -- รวบรวมรายการที่ถูกเลือกทั้งหมด
-                        for _, field in ipairs(statsFields) do
+                                                for _, field in ipairs(statsFields) do
                             if selectedStats[field] and valueMap[field] ~= nil then
                                 local val = valueMap[field]
                                 if field ~= "Slot" and field ~= "Time" then
@@ -8454,8 +8287,7 @@ if IsIngameLobby() and Tabs.Webhook then
                             end
                         end
 
-                        -- รวมด้วย space (ไม่ใช้ | เพื่อประหยัดพื้นที่)
-                        local description = table.concat(parts, "  ")
+                                                local description = table.concat(parts, "  ")
 
                         if _G and _G.Horst_SetDescription then
                             _G.Horst_SetDescription(description)
@@ -8473,7 +8305,6 @@ if IsIngameLobby() and Tabs.Webhook then
     })
 end
 
--- ============================== MISC (SKIP CUTSCENE) ==============================
 if Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddRightGroupbox("Skip Cutscene")
     
@@ -8560,18 +8391,15 @@ if Tabs.AutoFarm then
     })
 end
 
--- ============================== AUTO SPEAR QUEST ==============================
 if Tabs.AutoFarm then
     local SpearGroup = Tabs.AutoFarm:AddRightGroupbox("Auto Spear Quest")
     
     local spearQuestEnabled = false
     local spearQuestRunning = false
     
-    -- ดึง Remote GET สำหรับเรียก quest
-    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+        local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
     
-    -- ฟังก์ชันเรียก Update_Spear_Towers 6 ครั้ง
-    local function callSpearQuestUpdate()
+        local function callSpearQuestUpdate()
         for i = 1, 6 do
             if not spearQuestEnabled then break end
             local args = {"Quests", "Update_Spear_Towers", true}
@@ -8590,11 +8418,9 @@ if Tabs.AutoFarm then
             if v and not spearQuestRunning then
                 spearQuestRunning = true
                 task.spawn(function()
-                    -- เรียก Update_Spear_Towers 6 ครั้ง ก่อนเริ่มเดินเก็บของ
-                    callSpearQuestUpdate()
+                                        callSpearQuestUpdate()
                     
-                    -- โค้ดเดิมที่เดินไปเก็บ supplies (ไม่แก้ไข)
-                    repeat task.wait() until game.Players.LocalPlayer.Character
+                                        repeat task.wait() until game.Players.LocalPlayer.Character
                     local hrp = game.Players.LocalPlayer.Character:WaitForChild("HumanoidRootPart")
                     
                     local Unclimbable = workspace:FindFirstChild("Unclimbable")
@@ -8647,7 +8473,6 @@ if Tabs.AutoFarm then
         end
     })
 end
--- ============================== WAVE TAB ==============================
 if IsIngameLobby() then
 
     local WaveGroup = Tabs.Safety:AddLeftGroupbox("Wave")
@@ -8692,7 +8517,6 @@ if IsIngameLobby() then
 
 end
 
--- ============================== WAVE TAB ==============================
 if IsIngameLobby() then
 
     local WaveGroup = Tabs.Safety:AddRightGroupbox("Wave Upgrade")
@@ -8706,20 +8530,16 @@ if IsIngameLobby() then
     local zeroThreeStartTime = nil
     local isRefilling = false
     
-    -- Auto Buy + Equip Spears
     local autoBuyEquipSpearsEnabled = false
     local buyEquipSpearsTask = nil
     
-    -- Auto Upgrade Spears
     local autoUpgradeSpearsEnabled = false
     local upgradeSpearsTask = nil
     
-    -- Auto Crates
     local autoCratesEnabled = false
     local cratesTask = nil
     
-    -- รายการ Upgrade ทั้งหมด
-    local UPGRADE_OPTIONS = {
+        local UPGRADE_OPTIONS = {
         "Max",
         "Regen",
         "Replenish",
@@ -8727,8 +8547,7 @@ if IsIngameLobby() then
         "Revive"
     }
     
-    -- ตัวแปรเก็บค่าที่เลือก (multi select)
-    local selectedUpgrades = {
+        local selectedUpgrades = {
         ["Max"] = true,
         ["Regen"] = true,
         ["Replenish"] = true,
@@ -8736,7 +8555,6 @@ if IsIngameLobby() then
         ["Revive"] = true
     }
     
-    -- Remote
     local GET = game:GetService("ReplicatedStorage")
         :WaitForChild("Assets")
         :WaitForChild("Remotes")
@@ -8747,18 +8565,15 @@ if IsIngameLobby() then
         :WaitForChild("Remotes")
         :WaitForChild("POST")
     
-    -- ========== ตัวแปรสำหรับระบบ Priority (Refill สำคัญที่สุด) ==========
-    local isAnyActionRunning = false
+        local isAnyActionRunning = false
     local actionQueue = {}
     
-    -- ฟังก์ชันรอให้ Refill เสร็จก่อนทำงานอื่น
-    local function WaitForRefillToFinish()
+        local function WaitForRefillToFinish()
         while autoRefillEnabled and isRefilling do
             task.wait(0.05)
         end
     end
     
-    -- UI Element สำหรับตรวจสอบ 0/3
     local function getBladesSetsText()
         local success, text = pcall(function()
             local sets = game:GetService("Players").LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
@@ -8770,8 +8585,7 @@ if IsIngameLobby() then
         return success and text or ""
     end
     
-    -- ========== ฟังก์ชันค้นหา Refill แบบอัตโนมัติจากหลาย path ==========
-    local function FindAnyRefill()
+        local function FindAnyRefill()
         local candidates = {
             function() return workspace.Unclimbable.Objective.Waves:GetChildren()[285] end,
             function() return workspace.Unclimbable.Objective.Waves:GetChildren()[287] end,
@@ -8807,8 +8621,7 @@ if IsIngameLobby() then
         return nil
     end
     
-    -- ฟังก์ชัน Refill ที่ใช้การค้นหาอัตโนมัติ (Priority สูงสุด)
-    local function PerformRefill()
+        local function PerformRefill()
         if isRefilling then return false end
         isRefilling = true
         
@@ -8825,8 +8638,7 @@ if IsIngameLobby() then
         return false
     end
     
-    -- ========== ระบบ Refill Loop (Priority สูงสุด ทำงานแบบ Real-time) ==========
-    local function StartAutoRefill()
+        local function StartAutoRefill()
         if refillTask then return end
         
         refillTask = task.spawn(function()
@@ -8845,8 +8657,7 @@ if IsIngameLobby() then
                     zeroThreeStartTime = nil
                 end
                 
-                task.wait(0.2) -- ตรวจสอบถี่มาก
-            end
+                task.wait(0.2)             end
             refillTask = nil
         end)
     end
@@ -8861,8 +8672,7 @@ if IsIngameLobby() then
         isRefilling = false
     end
     
-    -- ฟังก์ชัน Buy Spears
-    local function BuySpears()
+        local function BuySpears()
         local args = {
             "Equipment",
             "Weapon",
@@ -8874,8 +8684,7 @@ if IsIngameLobby() then
         return success
     end
     
-    -- ฟังก์ชัน Equip Spears
-    local function EquipSpears()
+        local function EquipSpears()
         local args = {
             "Equipment",
             "Weapon",
@@ -8887,8 +8696,7 @@ if IsIngameLobby() then
         return success
     end
     
-    -- ฟังก์ชัน Upgrade Spears
-    local function UpgradeSpears()
+        local function UpgradeSpears()
         local args = {
             "Equipment",
             "Upgrade",
@@ -8909,8 +8717,7 @@ if IsIngameLobby() then
         return success
     end
     
-    -- ฟังก์ชันอัปเกรดทีละอัน
-    local function DoUpgrade(upgradeType)
+        local function DoUpgrade(upgradeType)
         local args = {
             "Waves",
             "Upgrade",
@@ -8922,8 +8729,7 @@ if IsIngameLobby() then
         return success
     end
     
-    -- ฟังก์ชันอัปเกรดทั้งหมดที่ถูกเลือก (จะรอ Refill ก่อนทำงาน)
-    local function UpgradeAllSelected()
+        local function UpgradeAllSelected()
         WaitForRefillToFinish()
         if not autoUpgradeEnabled then return end
         
@@ -8935,7 +8741,6 @@ if IsIngameLobby() then
         end
     end
     
-    -- Loop อัปเกรดอัตโนมัติ (เช็ค Refill ทุกครั้งก่อนทำงาน)
     local function StartAutoUpgrade()
         if upgradeTask then return end
         
@@ -8961,8 +8766,7 @@ if IsIngameLobby() then
         end
     end
     
-    -- ฟังก์ชันอัปเกรด Blade (จะรอ Refill ก่อนทำงาน)
-    local function UpgradeBlade()
+        local function UpgradeBlade()
         WaitForRefillToFinish()
         if not autoUpgradeBladeEnabled then return end
         
@@ -8985,7 +8789,6 @@ if IsIngameLobby() then
         end)
     end
     
-    -- Loop อัปเกรด Blade อัตโนมัติ (เช็ค Refill ทุกครั้งก่อนทำงาน)
     local function StartAutoUpgradeBlade()
         if upgradeBladeTask then return end
         
@@ -9011,7 +8814,6 @@ if IsIngameLobby() then
         end
     end
     
-    -- Loop Buy + Equip Spears (เช็ค Refill ทุกครั้งก่อนทำงาน)
     local function StartAutoBuyEquipSpears()
         if buyEquipSpearsTask then return end
         
@@ -9039,7 +8841,6 @@ if IsIngameLobby() then
         end
     end
     
-    -- Loop Upgrade Spears (เช็ค Refill ทุกครั้งก่อนทำงาน)
     local function StartAutoUpgradeSpears()
         if upgradeSpearsTask then return end
         
@@ -9065,8 +8866,7 @@ if IsIngameLobby() then
         end
     end
     
-    -- ฟังก์ชันหยุดการเคลื่อนไหวทั้งหมด
-    local function StopAllMovement()
+        local function StopAllMovement()
         pcall(function()
             if CleanupSmoothMovement then CleanupSmoothMovement() end
             local char = game:GetService("Players").LocalPlayer.Character
@@ -9084,8 +8884,7 @@ if IsIngameLobby() then
         end)
     end
     
-    -- ฟังก์ชันหาและเทเลพอร์ตไปยัง Crate (จะรอ Refill ก่อนทำงาน)
-    local function TeleportToCrate()
+        local function TeleportToCrate()
         WaitForRefillToFinish()
         if not autoCratesEnabled then return end
         
@@ -9146,7 +8945,6 @@ if IsIngameLobby() then
         end
     end
     
-    -- Loop Auto Crates (เช็ค Refill ทุกครั้งก่อนทำงาน)
     local function StartAutoCrates()
         if cratesTask then return end
         
@@ -9173,7 +8971,6 @@ if IsIngameLobby() then
         StopAllMovement()
     end
     
-    -- Dropdown Multi Select
     WaveGroup:AddDropdown("WaveUpgradeDropdown", {
         Text = "Upgrade",
         Values = UPGRADE_OPTIONS,
@@ -9190,7 +8987,6 @@ if IsIngameLobby() then
         end
     })
     
-    -- Toggle Auto Upgrade
     WaveGroup:AddToggle("AutoWaveUpgradeToggle", {
         Text = "Auto Upgrade",
         Default = false,
@@ -9204,7 +9000,6 @@ if IsIngameLobby() then
         end
     })
     
-    -- Toggle Auto Crates
     WaveGroup:AddToggle("AutoCratesToggle", {
         Text = "Auto Crates",
         Default = false,
@@ -9218,10 +9013,8 @@ if IsIngameLobby() then
         end
     })
     
-    -- Divider
     WaveGroup:AddDivider()
     
-    -- Toggle Upgrade Blade
     WaveGroup:AddToggle("AutoUpgradeBladeToggle", {
         Text = "Upgrade Blade",
         Default = false,
@@ -9235,7 +9028,6 @@ if IsIngameLobby() then
         end
     })
     
-    -- Toggle Refill (สำคัญที่สุด จะถูกเช็คก่อนทุกการทำงาน)
     WaveGroup:AddToggle("AutoRefillToggle", {
         Text = "Refill Blades",
         Default = false,
@@ -9249,10 +9041,8 @@ if IsIngameLobby() then
         end
     })
     
-    -- Divider
     WaveGroup:AddDivider()
     
-    -- Toggle Buy + Equip Spears
     WaveGroup:AddToggle("AutoBuyEquipSpearsToggle", {
         Text = "Auto Buy + Equip Spears",
         Default = false,
@@ -9266,7 +9056,6 @@ if IsIngameLobby() then
         end
     })
     
-    -- Toggle Upgrade Spears
     WaveGroup:AddToggle("AutoUpgradeSpearsToggle", {
         Text = "Upgrade Spears",
         Default = false,
@@ -9281,222 +9070,3 @@ if IsIngameLobby() then
     })
 
 end
---[[
--- ============================== FAST TITAN KILL COUNTER + AUTO KILL (RELIABLE POLLING) ==============================
-if IsIngameLobby() and Tabs.AutoFarm then
-    local KillGroup = Tabs.AutoFarm:AddRightGroupbox("Only Docks : Stall")
-
-    -- ตัวแปรหลัก
-    getgenv().SessionKills = getgenv().SessionKills or 0
-    local sessionKills = getgenv().SessionKills
-    local killTarget = 30
-    local hasKilled = false
-    local systemEnabled = false
-    local currentMap = "Unknown"
-    local currentObjective = "Unknown"
-    local baseStreak = nil
-    local baseSet = false
-    local currentStreak = 0
-    
-    -- ตัวแปรป้องกันการโจมตีซ้ำและลดการเรียก Remote บ่อยเกินไป
-    local lastKillAttempt = 0
-    local KILL_COOLDOWN = 3
-    local lastPollTime = 0
-    local POLL_INTERVAL = 0.5
-    local lastMapCheck = 0
-    local MAP_CHECK_INTERVAL = 1
-
-    -- ฟังก์ชันฆ่าตัวตาย (ปลอดภัย)
-    local function killCharacter()
-        local success = pcall(function()
-            local player = game.Players.LocalPlayer
-            if player and player.Character then
-                local humanoid = player.Character:FindFirstChild("Humanoid")
-                if humanoid and humanoid.Health > 0 then
-                    humanoid.Health = 0
-                    return true
-                end
-            end
-            return false
-        end)
-        return success
-    end
-
-    -- ========== UI COMPONENTS ==========
-    KillGroup:AddToggle("EnableSafeModeToggle", {
-        Text = "Auto Safe Mode (Stall only)",
-        Default = false,
-        Callback = function(v)
-            systemEnabled = v
-            if not v then
-                hasKilled = false
-                baseSet = false
-                baseStreak = nil
-                sessionKills = 0
-                getgenv().SessionKills = 0
-                currentStreak = 0
-                currentMap = "Unknown"
-                currentObjective = "Unknown"
-                lastKillAttempt = 0
-            end
-        end
-    })
-
-    KillGroup:AddSlider("AutoKillTargetSlider", {
-        Text = "Auto Kill When Kills Reach",
-        Default = 30,
-        Min = 1,
-        Max = 200,
-        Rounding = 0,
-        Suffix = " kills",
-        Callback = function(v)
-            killTarget = v
-        end
-    })
-
-    -- ========== LOGIC ==========
-    local function stopAllAndHover()
-        pcall(function()
-            getgenv().AutoFarmBlade = false
-            getgenv().Farm = false
-            getgenv().AutoThunderSpear = false
-            if CleanupSmoothMovement then CleanupSmoothMovement() end
-            if CurrentEntry then CurrentEntry = nil end
-
-            local char = game.Players.LocalPlayer.Character
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    local bodyPos = Instance.new("BodyPosition")
-                    bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-                    bodyPos.P = 5000
-                    bodyPos.D = 1000
-                    bodyPos.Position = hrp.Position
-                    bodyPos.Parent = hrp
-                    task.delay(0.5, function() 
-                        if bodyPos and bodyPos.Parent then 
-                            bodyPos:Destroy() 
-                        end 
-                    end)
-                end
-                if hum then
-                    hum.PlatformStand = true
-                    hum.JumpPower = 0
-                    hum.WalkSpeed = 0
-                end
-            end
-
-            if Options then
-                if Options.AutoFarmBlade then Options.AutoFarmBlade:SetValue(false) end
-                if Options.AutoThunderSpearToggle then Options.AutoThunderSpearToggle:SetValue(false) end
-            end
-        end)
-    end
-
-    local function updateSessionKills()
-        if baseStreak == nil then 
-            return 
-        end
-        
-        local newKills = currentStreak - baseStreak
-        if newKills < 0 then newKills = 0 end
-        
-        if newKills > sessionKills then
-            sessionKills = newKills
-            getgenv().SessionKills = sessionKills
-        end
-
-        local now = tick()
-        if not hasKilled and sessionKills >= killTarget and (now - lastKillAttempt) >= KILL_COOLDOWN then
-            hasKilled = true
-            lastKillAttempt = now
-            local killed = killCharacter()
-            if killed then
-                stopAllAndHover()
-            else
-                hasKilled = false
-            end
-        end
-    end
-
-    local function isConditionActive()
-        return (currentMap == "Docks" and currentObjective == "Stall")
-    end
-
-    local function pollStreak()
-        if not systemEnabled then 
-            return 
-        end
-        
-        local now = tick()
-        if now - lastPollTime < POLL_INTERVAL then
-            return
-        end
-        lastPollTime = now
-
-        local success, data = pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            return GET:InvokeServer("Data", "Copy")
-        end)
-        
-        if success and type(data) == "table" then
-            -- อัปเดตข้อมูลแผนที่ (ใช้ interval แยกเพื่อลดการเช็ค)
-            if now - lastMapCheck >= MAP_CHECK_INTERVAL then
-                lastMapCheck = now
-                if data.Map then
-                    local newMap = data.Map.Map or "Unknown"
-                    local newObj = data.Map.Objective or "Unknown"
-                    if newMap ~= currentMap or newObj ~= currentObjective then
-                        currentMap = newMap
-                        currentObjective = newObj
-                    end
-                end
-            end
-
-            -- ถ้าเงื่อนไขไม่เข้า ให้รีเซ็ต base
-            if not isConditionActive() then
-                if baseSet then
-                    baseSet = false
-                    baseStreak = nil
-                    sessionKills = 0
-                    getgenv().SessionKills = 0
-                    hasKilled = false
-                end
-                return
-            end
-
-            -- เงื่อนไขเข้าแล้ว ดึงค่า Streak
-            if data.Statistics and data.Statistics.Streak then
-                currentStreak = data.Statistics.Streak.Total or 0
-                
-                if not baseSet and currentStreak > 0 then
-                    baseStreak = currentStreak
-                    baseSet = true
-                    sessionKills = 0
-                    getgenv().SessionKills = 0
-                    hasKilled = false
-                end
-                updateSessionKills()
-            end
-        end
-    end
-
-    -- เริ่ม loop polling ใช้ task.wait แทน heartbeat เพื่อลดภาระ
-    task.spawn(function()
-        while true do
-            if systemEnabled then
-                pollStreak()
-            end
-            task.wait(POLL_INTERVAL)
-        end
-    end)
-
-    if systemEnabled then 
-        pollStreak() 
-    end
-
-end
---]]
