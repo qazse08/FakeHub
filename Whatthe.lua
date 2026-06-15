@@ -2591,7 +2591,7 @@ end
 if IsMainmenuLobby() then
     local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeem")
 
-    local codesFile = "JaMeTest/codes.txt"
+    local codesFile = "JaMeHUB/codes.txt"
     local codeList = {}
     local selectedCodes = {}  
     local autoRedeemActive = false
@@ -2774,31 +2774,50 @@ if IsMainmenuLobby() then
     local function startAutoRedeem()
         if autoRedeemTask then return end
         autoRedeemTask = task.spawn(function()
-            while autoRedeemActive do
-                if not isRedeemPageVisible() then
-                    task.wait(1)
-                    continue
+            -- รอให้หน้า redeem พร้อม (เช็คทุก 0.5 วินาที)
+            local waitingNotified = false
+            while autoRedeemActive and not isRedeemPageVisible() do
+                if not waitingNotified then
+                    Library:Notify("Waiting for redeem page (Follow or Family)...", 3)
+                    waitingNotified = true
                 end
-                local selectedList = getSelectedCodeList()
-                if #selectedList == 0 then
-                    break
-                end
-                local successCount = 0
-                local failCount = 0
-                for i, code in ipairs(selectedList) do
-                    if not autoRedeemActive then break end
-                    local success, message = redeemCode(code)
-                    print("[Code Redeemer] " .. message)
-                    if success then
-                        successCount = successCount + 1
-                    else
-                        failCount = failCount + 1
-                    end
-                    if i < #selectedList then task.wait(1) end
-                end
-                Library:Notify(string.format("Auto Redeem finished. Success: %d, Failed: %d", successCount, failCount), 5)
-                break
+                task.wait(0.5)
             end
+            
+            if not autoRedeemActive then return end
+            
+            local selectedList = getSelectedCodeList()
+            if #selectedList == 0 then
+                Library:Notify("No codes selected to redeem.", 3)
+                autoRedeemActive = false
+                if Options and Options.AutoRedeemToggle then
+                    Options.AutoRedeemToggle:SetValue(false)
+                end
+                autoRedeemTask = nil
+                return
+            end
+            
+            local successCount = 0
+            local failCount = 0
+            for i, code in ipairs(selectedList) do
+                if not autoRedeemActive then break end
+                -- ก่อน redeem แต่ละครั้ง เช็ค visibility อีกครั้ง
+                while autoRedeemActive and not isRedeemPageVisible() do
+                    task.wait(0.5)
+                end
+                if not autoRedeemActive then break end
+                
+                local success, message = redeemCode(code)
+                print("[Code Redeemer] " .. message)
+                if success then
+                    successCount = successCount + 1
+                else
+                    failCount = failCount + 1
+                end
+                if i < #selectedList then task.wait(1) end
+            end
+            Library:Notify(string.format("Auto Redeem finished. Success: %d, Failed: %d", successCount, failCount), 5)
+            
             autoRedeemActive = false
             if Options and Options.AutoRedeemToggle then
                 Options.AutoRedeemToggle:SetValue(false)
@@ -2819,6 +2838,7 @@ if IsMainmenuLobby() then
                             Options.AutoRedeemToggle:SetValue(false)
                         end
                     end)
+                    Library:Notify("Please select at least one code first!", 3)
                     return
                 end
                 if #codeList == 0 then
@@ -2827,6 +2847,7 @@ if IsMainmenuLobby() then
                             Options.AutoRedeemToggle:SetValue(false)
                         end
                     end)
+                    Library:Notify("No codes stored. Please add codes first!", 3)
                     return
                 end
                 autoRedeemActive = true
@@ -2841,7 +2862,6 @@ if IsMainmenuLobby() then
         end
     })
 end
-
 
 
 
