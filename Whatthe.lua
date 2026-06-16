@@ -1,3 +1,92 @@
+-- ============================================
+-- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
+-- ทำงานทันทีโดยไม่ผ่าน UI
+-- ============================================
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local player = Players.LocalPlayer
+    if not player then return end
+
+    local placeId = game.PlaceId
+    if placeId ~= 14916516914 then return end -- ทำงานเฉพาะ Lobby
+
+    local playerGui = player:WaitForChild("PlayerGui", 10)
+    if not playerGui then return end
+
+    -- รอให้ ReplicatedStorage และ Remote พร้อม
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local remote = ReplicatedStorage:FindFirstChild("Assets") 
+        and ReplicatedStorage.Assets:FindFirstChild("Remotes") 
+        and ReplicatedStorage.Assets.Remotes:FindFirstChild("POST")
+    
+    if not remote then
+        -- ถ้าไม่พบ remote ให้ใช้ TeleportService แทน
+        local TeleportService = game:GetService("TeleportService")
+        if not checkAnyVisible() then
+            task.wait(10)
+            if not checkAnyVisible() then
+                pcall(function()
+                    TeleportService:Teleport(13379208636, player)
+                end)
+            end
+        end
+        return
+    end
+
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function GetGuiByPath(root, pathSegments)
+        local current = root
+        for _, segment in ipairs(pathSegments) do
+            if current then
+                current = current:FindFirstChild(segment)
+            else
+                break
+            end
+        end
+        return current
+    end
+
+    local targets = {
+        { path = {"Interface", "Gear_Up", "Lobby", "Backing"} },
+        { path = {"Interface", "Topbar", "Main", "Categories", "Inventory"} }
+    }
+
+    local function checkAnyVisible()
+        for _, target in ipairs(targets) do
+            local gui = GetGuiByPath(playerGui, target.path)
+            if gui and IsActuallyVisible(gui) then
+                return true
+            end
+        end
+        return false
+    end
+
+    -- เช็คครั้งแรก
+    if not checkAnyVisible() then
+        -- รอ 10 วินาที
+        task.wait(10)
+        -- เช็คซ้ำ
+        if not checkAnyVisible() then
+            -- ใช้ Remote Event Teleport ไป Main Menu
+            pcall(function()
+                remote:FireServer("Functions", "Teleport", "Menu", nil)
+            end)
+        end
+    end
+end)
+
+
 repeat task.wait() until game:IsLoaded()
 repeat task.wait() until game:GetService("Players").LocalPlayer
 repeat task.wait() until game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
