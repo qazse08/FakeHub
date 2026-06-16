@@ -2213,7 +2213,18 @@ if IsLobbyLobby() then
 end
 
 --]]
+getgenv().scalemobile = false
 
+local CONFIG_PRESETS = {
+    mobile = { OFFSET_X = 500, OFFSET_Y = 250 },
+    pc = { OFFSET_X = 1000, OFFSET_Y = 500 }
+}
+
+local isMobile = getgenv().scalemobile or false
+local selectedConfig = isMobile and CONFIG_PRESETS.mobile or CONFIG_PRESETS.pc
+
+local OFFSET_X = selectedConfig.OFFSET_X
+local OFFSET_Y = selectedConfig.OFFSET_Y
 
 local UISettingsTab = Window:AddTab("Settings")
 local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
@@ -2232,8 +2243,39 @@ end
 
 MenuGroup:AddToggle("HideUIToggle", {
     Text = "Auto Hide UI",
-    Default = false,                       
+    Default = false,
     Callback = function(v)
+    end
+})
+
+MenuGroup:AddToggle("EnableMobileUI", {
+    Text = "Enable UI for Mobile",
+    Default = getgenv().scalemobile or false,
+    Callback = function(v)
+        getgenv().scalemobile = v
+        local isMobile = getgenv().scalemobile or false
+        local selectedConfig = isMobile and CONFIG_PRESETS.mobile or CONFIG_PRESETS.pc
+        OFFSET_X = selectedConfig.OFFSET_X
+        OFFSET_Y = selectedConfig.OFFSET_Y
+        
+        if Window and Window.Holder then
+            local holder = Window.Holder
+            local basePos = holder.Position
+            local baseX = basePos.X.Offset
+            local baseY = basePos.Y.Offset
+            local newX = baseX
+            local newY = baseY
+            
+            if isMobile then
+                newX = CONFIG_PRESETS.mobile.OFFSET_X
+                newY = CONFIG_PRESETS.mobile.OFFSET_Y
+            else
+                newX = CONFIG_PRESETS.pc.OFFSET_X
+                newY = CONFIG_PRESETS.pc.OFFSET_Y
+            end
+            
+            holder.Position = UDim2.new(0, newX, 0, newY)
+        end
     end
 })
 
@@ -2282,6 +2324,25 @@ function SaveManager:BuildConfigSection(tab)
             Options.SaveManager_ConfigList:SetValue(nil)
         end
     end)
+    
+    section:AddButton("Reset Autoload", function()
+        local autoloadPath = self.Folder .. "/settings/autoload.txt"
+        if isfile(autoloadPath) then
+            delfile(autoloadPath)
+            if SaveManager.AutoloadLabel then
+                SaveManager.AutoloadLabel:SetText("Current autoload config: none")
+            end
+            if Options and Options.SaveManager_ConfigList then
+                Options.SaveManager_ConfigList:SetValues(self:RefreshConfigList())
+            end
+            Library:Notify("Autoload config has been reset to none")
+        else
+            if SaveManager.AutoloadLabel then
+                SaveManager.AutoloadLabel:SetText("Current autoload config: none")
+            end
+            Library:Notify("No autoload config found, reset to none")
+        end
+    end)
 end
 
 SaveManager:BuildConfigSection(UISettingsTab)
@@ -2295,9 +2356,8 @@ pcall(function()
     end
 end)
 
-
 task.spawn(function()
-    local maxWait = 5  
+    local maxWait = 5
     local start = tick()
     while tick() - start < maxWait do
         if Window and Window.Holder then
@@ -2307,13 +2367,11 @@ task.spawn(function()
     end
 
     if Window and Window.Holder then
-        local offsetX = 500
-        local offsetY = 250
         local holder = Window.Holder
         local basePos = holder.Position
         local baseX = basePos.X.Offset
         local baseY = basePos.Y.Offset
-        holder.Position = UDim2.new(0, baseX + offsetX, 0, baseY + offsetY)
+        holder.Position = UDim2.new(0, baseX + OFFSET_X, 0, baseY + OFFSET_Y)
     end
 end)
 
@@ -2327,12 +2385,14 @@ task.spawn(function()
         if Window and Window.Holder then break end
         task.wait(0.05)
     end
-    task.wait(0.15) 
+    task.wait(0.15)
 
     if Toggles["HideUIToggle"] and Toggles["HideUIToggle"].Value and IsUIVisible() then
         HideUI()
     end
 end)
+
+
 if IsMainmenuLobby() then
     local g = Tabs.MainMenu:AddRightGroupbox("Start GaMe")
 
@@ -4371,11 +4431,10 @@ if IsLobbyLobby() then
     })
 end
 
-
 if IsLobbyLobby() then
     local UnlockGroupLeft = Tabs.Session:AddLeftGroupbox("Unlock Skills")
 
-        local branches = {
+    local branches = {
         ["Support Left"] = {
             ids = {
                 "70","71","72","73","74","75","76","77","78","79",
@@ -4414,37 +4473,22 @@ if IsLobbyLobby() then
         }
     }
 
-        local selected = { Support = nil, Offense = nil, Defense = nil }
-    local orderLabel = nil
+    local selected = { Support = nil, Offense = nil, Defense = nil }
     local isUnlocking = false
+    local unlockDelay = 0.08
 
-        local unlockDelay = 0.08
-
-        local function updateOrderLabel()
-        local items = {}
-        if selected.Defense then items[#items+1] = "Defense " .. selected.Defense end
-        if selected.Offense then items[#items+1] = "Offense " .. selected.Offense end
-        if selected.Support then items[#items+1] = "Support " .. selected.Support end
-        local orderText = "Order:\n"
-        if #items == 0 then
-            orderText = orderText .. "   (none selected)"
-        else
-            for i, v in ipairs(items) do
-                orderText = orderText .. string.format("   %d. %s\n", i, v)
-            end
-        end
-        if orderLabel then orderLabel:SetText(orderText) end
-    end
-
-        local function createDropdown(category, text)
+    local function createDropdown(category, text)
         local dropdown = UnlockGroupLeft:AddDropdown(category .. "SideDropdown", {
             Text = text,
             Values = {"None", "Left", "Right"},
             Default = "None",
             Multi = false,
             Callback = function(v)
-                if v == "None" then selected[category] = nil else selected[category] = v end
-                updateOrderLabel()
+                if v == "None" then 
+                    selected[category] = nil 
+                else 
+                    selected[category] = v 
+                end
             end
         })
         return dropdown
@@ -4453,8 +4497,6 @@ if IsLobbyLobby() then
     local supportDropdown = createDropdown("Support", "Support Side")
     local offenseDropdown = createDropdown("Offense", "Offense Side")
     local defenseDropdown = createDropdown("Defense", "Defense Side")
-
-    orderLabel = UnlockGroupLeft:AddLabel("Order:\n   (none selected)", true)
 
     UnlockGroupLeft:AddSlider("UnlockDelaySlider", {
         Text = "Unlock Delay (sec)",
@@ -4465,19 +4507,9 @@ if IsLobbyLobby() then
         Callback = function(v) unlockDelay = v end
     })
 
-        UnlockGroupLeft:AddButton("Clear All Selections", function()
-        supportDropdown:SetValue("None")
-        offenseDropdown:SetValue("None")
-        defenseDropdown:SetValue("None")
-        selected.Support = nil
-        selected.Offense = nil
-        selected.Defense = nil
-        updateOrderLabel()
-    end)
-
     UnlockGroupLeft:AddDivider()
 
-        local function unlockSingleId(id, retryCount)
+    local function unlockSingleId(id, retryCount)
         retryCount = retryCount or 0
         local success, err = pcall(function()
             GET:InvokeServer("S_Equipment", "Unlock", { id })
@@ -4489,18 +4521,18 @@ if IsLobbyLobby() then
         return success, err
     end
 
-        local function unlockBranch(ids)
+    local function unlockBranch(ids)
         for _, id in ipairs(ids) do
             unlockSingleId(id)
             task.wait(unlockDelay)
         end
     end
 
-        local function showGoldAndWait()
-                while not (Window and Window.Holder and Window.Holder.Visible) do
+    local function showGoldAndWait()
+        while not (Window and Window.Holder and Window.Holder.Visible) do
             task.wait(0.1)
         end
-                local player = game:GetService("Players").LocalPlayer
+        local player = game:GetService("Players").LocalPlayer
         local goldLabel = nil
         repeat
             task.wait(0.1)
@@ -4531,9 +4563,9 @@ if IsLobbyLobby() then
                 return
             end
 
-                        showGoldAndWait()
+            showGoldAndWait()
 
-                        local queue = {}
+            local queue = {}
             if selected.Defense then
                 local side = selected.Defense
                 local branchName = "Defense " .. side
@@ -4564,7 +4596,8 @@ if IsLobbyLobby() then
                 for i, ids in ipairs(queue) do
                     unlockBranch(ids)
                     if i < #queue then
-                        task.wait(unlockDelay)                      end
+                        task.wait(unlockDelay)
+                    end
                 end
                 isUnlocking = false
                 pcall(function()
@@ -4576,6 +4609,7 @@ if IsLobbyLobby() then
         end
     })
 end
+
 if IsLobbyLobby() then
 
     local BoostGroup = Tabs.Lobby:AddRightGroupbox("Boost Selection")
@@ -5955,6 +5989,7 @@ local function updateFarmObjectivesStatus()
     return farmObjectivesReady
 end
 
+---------- :farm tab: ----------
 if Tabs.AutoFarm then
     local AutoFarmTabbox = Tabs.AutoFarm:AddLeftTabbox("Auto Farm")
     local G = getgenv()
@@ -5970,26 +6005,28 @@ if Tabs.AutoFarm then
     G.SafetyTime = G.SafetyTime or 60
     G.LeaveMinimum = 1
     G.AttackInterval = 0.15
-    
+    G.KillHits = 1  
+
     G.ThunderSpearFarmMode = "Tween"
     G.ThunderSpearHoverSpeed = 120
     G.ThunderSpearHoverHeight = 120
     G.ThunderSpearFirePower = 8
     G.ThunderSpearExplodeRadius = 0.13
 
-        task.spawn(function()
+    task.spawn(function()
         while true do
             task.wait(5)
             pcall(function()
                 if G.GetDetectedWeapon then
                     local oldWeapon = G.GetDetectedWeapon()
-                    G.GetDetectedWeapon()                     local newWeapon = G.GetDetectedWeapon()
+                    G.GetDetectedWeapon()
+                    local newWeapon = G.GetDetectedWeapon()
                     
                     if oldWeapon ~= newWeapon and not syncingWeapon then
                         syncingWeapon = true
                         
                         if newWeapon == "Blade" then
-                                                        if G.AutoThunderSpear then
+                            if G.AutoThunderSpear then
                                 if Options and Options.AutoThunderSpearToggle then
                                     Options.AutoThunderSpearToggle:SetValue(false)
                                 end
@@ -5998,7 +6035,7 @@ if Tabs.AutoFarm then
                                 end
                             end
                         elseif newWeapon == "Thunder Spear" then
-                                                        if G.AutoFarmBlade then
+                            if G.AutoFarmBlade then
                                 if Options and Options.AutoFarmBlade then
                                     Options.AutoFarmBlade:SetValue(false)
                                 end
@@ -6028,7 +6065,7 @@ if Tabs.AutoFarm then
     end
 
     local function resolveConflictingToggles()
-        if syncingWeapon then return end          
+        if syncingWeapon then return end
         if G.AutoFarmBlade and G.AutoThunderSpear then
             if isBlade() then
                 G.AutoThunderSpear = false
@@ -6098,6 +6135,14 @@ if Tabs.AutoFarm then
     BladeTab:AddSlider("HoverHeightSlider", {
         Text="Hover Height", Default=G.HoverHeight, Min=0, Max=400, Rounding=0,
         Callback=function(val) if not syncingWeapon then G.HoverHeight = val end end
+    })
+
+    -- เพิ่ม Slider Kill Hits
+    BladeTab:AddSlider("KillHitsSlider", {
+        Text="Kill Hits", Default=1, Min=1, Max=9, Rounding=0,
+        Callback=function(val)
+            if not syncingWeapon then G.KillHits = val end
+        end
     })
 
     BladeTab:AddToggle("AutoFarmBlade", {
@@ -6177,8 +6222,6 @@ if Tabs.AutoFarm then
             G.StartRejoin = v 
         end
     })
-    
-
 
     local SpearTab = AutoFarmTabbox:AddTab("Thunder Spear")
     
@@ -6269,160 +6312,163 @@ if Tabs.AutoFarm then
     AddConfirmTP("Teleport to Main Menu", MAIN_MENU_ID, 1.5)
     AddConfirmTP("Teleport to Lobby", LOBBY_ID)
     
-TeleportGroup:AddDivider()
+    TeleportGroup:AddDivider()
 
-local combinedDelay = 0
-local selectedActions = {}
-local combinedEnabled = false
-local combinedTimerRunning = false
-local combinedStartTime = 0
-local actionPending = false
-local teleportAttempts = 0
-local maxAttempts = 5
+    local combinedDelay = 0
+    local selectedActions = {}
+    local combinedEnabled = false
+    local combinedTimerRunning = false
+    local combinedStartTime = 0
+    local actionPending = false
+    local teleportAttempts = 0
+    local maxAttempts = 5
 
-TeleportGroup:AddSlider("CombinedActionDelaySlider", {
-    Text = "Set Delay (seconds)",
-    Default = 0,
-    Min = 0,
-    Max = 1200,
-    Rounding = 0,
-    Suffix = " sec",
-    Callback = function(v)
-        combinedDelay = v
-    end
-})
-
-TeleportGroup:AddDropdown("CombinedActionsDropdown", {
-    Values = {"Teleport to Main Menu", "Teleport to Lobby", "Kill Character", "AUTO Leave Game"},
-    Default = {},
-    Multi = true,
-    Text = "Select [ Multi ]",
-    Callback = function(v)
-        selectedActions = v
-    end
-})
-
-local function performTeleportToMainMenu()
-    teleportAttempts = teleportAttempts + 1
-    pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
-    if teleportAttempts >= maxAttempts then
-        game:Shutdown()
-    end
-end
-
-local function performTeleportToLobby()
-    teleportAttempts = teleportAttempts + 1
-    pcall(function() TeleportService:Teleport(LOBBY_ID, Player) end)
-    if teleportAttempts >= maxAttempts then
-        game:Shutdown()
-    end
-end
-
-local function performKillCharacter()
-    local player = game.Players.LocalPlayer
-    if player.Character and player.Character:FindFirstChild("Humanoid") then
-        player.Character.Humanoid.Health = 0
-    end
-end
-
-local function getSelectedActionsList()
-    local list = {}
-    for actionName, isSelected in pairs(selectedActions) do
-        if isSelected then
-            table.insert(list, actionName)
+    TeleportGroup:AddSlider("CombinedActionDelaySlider", {
+        Text = "Set Delay (seconds)",
+        Default = 0,
+        Min = 0,
+        Max = 1200,
+        Rounding = 0,
+        Suffix = " sec",
+        Callback = function(v)
+            combinedDelay = v
         end
-    end
-    return list
-end
+    })
 
-local function executeCombinedActions()
-    if not actionPending then return end
-    actionPending = false
-    combinedTimerRunning = false
-    
-    local actionsToRun = getSelectedActionsList()
-    for _, action in ipairs(actionsToRun) do
-        if action == "Teleport to Main Menu" then
-            performTeleportToMainMenu()
-        elseif action == "Teleport to Lobby" then
-            performTeleportToLobby()
-        elseif action == "Kill Character" then
-            performKillCharacter()
-        elseif action == "AUTO Leave Game" then
+    TeleportGroup:AddDropdown("CombinedActionsDropdown", {
+        Values = {"Teleport to Main Menu", "Teleport to Lobby", "Kill Character", "AUTO Leave Game"},
+        Default = {},
+        Multi = true,
+        Text = "Select [ Multi ]",
+        Callback = function(v)
+            selectedActions = v
+        end
+    })
+
+    local function performTeleportToMainMenu()
+        teleportAttempts = teleportAttempts + 1
+        pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
+        if teleportAttempts >= maxAttempts then
             game:Shutdown()
         end
-        task.wait(0.2)
     end
-    teleportAttempts = 0
-end
 
-local function startCombinedTimer()
-    if combinedTimerRunning then return end
-    
-    local actionsToRun = getSelectedActionsList()
-    if #actionsToRun == 0 then
-        if combinedEnabled then
-            pcall(function()
-                if Options and Options.CombinedActionToggle then
-                    Options.CombinedActionToggle:SetValue(false)
-                end
-            end)
-            combinedEnabled = false
+    local function performTeleportToLobby()
+        teleportAttempts = teleportAttempts + 1
+        pcall(function() TeleportService:Teleport(LOBBY_ID, Player) end)
+        if teleportAttempts >= maxAttempts then
+            game:Shutdown()
         end
-        return
     end
-    
-    if combinedDelay <= 0 then
-        actionPending = true
-        executeCombinedActions()
-        return
+
+    local function performKillCharacter()
+        local player = game.Players.LocalPlayer
+        if player.Character and player.Character:FindFirstChild("Humanoid") then
+            player.Character.Humanoid.Health = 0
+        end
     end
-    
-    combinedTimerRunning = true
-    actionPending = true
-    combinedStartTime = tick()
-    
-    task.spawn(function()
-        while combinedEnabled and actionPending do
-            local elapsed = tick() - combinedStartTime
-            if elapsed >= combinedDelay then
-                executeCombinedActions()
-                break
+
+    local function getSelectedActionsList()
+        local list = {}
+        for actionName, isSelected in pairs(selectedActions) do
+            if isSelected then
+                table.insert(list, actionName)
             end
-            task.wait(0.1)
         end
-    end)
-end
+        return list
+    end
 
-local function stopCombinedTimer()
-    actionPending = false
-    combinedTimerRunning = false
-    teleportAttempts = 0
-end
+    local function executeCombinedActions()
+        if not actionPending then return end
+        actionPending = false
+        combinedTimerRunning = false
+        
+        local actionsToRun = getSelectedActionsList()
+        for _, action in ipairs(actionsToRun) do
+            if action == "Teleport to Main Menu" then
+                performTeleportToMainMenu()
+            elseif action == "Teleport to Lobby" then
+                performTeleportToLobby()
+            elseif action == "Kill Character" then
+                performKillCharacter()
+            elseif action == "AUTO Leave Game" then
+                game:Shutdown()
+            end
+            task.wait(0.2)
+        end
+        teleportAttempts = 0
+    end
 
-TeleportGroup:AddToggle("CombinedActionToggle", {
-    Text = "Enable Failed Safe",
-    Default = false,
-    Callback = function(v)
-        combinedEnabled = v
-        if v then
-            local actionsToRun = getSelectedActionsList()
-            if #actionsToRun == 0 then
-                Library:Notify("Please select at least one action first!", 3)
+    local function startCombinedTimer()
+        if combinedTimerRunning then return end
+        
+        local actionsToRun = getSelectedActionsList()
+        if #actionsToRun == 0 then
+            if combinedEnabled then
                 pcall(function()
                     if Options and Options.CombinedActionToggle then
                         Options.CombinedActionToggle:SetValue(false)
                     end
                 end)
-                return
+                combinedEnabled = false
             end
-            startCombinedTimer()
-        else
-            stopCombinedTimer()
+            return
         end
+        
+        if combinedDelay <= 0 then
+            actionPending = true
+            executeCombinedActions()
+            return
+        end
+        
+        combinedTimerRunning = true
+        actionPending = true
+        combinedStartTime = tick()
+        
+        task.spawn(function()
+            while combinedEnabled and actionPending do
+                local elapsed = tick() - combinedStartTime
+                if elapsed >= combinedDelay then
+                    executeCombinedActions()
+                    break
+                end
+                task.wait(0.1)
+            end
+        end)
     end
-})
+
+    local function stopCombinedTimer()
+        actionPending = false
+        combinedTimerRunning = false
+        teleportAttempts = 0
+    end
+
+    TeleportGroup:AddToggle("CombinedActionToggle", {
+        Text = "Enable Failed Safe",
+        Default = false,
+        Callback = function(v)
+            combinedEnabled = v
+            if v then
+                local actionsToRun = getSelectedActionsList()
+                if #actionsToRun == 0 then
+                    Library:Notify("Please select at least one action first!", 3)
+                    pcall(function()
+                        if Options and Options.CombinedActionToggle then
+                            Options.CombinedActionToggle:SetValue(false)
+                        end
+                    end)
+                    return
+                end
+                startCombinedTimer()
+            else
+                stopCombinedTimer()
+            end
+        end
+    })
 end
+
+-- ===== ส่วนนี้คือโค้ดที่อยู่นอก Tabs.AutoFarm =====
+-- หมายเหตุ: โค้ดส่วนนี้จะต่อจาก end ของ if Tabs.AutoFarm แล้ว
 
 local TitansFolder = workspace:FindFirstChild("Titans")
 
@@ -6904,21 +6950,46 @@ local function NeedReload()
     return false
 end
 
+-- ===== ฟังก์ชัน GetTargets (เพิ่มใหม่) =====
+local function GetTargets(limit)
+    if #ActiveTitans == 0 then return {} end
+    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return {} end
+    local pos = hrp.Position
+    local sorted = {}
+    for _, entry in ipairs(ActiveTitans) do
+        local nape = entry.nape
+        if nape then
+            local dist = (nape.Position - pos).Magnitude
+            table.insert(sorted, {entry = entry, dist = dist})
+        end
+    end
+    table.sort(sorted, function(a,b) return a.dist < b.dist end)
+    local result = {}
+    for i = 1, math.min(#sorted, limit) do
+        table.insert(result, sorted[i].entry)
+    end
+    return result
+end
+
+-- ===== ปรับปรุงฟังก์ชัน AttackAllTitans =====
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
     
-        if NeedReload() then
+    if NeedReload() then
         return
     end
 
     local G = getgenv()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 60)
+    local killHits = G.KillHits or 1   -- ใช้ค่าจาก Slider
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
-        for _, entry in ipairs(ActiveTitans) do
+        local targets = GetTargets(killHits)
+        for _, entry in ipairs(targets) do
             local nape = entry.nape
             if nape and nape.Parent then
                 SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
@@ -6929,7 +7000,8 @@ local function AttackAllTitans()
 
     if isShiganshinaBreachMission and not protectHQCompleted then
         SafeFire(POST, "Attacks", "Slash", true)
-        for _, entry in ipairs(ActiveTitans) do
+        local targets = GetTargets(killHits)
+        for _, entry in ipairs(targets) do
             local nape = entry.nape
             if nape and nape.Parent then
                 SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
@@ -6964,10 +7036,13 @@ local function AttackAllTitans()
     end
 
     local slayVisible = isSlayObjectiveVisible()
+    local dmg = 9999
+    local stopAt = G.StopAtTitansLeft or 1
+    local targets = GetTargets(killHits)
     
     if not slayVisible then
-        local dmg = 9999          SafeFire(POST, "Attacks", "Slash", true)
-        for _, entry in ipairs(ActiveTitans) do
+        SafeFire(POST, "Attacks", "Slash", true)
+        for _, entry in ipairs(targets) do
             local nape = entry.nape
             if nape and nape.Parent then
                 SafeFire(POST, "Hitboxes", "Register", nape, dmg, 0)
@@ -6976,13 +7051,12 @@ local function AttackAllTitans()
         return
     end
     
-    local dmg = 9999      local stopAt = G.StopAtTitansLeft or 1
     if not safe and #ActiveTitans <= stopAt then
         return
     end
 
     SafeFire(POST, "Attacks", "Slash", true)
-    for _, entry in ipairs(ActiveTitans) do
+    for _, entry in ipairs(targets) do
         local nape = entry.nape
         if nape and nape.Parent then
             SafeFire(POST, "Hitboxes", "Register", nape, dmg, 0)
@@ -7003,7 +7077,7 @@ local function FarmUpdate()
         
         if not G.Farm or isDead then return end
         
-                if NeedReload() then
+        if NeedReload() then
             local char = Player.Character
             if char then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
