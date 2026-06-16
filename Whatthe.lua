@@ -264,14 +264,14 @@ getgenv().isUIHidden = isUIHiddenGlobal
 getgenv().hideUI = hideUIGlobal
 getgenv().showUI = showUIGlobal
 
-local JaMeHUBFolder = "JaMeHUB"
-if not isfolder(JaMeHUBFolder) then makefolder(JaMeHUBFolder) end
+local JaMeTestFolder = "JaMeTest"
+if not isfolder(JaMeTestFolder) then makefolder(JaMeTestFolder) end
 
 local activeFolder
-if IsMainmenuLobby() then activeFolder = JaMeHUBFolder.."/Mainmenu"
-elseif IsLobbyLobby() then activeFolder = JaMeHUBFolder.."/Lobby"
-elseif IsIngameLobby() then activeFolder = JaMeHUBFolder.."/Ingame"
-else activeFolder = JaMeHUBFolder.."/Default" end
+if IsMainmenuLobby() then activeFolder = JaMeTestFolder.."/Mainmenu"
+elseif IsLobbyLobby() then activeFolder = JaMeTestFolder.."/Lobby"
+elseif IsIngameLobby() then activeFolder = JaMeTestFolder.."/Ingame"
+else activeFolder = JaMeTestFolder.."/Default" end
 if not isfolder(activeFolder) then makefolder(activeFolder) end
 
 pcall(function()
@@ -287,7 +287,7 @@ SaveManager:SetFolder(activeFolder)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({"MenuKeybind"})
 ThemeManager:SetLibrary(Library)
-ThemeManager:SetFolder(JaMeHUBFolder)
+ThemeManager:SetFolder(JaMeTestFolder)
 pcall(function() SaveManager:BuildFolderTree() end)
 
 local Tabs = {}
@@ -977,7 +977,7 @@ if IsMainmenuLobby() then
         if glowConnection then glowConnection:Disconnect() end
 
         local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "JaMeHUBRealTimePopup"
+        screenGui.Name = "JaMeTestRealTimePopup"
         screenGui.ResetOnSpawn = false
         screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
         screenGui.DisplayOrder = 999
@@ -1080,7 +1080,7 @@ if IsMainmenuLobby() then
         footerLabel.Size = UDim2.new(1, -40, 0, 14)
         footerLabel.Position = UDim2.new(0, 12, 0, 110)
         footerLabel.BackgroundTransparency = 1
-        footerLabel.Text = "JaMeHUB"
+        footerLabel.Text = "JaMeTest"
         footerLabel.Font = Enum.Font.GothamMedium
         footerLabel.TextSize = 9
         footerLabel.TextColor3 = Color3.fromHex("#888888")
@@ -1162,7 +1162,7 @@ if IsLobbyLobby() then
         local Player = Players.LocalPlayer
         local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
         
-        local file1, file2 = "JaMeHUB/saved_players.txt", "JaMeHUB/saved_players_2.txt"
+        local file1, file2 = "JaMeTest/saved_players.txt", "JaMeTest/saved_players_2.txt"
 
         local function loadList(f) 
             local t={} 
@@ -2043,7 +2043,7 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
         
-        local CONFIG_FILE = "JaMeHUB/teleport_config.json"
+        local CONFIG_FILE = "JaMeTest/teleport_config.json"
         local MonitorEnabled = false
         local minScrolls = 1
         
@@ -2062,7 +2062,7 @@ if IsLobbyLobby() then
                 lastSaved = os.date("%Y-%m-%d %H:%M:%S")
             }
             pcall(function()
-                if not isfolder("JaMeHUB") then makefolder("JaMeHUB") end
+                if not isfolder("JaMeTest") then makefolder("JaMeTest") end
                 writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(data))
             end)
         end
@@ -2738,7 +2738,7 @@ end
 if IsMainmenuLobby() then
     local CodeGroup = Tabs.MainMenu:AddLeftGroupbox("Code Redeem")
 
-    local codesFile = "JaMeHUB/codes.txt"
+    local codesFile = "JaMeTest/codes.txt"
     local codeList = {}
     local selectedCodes = {}  
     local autoRedeemActive = false
@@ -5570,7 +5570,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
         local Gui = Instance.new("ScreenGui")
-        Gui.Name = "JaMeHubPlayerStats"
+        Gui.Name = "JaMeTestPlayerStats"
         Gui.IgnoreGuiInset = true
         Gui.ResetOnSpawn = false
         Gui.Parent = PlayerGui
@@ -7804,7 +7804,7 @@ if Tabs.Webhook then
     local webhookPingMode = "None"
     
     local gamesPlayed = 0
-    local gamesPlayedPath = "JaMeHUB/games_played.txt"
+    local gamesPlayedPath = "JaMeTest/games_played.txt"
     
     if isfile(gamesPlayedPath) then
         gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
@@ -8091,7 +8091,7 @@ if Tabs.Webhook then
         local payload = {
             content = (hasSpecial and pingContent) or nil,
             embeds = {{
-                title = "JaMeHUB Rewards",
+                title = "JaMeTest Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
                 fields = {
                     { name = "Information", value = string.format("\nUser: %s\nGames Played: %d\nExecutor: %s\n", player.Name, gamesPlayed, executor), inline = true },
@@ -8100,7 +8100,7 @@ if Tabs.Webhook then
                     { name = "Rewards", value = "\n" .. formatRewardsList(rewards) .. "\n", inline = false },
                     { name = "Special", value = "\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n", inline = false }
                 },
-                footer = { text = "JaMeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                footer = { text = "JaMeTest • " .. os.date("%Y-%m-%d %H:%M:%S") },
                 timestamp = DateTime.now():ToIsoDate()
             }}
         }
@@ -8334,7 +8334,7 @@ if Tabs.Webhook then
     WebhookGroup:AddButton("Test Send", function()
         if webhookURL == "" then return end
         local testBody = game:GetService("HttpService"):JSONEncode({
-            content = "Test from JaMeHUB!",
+            content = "Test from JaMeTest!",
             embeds = {{
                 title = "Webhook Working!",
                 color = 65280,
@@ -8343,7 +8343,7 @@ if Tabs.Webhook then
                     {name = "Ping Mode", value = webhookPingMode, inline = true},
                     {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
                 },
-                footer = {text = "JaMeHUB Webhook Test"}
+                footer = {text = "JaMeTest Webhook Test"}
             }}
         })
         pcall(function()
