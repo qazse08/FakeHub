@@ -142,7 +142,7 @@ task.spawn(function()
     until tick() - start > 3
 end)
 
-local Window = Library:CreateWindow({Title="SuperFAKE", Center=true, AutoShow=true})
+local Window = Library:CreateWindow({Title="#นาย เจมส์", Center=true, AutoShow=true})
 
 local function isUIHiddenGlobal()
     local ok, hidden = pcall(function()
@@ -175,14 +175,14 @@ getgenv().isUIHidden = isUIHiddenGlobal
 getgenv().hideUI = hideUIGlobal
 getgenv().showUI = showUIGlobal
 
-local JaMeTestFolder = "JaMeTest"
-if not isfolder(JaMeTestFolder) then makefolder(JaMeTestFolder) end
+local JaMeHUBFolder = "JaMeHUB"
+if not isfolder(JaMeHUBFolder) then makefolder(JaMeHUBFolder) end
 
 local activeFolder
-if IsMainmenuLobby() then activeFolder = JaMeTestFolder.."/Mainmenu"
-elseif IsLobbyLobby() then activeFolder = JaMeTestFolder.."/Lobby"
-elseif IsIngameLobby() then activeFolder = JaMeTestFolder.."/Ingame"
-else activeFolder = JaMeTestFolder.."/Default" end
+if IsMainmenuLobby() then activeFolder = JaMeHUBFolder.."/Mainmenu"
+elseif IsLobbyLobby() then activeFolder = JaMeHUBFolder.."/Lobby"
+elseif IsIngameLobby() then activeFolder = JaMeHUBFolder.."/Ingame"
+else activeFolder = JaMeHUBFolder.."/Default" end
 if not isfolder(activeFolder) then makefolder(activeFolder) end
 
 pcall(function()
@@ -198,7 +198,7 @@ SaveManager:SetFolder(activeFolder)
 SaveManager:IgnoreThemeSettings()
 SaveManager:SetIgnoreIndexes({"MenuKeybind"})
 ThemeManager:SetLibrary(Library)
-ThemeManager:SetFolder(JaMeTestFolder)
+ThemeManager:SetFolder(JaMeHUBFolder)
 pcall(function() SaveManager:BuildFolderTree() end)
 
 local Tabs = {}
@@ -210,9 +210,9 @@ if IsLobbyLobby() then
 end
 if IsIngameLobby() then
     Tabs.AutoFarm = Window:AddTab("Auto Farm")
-    Tabs.Safety = Window:AddTab("Wave")
     Tabs.Webhook = Window:AddTab("Webhook")
 end
+
 if IsMainmenuLobby() then
   
     if not getgenv().SpinState then
@@ -333,11 +333,11 @@ if IsMainmenuLobby() then
         local body = game:GetService("HttpService"):JSONEncode({
             content = content,
             embeds = {{
-                title = "TARGET FAMILY FOUND: " .. currentFamily,
+                title = "Family Found: " .. currentFamily,
                 color = color,
                 fields = {
-                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Family : @" .. userName, inline = false },
-                    { name = "━━━━━━━━━  SPINS ━━━━━━━━━", value = "Remaining: " .. spinNumber, inline = false }
+                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
+                    { name = "━━━━━━━━━  SPINS ━━━━━━━━━", value = "Spins: " .. spinNumber, inline = false }
                 },
                 footer = { text = "Rarity: " .. rarity },
                 timestamp = DateTime.now():ToIsoDate()
@@ -466,14 +466,60 @@ if IsMainmenuLobby() then
     local playerGui = player:WaitForChild("PlayerGui")
     local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 
-    local function getRealSpinCount()
-        local success, data = pcall(function()
-            return Event:InvokeServer("Data", "Copy")
-        end)
-        if success and data then
-            return data.Spins or 0
+    -- FIXED: Extract spins from first non‑zero among first two returns, family from third return
+    local function performRoll()
+        local maxRetries = 3
+        local retryDelay = 0.3
+        
+        for attempt = 1, maxRetries do
+            local success, ret1, ret2, ret3, ret4, ret5 = pcall(function()
+                return Event:InvokeServer("Family", "Roll")
+            end)
+            
+            if success then
+                local spinsLeft = nil
+                local familyGot = nil
+                
+                -- Spins is the first non‑zero number among the first two returns
+                if type(ret1) == "number" and ret1 > 0 then
+                    spinsLeft = ret1
+                elseif type(ret2) == "number" and ret2 > 0 then
+                    spinsLeft = ret2
+                else
+                    spinsLeft = 0
+                end
+                
+                -- Family is always the third return (string)
+                if type(ret3) == "string" and ret3 ~= "" then
+                    familyGot = ret3
+                else
+                    -- Fallback: scan for any string
+                    for _, v in ipairs({ret1, ret2, ret3, ret4, ret5}) do
+                        if type(v) == "string" and v ~= "" then
+                            familyGot = v
+                            break
+                        end
+                    end
+                end
+                
+                if familyGot then
+                    local spinState = getgenv().SpinState
+                    if not spinState then
+                        getgenv().SpinState = { storedSpins = 0, hasRolled = false }
+                        spinState = getgenv().SpinState
+                    end
+                    spinState.storedSpins = spinsLeft
+                    spinState.hasRolled = true
+                    return spinsLeft, familyGot
+                end
+            end
+            
+            if attempt < maxRetries then
+                task.wait(retryDelay)
+            end
         end
-        return 0
+        
+        return 0, nil
     end
 
     local function getSlotLabel()
@@ -555,23 +601,6 @@ if IsMainmenuLobby() then
         return false
     end
 
-    local function GetFamilyRarity(familyName)
-        if not familyName then return "Common" end
-        local cleanName = familyName:match("^([^%(]+)") or familyName
-        cleanName = cleanName:gsub("%s+$", "")
-        local commonList = {"Reeves","Blouse","Inocenio","Munsell","Boyega","Ral","Bozado","Pikale","Hume","Iglehaut"}
-        local rareList = {"Braus","Kruger","Azumabito","Smith","Grice","Springer","Kirstein"}
-        local epicList = {"Galliard","Zoe","Leonhart","Tybur","Ksaver","Braun","Finger","Arlert"}
-        local legendaryList = {"Yeager","Ackerman","Reiss"}
-        local mythicList = {"Fritz","Helos"}
-        for _, name in ipairs(commonList) do if cleanName:find(name) then return "Common" end end
-        for _, name in ipairs(rareList) do if cleanName:find(name) then return "Rare" end end
-        for _, name in ipairs(epicList) do if cleanName:find(name) then return "Epic" end end
-        for _, name in ipairs(legendaryList) do if cleanName:find(name) then return "Legendary" end end
-        for _, name in ipairs(mythicList) do if cleanName:find(name) then return "Mythic" end end
-        return "Common"
-    end
-
     local function FormatFamilyDisplay(rawFamily)
         if not rawFamily or rawFamily == "" then return "Unknown" end
         local baseName = rawFamily:match("^([^%(]+)") or rawFamily
@@ -588,22 +617,6 @@ if IsMainmenuLobby() then
             if string.find(lower, string.lower(t)) then return true end
         end
         return false
-    end
-
-    local function performRoll()
-        local result = {Event:InvokeServer("Family", "Roll")}
-        local spinsLeft = result[2] or 0   
-        local familyGot = result[3] or nil
-        if familyGot then
-            local spinState = getgenv().SpinState
-            if not spinState then
-                getgenv().SpinState = { storedSpins = 0, hasRolled = false }
-                spinState = getgenv().SpinState
-            end
-            spinState.storedSpins = spinsLeft
-            spinState.hasRolled = true
-        end
-        return spinsLeft, familyGot
     end
 
     local FAMILY_LIST = {
@@ -770,7 +783,6 @@ if IsMainmenuLobby() then
     end)
 end
 
-
 if IsMainmenuLobby() then
     while not Tabs.Webhook do task.wait(0.1) end
 
@@ -876,7 +888,7 @@ if IsMainmenuLobby() then
         if glowConnection then glowConnection:Disconnect() end
 
         local screenGui = Instance.new("ScreenGui")
-        screenGui.Name = "JaMeTestRealTimePopup"
+        screenGui.Name = "JaMeHUBRealTimePopup"
         screenGui.ResetOnSpawn = false
         screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
         screenGui.DisplayOrder = 999
@@ -979,7 +991,7 @@ if IsMainmenuLobby() then
         footerLabel.Size = UDim2.new(1, -40, 0, 14)
         footerLabel.Position = UDim2.new(0, 12, 0, 110)
         footerLabel.BackgroundTransparency = 1
-        footerLabel.Text = "JaMeTest"
+        footerLabel.Text = "JaMeHUB"
         footerLabel.Font = Enum.Font.GothamMedium
         footerLabel.TextSize = 9
         footerLabel.TextColor3 = Color3.fromHex("#888888")
@@ -1055,14 +1067,13 @@ end
 
 
 
-
 if IsLobbyLobby() then
     task.defer(function()
         local Players = game:GetService("Players")
         local Player = Players.LocalPlayer
         local POST = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
         
-        local file1, file2 = "JaMeTest/saved_players.txt", "JaMeTest/saved_players_2.txt"
+        local file1, file2 = "JaMeHUB/saved_players.txt", "JaMeHUB/saved_players_2.txt"
 
         local function loadList(f) 
             local t={} 
@@ -1377,7 +1388,7 @@ if IsLobbyLobby() then
     })
 end
 
------ ระบบเทรด
+
 if IsLobbyLobby() then
     task.spawn(function()
         while not Tabs.Trade do task.wait(0.1) end
@@ -1405,20 +1416,21 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
 
+        local lastHideNotifyTime = 0
+
+        local autoDisableEnabled = false
+        local autoDisableThreshold = 0
+
         local itemMapping = {
             ["Memory Scroll"] = "600_Memory Scroll",
             ["Emperor's Key"] = "500_Emperor's Key",
         }
         local SelectedItems = {"Memory Scroll"}
 
-        local cosmeticMapping = {
-            ["Angel's Halo"] = "200_Angel's Halo",
-            ["Radiant Headband"] = "200_Radiant Headband",
-            ["Kitsune Mask"] = "400_Kitsune Mask",
-            ["Blood Vial"] = "500_Blood Vial",
-            ["Kitsune Ribbon"] = "500_Kitsune Ribbon",
-        }
-        local SelectedCosmetics = {}
+        local acceptTradeEnabled = false
+
+        local autoTradeToggleRef = nil
+        local acceptTradeToggleRef = nil
 
         local function isGuiAlive(obj)
             if not obj then return false end
@@ -1513,15 +1525,6 @@ if IsLobbyLobby() then
             return success and item or nil
         end
 
-        local function getCosmeticTradeItem(cosmeticName)
-            if not isYouBoxVisible() then return nil end
-            local realName = cosmeticMapping[cosmeticName] or cosmeticName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName].Main.Interact
-            end)
-            return success and item or nil
-        end
-
         local function getAddButton()
             if not isYouBoxVisible() then return nil end
             return pcall(function()
@@ -1554,35 +1557,25 @@ if IsLobbyLobby() then
             return 0
         end
 
-        local function getCosmeticInventoryCount(cosmeticName)
-            if not isYouBoxVisible() then return 0 end
-            local realName = cosmeticMapping[cosmeticName] or cosmeticName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.List.Holder.Items[realName]
+        local function getMemoryScrollCount()
+            local count = 0
+            pcall(function()
+                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                local data = GET:InvokeServer("Data", "Copy")
+                if data and data.Slots then
+                    local slot = data.Current_Slot or "A"
+                    local slotData = data.Slots[slot]
+                    if slotData and slotData.Inventory and slotData.Inventory.Items then
+                        count = slotData.Inventory.Items["600_Memory Scroll"] or 0
+                    end
+                end
             end)
-            if success and item then
-                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                return label and tonumber(label.Text:match("%d+")) or 0
-            end
-            return 0
+            return count
         end
 
         local function getCurrentAddedCount(itemName)
             if not isYouBoxVisible() then return 0 end
             local realName = itemMapping[itemName] or itemName
-            local success, item = pcall(function()
-                return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-            end)
-            if success and item then
-                local label = item.Main and item.Main.Inner and item.Main.Inner.Quantity
-                return label and tonumber(label.Text:match("%d+")) or 0
-            end
-            return 0
-        end
-
-        local function getCosmeticCurrentAddedCount(cosmeticName)
-            if not isYouBoxVisible() then return 0 end
-            local realName = cosmeticMapping[cosmeticName] or cosmeticName
             local success, item = pcall(function()
                 return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
             end)
@@ -1599,11 +1592,6 @@ if IsLobbyLobby() then
                     return false
                 end
             end
-            for _, cosmeticName in ipairs(SelectedCosmetics) do
-                if getCosmeticCurrentAddedCount(cosmeticName) ~= target then
-                    return false
-                end
-            end
             return true
         end
 
@@ -1616,31 +1604,6 @@ if IsLobbyLobby() then
             while tick() - start < (timeout or 1.5) do
                 if not isYouBoxVisible() then return false end
                 local current = getCurrentAddedCount(itemName)
-                if current == target then
-                    if current == lastAdded then
-                        stableTime = stableTime + CheckWait
-                        if stableTime >= requiredStable then return true end
-                    else 
-                        stableTime = 0 
-                    end
-                else 
-                    stableTime = 0 
-                end
-                lastAdded = current
-                task.wait(CheckWait)
-            end
-            return false
-        end
-
-        local function waitForCosmeticAddedStable(cosmeticName, target, timeout)
-            local start = tick()
-            local lastAdded = getCosmeticCurrentAddedCount(cosmeticName)
-            local stableTime = 0
-            local requiredStable = 0.1
-            
-            while tick() - start < (timeout or 1.5) do
-                if not isYouBoxVisible() then return false end
-                local current = getCosmeticCurrentAddedCount(cosmeticName)
                 if current == target then
                     if current == lastAdded then
                         stableTime = stableTime + CheckWait
@@ -1676,25 +1639,6 @@ if IsLobbyLobby() then
             end
         })
 
-        Alt2Box:AddDropdown("Alt2_CosmeticSelectDropdown", {
-            Text = "Select Cosmetics",
-            Values = {"Angel's Halo", "Radiant Headband", "Kitsune Mask", "Blood Vial", "Kitsune Ribbon"},
-            Default = {},
-            Multi = true,
-            Callback = function(val)
-                SelectedCosmetics = {}
-                for item, enabled in pairs(val) do
-                    if enabled then table.insert(SelectedCosmetics, item) end
-                end
-                if Alt2Enabled then
-                    isWaitingForConfirm = false
-                    Alt2Running = false
-                    pendingTargetChange = true
-                    newTargetValue = SelectAmount
-                end
-            end
-        })
-
         Alt2Box:AddSlider("Alt2_SelectAmountSlider", {
             Text = "Amount Per Item",
             Default = 1, Min = 1, Max = 100, Rounding = 0,
@@ -1711,7 +1655,7 @@ if IsLobbyLobby() then
             end
         })
 
-        Alt2Box:AddToggle("Alt2_AutoTradeToggle", {
+        autoTradeToggleRef = Alt2Box:AddToggle("Alt2_AutoTradeToggle", {
             Text = "Auto Trade [ Manual ]",
             Default = false,
             Callback = function(v)
@@ -1721,6 +1665,36 @@ if IsLobbyLobby() then
                     Alt2Running = false
                     pendingTargetChange = false
                 end
+            end
+        })
+
+        Alt2Box:AddDivider()
+        acceptTradeToggleRef = Alt2Box:AddToggle("Alt2_AcceptTradeToggle", {
+            Text = "Accept Trade",
+            Default = false,
+            Callback = function(v)
+                acceptTradeEnabled = v
+            end
+        })
+
+        Alt2Box:AddDivider()
+        local autoDisableSlider = Alt2Box:AddSlider("AutoDisableThresholdSlider", {
+            Text = "Disable if Memory Scroll ≤",
+            Default = 0,
+            Min = 0,
+            Max = 1000,
+            Rounding = 0,
+            Suffix = " scrolls",
+            Callback = function(v)
+                autoDisableThreshold = v
+            end
+        })
+
+        local autoDisableToggle = Alt2Box:AddToggle("AutoDisableToggle", {
+            Text = "Auto Disable Trade",
+            Default = false,
+            Callback = function(v)
+                autoDisableEnabled = v
             end
         })
 
@@ -1749,6 +1723,71 @@ if IsLobbyLobby() then
                         end
                     end
                 end)
+            end
+        end)
+
+        task.spawn(function()
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            while true do
+                task.wait(2)
+                if acceptTradeEnabled then
+                    pcall(function()
+                        GET:InvokeServer("S_Trade", "State", "Receiver", true)
+                        GET:InvokeServer("S_Trade", "State", "Sender", true)
+                    end)
+                end
+            end
+        end)
+
+        local endTradeLoopRunning = false
+        task.spawn(function()
+            while true do
+                task.wait(2)
+                if autoDisableEnabled then
+                    local addTitle = getAddButtonTitle()
+                    if addTitle == "-" then
+                        local scrollCount = getMemoryScrollCount()
+                        if scrollCount <= autoDisableThreshold then
+                            local shouldNotify = false
+                            if Alt2Enabled then
+                                Alt2Enabled = false
+                                if autoTradeToggleRef then
+                                    autoTradeToggleRef:SetValue(false)
+                                end
+                                shouldNotify = true
+                            end
+                            if acceptTradeEnabled then
+                                acceptTradeEnabled = false
+                                if acceptTradeToggleRef then
+                                    acceptTradeToggleRef:SetValue(false)
+                                end
+                                shouldNotify = true
+                            end
+                            if shouldNotify then
+                                local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                                pcall(function() GET:InvokeServer("S_Trade", "End") end)
+                                Library:Notify(string.format("⚠️ Memory Scrolls low (%d ≤ %d). Trading disabled.", scrollCount, autoDisableThreshold), 5)
+                                if not endTradeLoopRunning then
+                                    endTradeLoopRunning = true
+                                    task.spawn(function()
+                                        while endTradeLoopRunning and isYouBoxVisible() do
+                                            task.wait(5)
+                                            if isYouBoxVisible() then
+                                                pcall(function()
+                                                    local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                                                    GET:InvokeServer("S_Trade", "End")
+                                                end)
+                                            else
+                                                endTradeLoopRunning = false
+                                            end
+                                        end
+                                        endTradeLoopRunning = false
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
             end
         end)
 
@@ -1823,83 +1862,23 @@ if IsLobbyLobby() then
             return true
         end
 
-        local function processCosmetic(cosmeticName, target)
-            if not isYouBoxVisible() then return false end
-            
-            local added = getCosmeticCurrentAddedCount(cosmeticName)
-            local inventoryCount = getCosmeticInventoryCount(cosmeticName)
-            local needed = target - added
-
-            if added == target then return true end
-
-            if needed < 0 then
-                local realName = cosmeticMapping[cosmeticName] or cosmeticName
-                local youItem = pcall(function()
-                    return player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName]
-                end) and player.PlayerGui.Interface.Trading.Prompt.Tab.Display.You.Box.Items[realName] or nil
-                
-                if not youItem then return false end
-                
-                local current = added
-                local targetTotal = target
-                local clicksNeeded = current - targetTotal
-                
-                for i = 1, clicksNeeded do
-                    if not Alt2Enabled or not isYouBoxVisible() then break end
-                    local clickTarget = youItem:FindFirstChild("Main") or youItem
-                    if clickTarget then
-                        click(clickTarget)
-                        if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
-                    end
-                end
-                return true
-            end
-
-            local addBtn = getAddButton()
-            if not addBtn then return false end
-            
-            local addTitle = getAddButtonTitle()
-            if addTitle == "+" then
-                click(addBtn)
-                task.wait(0.3)
-                return false
-            elseif addTitle ~= "-" then
-                return false
-            end
-
-            local currentInv = getCosmeticInventoryCount(cosmeticName)
-            if currentInv == 0 then return true end
-
-            local actualNeeded = needed
-            if currentInv < needed then
-                actualNeeded = currentInv
-                target = added + currentInv
-            end
-            
-            if actualNeeded <= 0 then return true end
-
-            local tradeItem = getCosmeticTradeItem(cosmeticName)
-            if not tradeItem then return false end
-
-            local current = added
-            local targetTotal = target
-            local clicksNeeded = targetTotal - current
-            
-            for i = 1, clicksNeeded do
-                if not Alt2Enabled or not isYouBoxVisible() then break end
-                click(tradeItem)
-                if getCosmeticCurrentAddedCount(cosmeticName) >= targetTotal then break end
-            end
-            
-            return true
-        end
-
         task.spawn(function()
             while true do
                 task.wait(MainLoopDelay)
 
                 pcall(function()
                     if not Alt2Enabled then return end
+
+                    if not isUIHiddenGlobal() then
+                        Alt2Running = false
+                        local now = tick()
+                        if now - lastHideNotifyTime >= 10 then
+                            Library:Notify("⚠️ Hide UI for Working Trading (press End)", 3)
+                            lastHideNotifyTime = now
+                        end
+                        return
+                    end
+
                     if not isYouBoxVisible() then
                         Alt2Running = false
                         return
@@ -1931,12 +1910,6 @@ if IsLobbyLobby() then
                                 break
                             end
                         end
-                        for _, cosmeticName in ipairs(SelectedCosmetics) do
-                            if not waitForCosmeticAddedStable(cosmeticName, target, 1) then
-                                allStable = false
-                                break
-                            end
-                        end
                         
                         if allStable then
                             Alt2Running = true
@@ -1953,16 +1926,15 @@ if IsLobbyLobby() then
                         if not Alt2Enabled or not isYouBoxVisible() then break end
                         processItem(itemName, target)
                     end
-                    for _, cosmeticName in ipairs(SelectedCosmetics) do
-                        if not Alt2Enabled or not isYouBoxVisible() then break end
-                        processCosmetic(cosmeticName, target)
-                    end
                     Alt2Running = false
                 end)
             end
         end)
     end)
-end     
+end
+
+
+--[[
 if IsLobbyLobby() then
     task.spawn(function()
         while not Tabs.Trade do task.wait(0.1) end
@@ -1982,7 +1954,7 @@ if IsLobbyLobby() then
         local player = Players.LocalPlayer
         local RunService = game:GetService("RunService")
         
-        local CONFIG_FILE = "JaMeTest/teleport_config.json"
+        local CONFIG_FILE = "JaMeHUB/teleport_config.json"
         local MonitorEnabled = false
         local minScrolls = 1
         
@@ -2001,7 +1973,7 @@ if IsLobbyLobby() then
                 lastSaved = os.date("%Y-%m-%d %H:%M:%S")
             }
             pcall(function()
-                if not isfolder("JaMeTest") then makefolder("JaMeTest") end
+                if not isfolder("JaMeHUB") then makefolder("JaMeHUB") end
                 writefile(CONFIG_FILE, game:GetService("HttpService"):JSONEncode(data))
             end)
         end
@@ -2150,6 +2122,10 @@ if IsLobbyLobby() then
         end)
     end)
 end
+
+--]]
+
+
 local UISettingsTab = Window:AddTab("Settings")
 local MenuGroup = UISettingsTab:AddLeftGroupbox("Menu")
 
@@ -2227,6 +2203,28 @@ pcall(function()
         ThemeManager:SaveDefault("Jester")
     elseif ThemeManager and ThemeManager.ApplyTheme then
         ThemeManager:ApplyTheme("Default")
+    end
+end)
+
+
+task.spawn(function()
+    local maxWait = 5  
+    local start = tick()
+    while tick() - start < maxWait do
+        if Window and Window.Holder then
+            break
+        end
+        task.wait(0.1)
+    end
+
+    if Window and Window.Holder then
+        local offsetX = 500
+        local offsetY = 250
+        local holder = Window.Holder
+        local basePos = holder.Position
+        local baseX = basePos.X.Offset
+        local baseY = basePos.Y.Offset
+        holder.Position = UDim2.new(0, baseX + offsetX, 0, baseY + offsetY)
     end
 end)
 
@@ -2778,7 +2776,7 @@ if IsMainmenuLobby() then
             local waitingNotified = false
             while autoRedeemActive and not isRedeemPageVisible() do
                 if not waitingNotified then
-                    Library:Notify("Waiting for redeem page (Follow or Family)...", 3)
+                    Library:Notify("Waiting for redeem...", 3)
                     waitingNotified = true
                 end
                 task.wait(0.5)
@@ -2831,7 +2829,23 @@ if IsMainmenuLobby() then
         Default = false,
         Callback = function(v)
             if v then
-                local selectedList = getSelectedCodeList()
+                -- ✅ รอ 1 วินาทีให้ UI, Dropdown และ Config โหลดเสร็จ
+                task.wait(1)
+                
+                -- ✅ ดึงค่าที่เลือกจาก Dropdown โดยตรง เพื่อให้แน่ใจว่าได้ค่าล่าสุด
+                local dropdownValue = Options and Options.CodeListDropdown and Options.CodeListDropdown.Value or {}
+                local selectedList = {}
+                for code, isSelected in pairs(dropdownValue) do
+                    if isSelected then
+                        table.insert(selectedList, code)
+                    end
+                end
+                
+                -- ✅ ถ้าจาก dropdown ยังไม่มี ให้ใช้ selectedCodes แทน
+                if #selectedList == 0 then
+                    selectedList = getSelectedCodeList()
+                end
+                
                 if #selectedList == 0 then
                     pcall(function()
                         if Options and Options.AutoRedeemToggle then
@@ -4480,6 +4494,7 @@ if IsLobbyLobby() then
     local purchaseAmount = 1
     local purchaseDelay = 0
     local isReady = false
+    local pendingUseAfterPurchase = false  
 
     local ALL_BOOSTS = {
         "2X XP Boost [30M]", "2X Luck [30M]", "2X Gold [30M]",
@@ -4611,29 +4626,16 @@ if IsLobbyLobby() then
         Callback = function(v) purchaseDelay = v end
     })
 
+    -- Toggle สำหรับซื้อ
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
         Callback = function(v)
-            if not v then return end
+            if v then
+                -- รอ 1 วินาทีให้ UI โหลด
+                task.wait(1)
 
-            local waited = 0
-            while not (Window and Window.Holder and Window.Holder.Visible) and waited < 1 do
-                task.wait(0.05)
-                waited = waited + 0.05
-            end
-            task.wait(0.1)
-
-            if not isReady then
-                pcall(function()
-                    if Options and Options.Boost_PurchaseToggle then
-                        Options.Boost_PurchaseToggle:SetValue(false)
-                    end
-                end)
-                return
-            end
-
-            task.spawn(function()
+                -- ดึงค่าจาก Dropdown โดยตรง
                 local purchaseSelection = {}
                 pcall(function()
                     if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
@@ -4654,49 +4656,149 @@ if IsLobbyLobby() then
                             Options.Boost_PurchaseToggle:SetValue(false)
                         end
                     end)
+                    Library:Notify("Please select at least one boost to purchase!", 3)
                     return
                 end
 
-                for boostName, enabled in pairs(purchaseSelection) do
-                    if enabled then
-                        if not isReady then break end
-                        purchaseBoost(boostName)
-                        if purchaseDelay > 0 then task.wait(purchaseDelay) else task.wait(0.15) end
-                    end
+                if not isReady then
+                    pcall(function()
+                        if Options and Options.Boost_PurchaseToggle then
+                            Options.Boost_PurchaseToggle:SetValue(false)
+                        end
+                    end)
+                    Library:Notify("Currency not ready yet. Please wait.", 3)
+                    return
                 end
 
-                pcall(function()
-                    if Options and Options.Boost_PurchaseToggle then
-                        Options.Boost_PurchaseToggle:SetValue(false)
+                task.spawn(function()
+                    local successCount = 0
+                    for boostName, enabled in pairs(purchaseSelection) do
+                        if enabled then
+                            if not isReady then break end
+                            local ok = purchaseBoost(boostName)
+                            if ok then successCount = successCount + 1 end
+                            if purchaseDelay > 0 then task.wait(purchaseDelay) else task.wait(0.15) end
+                        end
                     end
+                    Library:Notify(string.format("Purchased %d boost(s).", successCount), 3)
+
+                    if Options and Options.Boost_AutoUseToggle and Options.Boost_AutoUseToggle.Value then
+                        pendingUseAfterPurchase = true
+                        if not autoUseActive then
+ 
+                            startAutoUse()
+                        end
+                    end
+
+                    pcall(function()
+                        if Options and Options.Boost_PurchaseToggle then
+                            Options.Boost_PurchaseToggle:SetValue(false)
+                        end
+                    end)
                 end)
-            end)
+            else
+                
+            end
         end
     })
 
-    local goldBoosts = {
-        "2x Gold Boost [2h]",
-        "2x Gold Boost [1h]",
-        "2x Gold Boost [30m]",
-        "2x Gold Boost [15m]",
-        "2x Gold Boost [5m]"
-    }
+    local function startAutoUse()
+        if autoUseTask then return end
+        autoUseActive = true
+        autoUseTask = task.spawn(function()
+            while autoUseActive do
+                if not isLobbyUIVisible() then
+                    task.wait(0.1)
+                    continue
+                end
+                if pendingUseAfterPurchase then
+                    pendingUseAfterPurchase = false
+                    local purchaseSelection = {}
+                    pcall(function()
+                        if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
+                            purchaseSelection = Options.Boost_ListDropdown.Value
+                        end
+                    end)
+                    for boostName, enabled in pairs(purchaseSelection) do
+                        if enabled then
+                            if not isReady then break end
+                            useBoost(boostName)
+                            task.wait(0.3)
+                        end
+                    end
+                    break  
+                end
 
-    local luckBoosts = {
-        "2x Luck Boost [2h]",
-        "2x Luck Boost [1h]",
-        "2x Luck Boost [30m]",
-        "2x Luck Boost [15m]",
-        "2x Luck Boost [5m]"
-    }
+                local durations = {"2h", "1h", "30m"}
+                local roundsPerDuration = 5
+                for _, dur in ipairs(durations) do
+                    if not autoUseActive then break end
+                    for round = 1, roundsPerDuration do
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local goldName = "2x Gold Boost [" .. dur .. "]"
+                        useBoost(goldName)
+                        task.wait()
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local luckName = "2x Luck Boost [" .. dur .. "]"
+                        useBoost(luckName)
+                        task.wait()
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local xpName = "2x XP Boost [" .. dur .. "]"
+                        useBoost(xpName)
+                        task.wait()
+                    end
+                    if not autoUseActive then break end
+                end
+                break
+            end
+            autoUseActive = false
+            if Options and Options.Boost_AutoUseToggle then
+                Options.Boost_AutoUseToggle:SetValue(false)
+            end
+            autoUseTask = nil
+        end)
+    end
 
-    local xpBoosts = {
-        "2x XP Boost [2h]",
-        "2x XP Boost [1h]",
-        "2x XP Boost [30m]",
-        "2x XP Boost [15m]",
-        "2x XP Boost [5m]"
-    }
+    -- Toggle สำหรับ Auto Use
+    BoostGroup:AddToggle("Boost_AutoUseToggle", {
+        Text = "Auto Use All Boosts",
+        Default = false,
+        Callback = function(v)
+            if v then
+                task.wait(1)
+
+                if autoUseActive then 
+                    return 
+                end
+
+                local purchaseEnabled = Options and Options.Boost_PurchaseToggle and Options.Boost_PurchaseToggle.Value
+                if purchaseEnabled then
+                    pendingUseAfterPurchase = true
+                else
+                    startAutoUse()
+                end
+            else
+                autoUseActive = false
+                pendingUseAfterPurchase = false
+                if autoUseTask then
+                    task.cancel(autoUseTask)
+                    autoUseTask = nil
+                end
+            end
+        end
+    })
 
     local function useBoost(boostName)
         local args = {"S_Inventory", "Item", boostName}
@@ -4738,73 +4840,6 @@ if IsLobbyLobby() then
         end
         return keyVisible or categoriesVisible
     end
-
-    local autoUseActive = false
-    local autoUseTask = nil
-
-    BoostGroup:AddToggle("Boost_AutoUseToggle", {
-        Text = "Auto Use All Boosts",
-        Default = false,
-        Callback = function(v)
-            if v then
-                if autoUseActive then return end
-                autoUseActive = true
-                if autoUseTask then task.cancel(autoUseTask) end
-                autoUseTask = task.spawn(function()
-                    while autoUseActive do
-                        if not isLobbyUIVisible() then
-                            task.wait(0.1)
-                            continue
-                        end
-                        local durations = {"2h", "1h", "30m"}
-                        local roundsPerDuration = 5
-                        for _, dur in ipairs(durations) do
-                            if not autoUseActive then break end
-                            for round = 1, roundsPerDuration do
-                                if not autoUseActive then break end
-                                if not isReady then 
-                                    task.wait(0.05)
-                                    break
-                                end
-                                local goldName = "2x Gold Boost [" .. dur .. "]"
-                                useBoost(goldName)
-                                task.wait()
-                                if not autoUseActive then break end
-                                if not isReady then 
-                                    task.wait(0.05)
-                                    break
-                                end
-                                local luckName = "2x Luck Boost [" .. dur .. "]"
-                                useBoost(luckName)
-                                task.wait()
-                                if not autoUseActive then break end
-                                if not isReady then 
-                                    task.wait(0.05)
-                                    break
-                                end
-                                local xpName = "2x XP Boost [" .. dur .. "]"
-                                useBoost(xpName)
-                                task.wait()
-                            end
-                            if not autoUseActive then break end
-                        end
-                        break
-                    end
-                    autoUseActive = false
-                    if Options and Options.Boost_AutoUseToggle then
-                        Options.Boost_AutoUseToggle:SetValue(false)
-                    end
-                    autoUseTask = nil
-                end)
-            else
-                autoUseActive = false
-                if autoUseTask then
-                    task.cancel(autoUseTask)
-                    autoUseTask = nil
-                end
-            end
-        end
-    })
 
 end
 if IsLobbyLobby() then
@@ -5405,7 +5440,7 @@ if IsIngameLobby() and Tabs.AutoFarm then
         local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
         local Gui = Instance.new("ScreenGui")
-        Gui.Name = "JaMeTestPlayerStats"
+        Gui.Name = "JaMeHubPlayerStats"
         Gui.IgnoreGuiInset = true
         Gui.ResetOnSpawn = false
         Gui.Parent = PlayerGui
@@ -7599,7 +7634,7 @@ if Tabs.Webhook then
     local webhookPingMode = "None"
     
     local gamesPlayed = 0
-    local gamesPlayedPath = "JaMeTest/games_played.txt"
+    local gamesPlayedPath = "JaMeHUB/games_played.txt"
     
     if isfile(gamesPlayedPath) then
         gamesPlayed = tonumber(readfile(gamesPlayedPath)) or 0
@@ -7886,7 +7921,7 @@ if Tabs.Webhook then
         local payload = {
             content = (hasSpecial and pingContent) or nil,
             embeds = {{
-                title = "JaMeTest Rewards",
+                title = "JaMeHUB Rewards",
                 color = hasSpecial and 0xff0000 or 0x2b2d31,
                 fields = {
                     { name = "Information", value = string.format("\nUser: %s\nGames Played: %d\nExecutor: %s\n", player.Name, gamesPlayed, executor), inline = true },
@@ -7895,7 +7930,7 @@ if Tabs.Webhook then
                     { name = "Rewards", value = "\n" .. formatRewardsList(rewards) .. "\n", inline = false },
                     { name = "Special", value = "\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n", inline = false }
                 },
-                footer = { text = "JaMeTest • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                footer = { text = "JaMeHUB • " .. os.date("%Y-%m-%d %H:%M:%S") },
                 timestamp = DateTime.now():ToIsoDate()
             }}
         }
@@ -8129,7 +8164,7 @@ if Tabs.Webhook then
     WebhookGroup:AddButton("Test Send", function()
         if webhookURL == "" then return end
         local testBody = game:GetService("HttpService"):JSONEncode({
-            content = "Test from JaMeTest!",
+            content = "Test from JaMeHUB!",
             embeds = {{
                 title = "Webhook Working!",
                 color = 65280,
@@ -8138,7 +8173,7 @@ if Tabs.Webhook then
                     {name = "Ping Mode", value = webhookPingMode, inline = true},
                     {name = "Test Time", value = os.date("%Y-%m-%d %H:%M:%S"), inline = true}
                 },
-                footer = {text = "JaMeTest Webhook Test"}
+                footer = {text = "JaMeHUB Webhook Test"}
             }}
         })
         pcall(function()
@@ -8492,601 +8527,4 @@ if Tabs.AutoFarm then
             end
         end
     })
-end
-if IsIngameLobby() then
-
-    local WaveGroup = Tabs.Safety:AddLeftGroupbox("Wave")
-
-    local autoVoteSkip = false
-
-    task.spawn(function()
-
-        while true do
-            task.wait(1)
-
-            if not autoVoteSkip then
-                continue
-            end
-
-            pcall(function()
-
-                local args = {
-                    "Waves",
-                    "Update"
-                }
-
-                game:GetService("ReplicatedStorage")
-                    :WaitForChild("Assets")
-                    :WaitForChild("Remotes")
-                    :WaitForChild("POST")
-                    :FireServer(unpack(args))
-
-            end)
-        end
-
-    end)
-
-    WaveGroup:AddToggle("AutoVoteSkipToggle", {
-        Text = "Auto Vote Skip",
-        Default = false,
-
-        Callback = function(v)
-            autoVoteSkip = v
-        end
-    })
-
-end
-
-if IsIngameLobby() then
-
-    local WaveGroup = Tabs.Safety:AddRightGroupbox("Wave Upgrade")
-
-    local autoUpgradeEnabled = false
-    local upgradeTask = nil
-    local autoUpgradeBladeEnabled = false
-    local upgradeBladeTask = nil
-    local autoRefillEnabled = false
-    local refillTask = nil
-    local zeroThreeStartTime = nil
-    local isRefilling = false
-    
-    local autoBuyEquipSpearsEnabled = false
-    local buyEquipSpearsTask = nil
-    
-    local autoUpgradeSpearsEnabled = false
-    local upgradeSpearsTask = nil
-    
-    local autoCratesEnabled = false
-    local cratesTask = nil
-    
-        local UPGRADE_OPTIONS = {
-        "Max",
-        "Regen",
-        "Replenish",
-        "Refills",
-        "Revive"
-    }
-    
-        local selectedUpgrades = {
-        ["Max"] = true,
-        ["Regen"] = true,
-        ["Replenish"] = true,
-        ["Refills"] = true,
-        ["Revive"] = true
-    }
-    
-    local GET = game:GetService("ReplicatedStorage")
-        :WaitForChild("Assets")
-        :WaitForChild("Remotes")
-        :WaitForChild("GET")
-    
-    local POST = game:GetService("ReplicatedStorage")
-        :WaitForChild("Assets")
-        :WaitForChild("Remotes")
-        :WaitForChild("POST")
-    
-        local isAnyActionRunning = false
-    local actionQueue = {}
-    
-        local function WaitForRefillToFinish()
-        while autoRefillEnabled and isRefilling do
-            task.wait(0.05)
-        end
-    end
-    
-    local function getBladesSetsText()
-        local success, text = pcall(function()
-            local sets = game:GetService("Players").LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
-            if sets and sets:IsA("TextLabel") then
-                return sets.Text
-            end
-            return ""
-        end)
-        return success and text or ""
-    end
-    
-        local function FindAnyRefill()
-        local candidates = {
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[285] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[287] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[284] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[286] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[236] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[275] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[253] end,
-            function() return workspace.Unclimbable.Objective.Waves:GetChildren()[283] end,
-            function() return workspace.Unclimbable.Objective.Waves:FindFirstChild("GasTanks") end,
-        }
-        
-        for _, getTarget in ipairs(candidates) do
-            local success, target = pcall(getTarget)
-            if success and target then
-                local refill = target:FindFirstChild("Refill")
-                if refill and refill:IsA("BasePart") then
-                    return refill
-                end
-            end
-        end
-        
-        local waves = workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves")
-        if waves then
-            for _, child in ipairs(waves:GetChildren()) do
-                local refill = child:FindFirstChild("Refill")
-                if refill and refill:IsA("BasePart") then
-                    return refill
-                end
-            end
-        end
-        
-        return nil
-    end
-    
-        local function PerformRefill()
-        if isRefilling then return false end
-        isRefilling = true
-        
-        local refillPart = FindAnyRefill()
-        if refillPart then
-            pcall(function()
-                POST:FireServer("Attacks", "Reload", refillPart)
-            end)
-            task.wait(1.5)
-            isRefilling = false
-            return true
-        end
-        isRefilling = false
-        return false
-    end
-    
-        local function StartAutoRefill()
-        if refillTask then return end
-        
-        refillTask = task.spawn(function()
-            while autoRefillEnabled do
-                local currentText = getBladesSetsText()
-                local isZeroThree = (currentText:gsub("%s+", "") == "0/3")
-                
-                if isZeroThree then
-                    if zeroThreeStartTime == nil then
-                        zeroThreeStartTime = tick()
-                    elseif tick() - zeroThreeStartTime >= 3 and not isRefilling then
-                        PerformRefill()
-                        zeroThreeStartTime = nil
-                    end
-                else
-                    zeroThreeStartTime = nil
-                end
-                
-                task.wait(0.2)             end
-            refillTask = nil
-        end)
-    end
-    
-    local function StopAutoRefill()
-        autoRefillEnabled = false
-        if refillTask then
-            task.cancel(refillTask)
-            refillTask = nil
-        end
-        zeroThreeStartTime = nil
-        isRefilling = false
-    end
-    
-        local function BuySpears()
-        local args = {
-            "Equipment",
-            "Weapon",
-            "Spears"
-        }
-        local success, result = pcall(function()
-            return GET:InvokeServer(unpack(args))
-        end)
-        return success
-    end
-    
-        local function EquipSpears()
-        local args = {
-            "Equipment",
-            "Weapon",
-            "Spears"
-        }
-        local success, result = pcall(function()
-            return GET:InvokeServer(unpack(args))
-        end)
-        return success
-    end
-    
-        local function UpgradeSpears()
-        local args = {
-            "Equipment",
-            "Upgrade",
-            {
-                "Blast_Radius",
-                "TS_Damage",
-                "TS_Gas",
-                "TS_Range",
-                "TS_Control",
-                "Crit_Chance",
-                "Crit_Damage",
-                "TS_Speed"
-            }
-        }
-        local success, result = pcall(function()
-            return GET:InvokeServer(unpack(args))
-        end)
-        return success
-    end
-    
-        local function DoUpgrade(upgradeType)
-        local args = {
-            "Waves",
-            "Upgrade",
-            { upgradeType }
-        }
-        local success, result = pcall(function()
-            return GET:InvokeServer(unpack(args))
-        end)
-        return success
-    end
-    
-        local function UpgradeAllSelected()
-        WaitForRefillToFinish()
-        if not autoUpgradeEnabled then return end
-        
-        for _, upgradeType in ipairs(UPGRADE_OPTIONS) do
-            if selectedUpgrades[upgradeType] then
-                DoUpgrade(upgradeType)
-                task.wait(0.1)
-            end
-        end
-    end
-    
-    local function StartAutoUpgrade()
-        if upgradeTask then return end
-        
-        upgradeTask = task.spawn(function()
-            while autoUpgradeEnabled do
-                WaitForRefillToFinish()
-                if autoUpgradeEnabled then
-                    pcall(function()
-                        UpgradeAllSelected()
-                    end)
-                end
-                task.wait(1.5)
-            end
-            upgradeTask = nil
-        end)
-    end
-    
-    local function StopAutoUpgrade()
-        autoUpgradeEnabled = false
-        if upgradeTask then
-            task.cancel(upgradeTask)
-            upgradeTask = nil
-        end
-    end
-    
-        local function UpgradeBlade()
-        WaitForRefillToFinish()
-        if not autoUpgradeBladeEnabled then return end
-        
-        local args = {
-            "Equipment",
-            "Upgrade",
-            {
-                "ODM_Speed",
-                "Crit_Damage",
-                "ODM_Range",
-                "ODM_Control",
-                "Blade_Durability",
-                "Crit_Chance",
-                "ODM_Gas",
-                "ODM_Damage"
-            }
-        }
-        pcall(function()
-            GET:InvokeServer(unpack(args))
-        end)
-    end
-    
-    local function StartAutoUpgradeBlade()
-        if upgradeBladeTask then return end
-        
-        upgradeBladeTask = task.spawn(function()
-            while autoUpgradeBladeEnabled do
-                WaitForRefillToFinish()
-                if autoUpgradeBladeEnabled then
-                    pcall(function()
-                        UpgradeBlade()
-                    end)
-                end
-                task.wait(3)
-            end
-            upgradeBladeTask = nil
-        end)
-    end
-    
-    local function StopAutoUpgradeBlade()
-        autoUpgradeBladeEnabled = false
-        if upgradeBladeTask then
-            task.cancel(upgradeBladeTask)
-            upgradeBladeTask = nil
-        end
-    end
-    
-    local function StartAutoBuyEquipSpears()
-        if buyEquipSpearsTask then return end
-        
-        buyEquipSpearsTask = task.spawn(function()
-            while autoBuyEquipSpearsEnabled do
-                WaitForRefillToFinish()
-                if autoBuyEquipSpearsEnabled then
-                    pcall(function()
-                        BuySpears()
-                        task.wait(0.2)
-                        EquipSpears()
-                    end)
-                end
-                task.wait(3)
-            end
-            buyEquipSpearsTask = nil
-        end)
-    end
-    
-    local function StopAutoBuyEquipSpears()
-        autoBuyEquipSpearsEnabled = false
-        if buyEquipSpearsTask then
-            task.cancel(buyEquipSpearsTask)
-            buyEquipSpearsTask = nil
-        end
-    end
-    
-    local function StartAutoUpgradeSpears()
-        if upgradeSpearsTask then return end
-        
-        upgradeSpearsTask = task.spawn(function()
-            while autoUpgradeSpearsEnabled do
-                WaitForRefillToFinish()
-                if autoUpgradeSpearsEnabled then
-                    pcall(function()
-                        UpgradeSpears()
-                    end)
-                end
-                task.wait(3)
-            end
-            upgradeSpearsTask = nil
-        end)
-    end
-    
-    local function StopAutoUpgradeSpears()
-        autoUpgradeSpearsEnabled = false
-        if upgradeSpearsTask then
-            task.cancel(upgradeSpearsTask)
-            upgradeSpearsTask = nil
-        end
-    end
-    
-        local function StopAllMovement()
-        pcall(function()
-            if CleanupSmoothMovement then CleanupSmoothMovement() end
-            local char = game:GetService("Players").LocalPlayer.Character
-            if char then
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                end
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.PlatformStand = false
-                end
-            end
-        end)
-    end
-    
-        local function TeleportToCrate()
-        WaitForRefillToFinish()
-        if not autoCratesEnabled then return end
-        
-        local player = game:GetService("Players").LocalPlayer
-        local character = player.Character
-        local hrp = character and character:FindFirstChild("HumanoidRootPart")
-        
-        if not hrp then return end
-        
-        StopAllMovement()
-        task.wait(0.05)
-        
-        local waves = workspace:FindFirstChild("Waves")
-        if not waves then return end
-        
-        local crates = waves:FindFirstChild("Crates")
-        if not crates then return end
-        
-        local targetCrate = nil
-        for _, child in ipairs(crates:GetChildren()) do
-            if child.Name:match("^Crate_") then
-                targetCrate = child
-                break
-            end
-        end
-        
-        if not targetCrate then return end
-        
-        local cratePart = nil
-        if targetCrate:IsA("BasePart") then
-            cratePart = targetCrate
-        else
-            cratePart = targetCrate:FindFirstChild("Position")
-            if not cratePart or not cratePart:IsA("BasePart") then
-                cratePart = targetCrate:FindFirstChildWhichIsA("BasePart")
-            end
-        end
-        
-        if cratePart then
-            hrp.CFrame = cratePart.CFrame
-            hrp.AssemblyLinearVelocity = Vector3.zero
-            hrp.AssemblyAngularVelocity = Vector3.zero
-            task.wait(0.2)
-        end
-        
-        local zones = waves:FindFirstChild("Zones")
-        if zones then
-            local skills = zones:FindFirstChild("Skills")
-            if skills then
-                local hitbox = skills:FindFirstChild("Hitbox")
-                if hitbox and hitbox:IsA("BasePart") then
-                    hrp.CFrame = hitbox.CFrame
-                    hrp.AssemblyLinearVelocity = Vector3.zero
-                    hrp.AssemblyAngularVelocity = Vector3.zero
-                    task.wait(0.2)
-                end
-            end
-        end
-    end
-    
-    local function StartAutoCrates()
-        if cratesTask then return end
-        
-        cratesTask = task.spawn(function()
-            while autoCratesEnabled do
-                WaitForRefillToFinish()
-                if autoCratesEnabled then
-                    pcall(function()
-                        TeleportToCrate()
-                    end)
-                end
-                task.wait(2)
-            end
-            cratesTask = nil
-        end)
-    end
-    
-    local function StopAutoCrates()
-        autoCratesEnabled = false
-        if cratesTask then
-            task.cancel(cratesTask)
-            cratesTask = nil
-        end
-        StopAllMovement()
-    end
-    
-    WaveGroup:AddDropdown("WaveUpgradeDropdown", {
-        Text = "Upgrade",
-        Values = UPGRADE_OPTIONS,
-        Default = {
-            ["Max"] = true,
-            ["Regen"] = true,
-            ["Replenish"] = true,
-            ["Refills"] = true,
-            ["Revive"] = true
-        },
-        Multi = true,
-        Callback = function(v)
-            selectedUpgrades = v
-        end
-    })
-    
-    WaveGroup:AddToggle("AutoWaveUpgradeToggle", {
-        Text = "Auto Upgrade",
-        Default = false,
-        Callback = function(v)
-            autoUpgradeEnabled = v
-            if v then
-                StartAutoUpgrade()
-            else
-                StopAutoUpgrade()
-            end
-        end
-    })
-    
-    WaveGroup:AddToggle("AutoCratesToggle", {
-        Text = "Auto Crates",
-        Default = false,
-        Callback = function(v)
-            autoCratesEnabled = v
-            if v then
-                StartAutoCrates()
-            else
-                StopAutoCrates()
-            end
-        end
-    })
-    
-    WaveGroup:AddDivider()
-    
-    WaveGroup:AddToggle("AutoUpgradeBladeToggle", {
-        Text = "Upgrade Blade",
-        Default = false,
-        Callback = function(v)
-            autoUpgradeBladeEnabled = v
-            if v then
-                StartAutoUpgradeBlade()
-            else
-                StopAutoUpgradeBlade()
-            end
-        end
-    })
-    
-    WaveGroup:AddToggle("AutoRefillToggle", {
-        Text = "Refill Blades",
-        Default = false,
-        Callback = function(v)
-            autoRefillEnabled = v
-            if v then
-                StartAutoRefill()
-            else
-                StopAutoRefill()
-            end
-        end
-    })
-    
-    WaveGroup:AddDivider()
-    
-    WaveGroup:AddToggle("AutoBuyEquipSpearsToggle", {
-        Text = "Auto Buy + Equip Spears",
-        Default = false,
-        Callback = function(v)
-            autoBuyEquipSpearsEnabled = v
-            if v then
-                StartAutoBuyEquipSpears()
-            else
-                StopAutoBuyEquipSpears()
-            end
-        end
-    })
-    
-    WaveGroup:AddToggle("AutoUpgradeSpearsToggle", {
-        Text = "Upgrade Spears",
-        Default = false,
-        Callback = function(v)
-            autoUpgradeSpearsEnabled = v
-            if v then
-                StartAutoUpgradeSpears()
-            else
-                StopAutoUpgradeSpears()
-            end
-        end
-    })
-
 end
