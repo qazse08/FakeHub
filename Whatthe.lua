@@ -4583,7 +4583,9 @@ if IsLobbyLobby() then
     local purchaseAmount = 1
     local purchaseDelay = 0
     local isReady = false
-    local pendingUseAfterPurchase = false  
+    local pendingUseAfterPurchase = false
+    local autoUseActive = false
+    local autoUseTask = nil
 
     local ALL_BOOSTS = {
         "2X XP Boost [30M]", "2X Luck [30M]", "2X Gold [30M]",
@@ -4695,6 +4697,121 @@ if IsLobbyLobby() then
         return pcall(function() GET:InvokeServer(unpack(args)) end)
     end
 
+    local function useBoost(boostName)
+        local args = {"S_Inventory", "Item", boostName}
+        return pcall(function() GET:InvokeServer(unpack(args)) end)
+    end
+
+    local function IsActuallyVisible(gui)
+        if not gui or not gui:IsA("GuiObject") then return false end
+        if not gui.Visible then return false end
+        local current = gui.Parent
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then return false end
+            if current:IsA("ScreenGui") and not current.Enabled then return false end
+            current = current.Parent
+        end
+        return true
+    end
+
+    local function isLobbyUIVisible()
+        local interface = PlayerGui:FindFirstChild("Interface")
+        if not interface then return false end
+        local keyVisible = false
+        local categoriesVisible = false
+        local gearUp = interface:FindFirstChild("Gear_Up")
+        if gearUp then
+            local lobby = gearUp:FindFirstChild("Lobby")
+            if lobby then
+                local key = lobby:FindFirstChild("Key")
+                if key then keyVisible = IsActuallyVisible(key) end
+            end
+        end
+        local topbar = interface:FindFirstChild("Topbar")
+        if topbar then
+            local main = topbar:FindFirstChild("Main")
+            if main then
+                local categories = main:FindFirstChild("Categories")
+                if categories then categoriesVisible = IsActuallyVisible(categories) end
+            end
+        end
+        return keyVisible or categoriesVisible
+    end
+
+    local function startAutoUse()
+        if autoUseTask then return end
+        autoUseActive = true
+        autoUseTask = task.spawn(function()
+            while autoUseActive do
+                if not isLobbyUIVisible() then
+                    task.wait(0.1)
+                    continue
+                end
+
+                if pendingUseAfterPurchase then
+                    pendingUseAfterPurchase = false
+                    local purchaseSelection = {}
+                    pcall(function()
+                        if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
+                            purchaseSelection = Options.Boost_ListDropdown.Value
+                        end
+                    end)
+                    for boostName, enabled in pairs(purchaseSelection) do
+                        if enabled and not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        useBoost(boostName)
+                        task.wait(0.3)
+                    end
+                    if not autoUseActive then break end
+                end
+
+                local durations = {"2h", "1h", "30m"}
+                local roundsPerDuration = 5
+                for _, dur in ipairs(durations) do
+                    if not autoUseActive then break end
+                    for round = 1, roundsPerDuration do
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local goldName = "2x Gold Boost [" .. dur .. "]"
+                        useBoost(goldName)
+                        task.wait()
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local luckName = "2x Luck Boost [" .. dur .. "]"
+                        useBoost(luckName)
+                        task.wait()
+                        if not autoUseActive then break end
+                        if not isReady then 
+                            task.wait(0.05)
+                            break
+                        end
+                        local xpName = "2x XP Boost [" .. dur .. "]"
+                        useBoost(xpName)
+                        task.wait()
+                    end
+                    if not autoUseActive then break end
+                end
+                break
+            end
+            autoUseActive = false
+            pcall(function()
+                if Options and Options.Boost_AutoUseToggle then
+                    Options.Boost_AutoUseToggle:SetValue(false)
+                end
+            end)
+            autoUseTask = nil
+        end)
+    end
+
     BoostGroup:AddDropdown("Boost_ListDropdown", {
         Text = " --- Select Boosts ---",
         Values = ALL_BOOSTS,
@@ -4715,16 +4832,13 @@ if IsLobbyLobby() then
         Callback = function(v) purchaseDelay = v end
     })
 
-    -- Toggle สำหรับซื้อ
     BoostGroup:AddToggle("Boost_PurchaseToggle", {
         Text = "Purchase",
         Default = false,
         Callback = function(v)
             if v then
-                -- รอ 1 วินาทีให้ UI โหลด
                 task.wait(1)
 
-                -- ดึงค่าจาก Dropdown โดยตรง
                 local purchaseSelection = {}
                 pcall(function()
                     if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
@@ -4774,7 +4888,6 @@ if IsLobbyLobby() then
                     if Options and Options.Boost_AutoUseToggle and Options.Boost_AutoUseToggle.Value then
                         pendingUseAfterPurchase = true
                         if not autoUseActive then
- 
                             startAutoUse()
                         end
                     end
@@ -4791,76 +4904,6 @@ if IsLobbyLobby() then
         end
     })
 
-    local function startAutoUse()
-        if autoUseTask then return end
-        autoUseActive = true
-        autoUseTask = task.spawn(function()
-            while autoUseActive do
-                if not isLobbyUIVisible() then
-                    task.wait(0.1)
-                    continue
-                end
-                if pendingUseAfterPurchase then
-                    pendingUseAfterPurchase = false
-                    local purchaseSelection = {}
-                    pcall(function()
-                        if Options and Options.Boost_ListDropdown and Options.Boost_ListDropdown.Value then
-                            purchaseSelection = Options.Boost_ListDropdown.Value
-                        end
-                    end)
-                    for boostName, enabled in pairs(purchaseSelection) do
-                        if enabled then
-                            if not isReady then break end
-                            useBoost(boostName)
-                            task.wait(0.3)
-                        end
-                    end
-                    break  
-                end
-
-                local durations = {"2h", "1h", "30m"}
-                local roundsPerDuration = 5
-                for _, dur in ipairs(durations) do
-                    if not autoUseActive then break end
-                    for round = 1, roundsPerDuration do
-                        if not autoUseActive then break end
-                        if not isReady then 
-                            task.wait(0.05)
-                            break
-                        end
-                        local goldName = "2x Gold Boost [" .. dur .. "]"
-                        useBoost(goldName)
-                        task.wait()
-                        if not autoUseActive then break end
-                        if not isReady then 
-                            task.wait(0.05)
-                            break
-                        end
-                        local luckName = "2x Luck Boost [" .. dur .. "]"
-                        useBoost(luckName)
-                        task.wait()
-                        if not autoUseActive then break end
-                        if not isReady then 
-                            task.wait(0.05)
-                            break
-                        end
-                        local xpName = "2x XP Boost [" .. dur .. "]"
-                        useBoost(xpName)
-                        task.wait()
-                    end
-                    if not autoUseActive then break end
-                end
-                break
-            end
-            autoUseActive = false
-            if Options and Options.Boost_AutoUseToggle then
-                Options.Boost_AutoUseToggle:SetValue(false)
-            end
-            autoUseTask = nil
-        end)
-    end
-
-    -- Toggle สำหรับ Auto Use
     BoostGroup:AddToggle("Boost_AutoUseToggle", {
         Text = "Auto Use All Boosts",
         Default = false,
@@ -4872,7 +4915,13 @@ if IsLobbyLobby() then
                     return 
                 end
 
-                local purchaseEnabled = Options and Options.Boost_PurchaseToggle and Options.Boost_PurchaseToggle.Value
+                local purchaseEnabled = false
+                pcall(function()
+                    if Options and Options.Boost_PurchaseToggle then
+                        purchaseEnabled = Options.Boost_PurchaseToggle.Value
+                    end
+                end)
+
                 if purchaseEnabled then
                     pendingUseAfterPurchase = true
                 else
@@ -4888,48 +4937,6 @@ if IsLobbyLobby() then
             end
         end
     })
-
-    local function useBoost(boostName)
-        local args = {"S_Inventory", "Item", boostName}
-        return pcall(function() GET:InvokeServer(unpack(args)) end)
-    end
-
-    local function IsActuallyVisible(gui)
-        if not gui or not gui:IsA("GuiObject") then return false end
-        if not gui.Visible then return false end
-        local current = gui.Parent
-        while current do
-            if current:IsA("GuiObject") and not current.Visible then return false end
-            if current:IsA("ScreenGui") and not current.Enabled then return false end
-            current = current.Parent
-        end
-        return true
-    end
-
-    local function isLobbyUIVisible()
-        local interface = PlayerGui:FindFirstChild("Interface")
-        if not interface then return false end
-        local keyVisible = false
-        local categoriesVisible = false
-        local gearUp = interface:FindFirstChild("Gear_Up")
-        if gearUp then
-            local lobby = gearUp:FindFirstChild("Lobby")
-            if lobby then
-                local key = lobby:FindFirstChild("Key")
-                if key then keyVisible = IsActuallyVisible(key) end
-            end
-        end
-        local topbar = interface:FindFirstChild("Topbar")
-        if topbar then
-            local main = topbar:FindFirstChild("Main")
-            if main then
-                local categories = main:FindFirstChild("Categories")
-                if categories then categoriesVisible = IsActuallyVisible(categories) end
-            end
-        end
-        return keyVisible or categoriesVisible
-    end
-
 end
 if IsLobbyLobby() then
     local PrestigeGroup = Tabs.Session:AddRightGroupbox("Prestige")
