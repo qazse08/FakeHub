@@ -6013,6 +6013,9 @@ if Tabs.AutoFarm then
     G.ThunderSpearFirePower = 8
     G.ThunderSpearExplodeRadius = 0.13
 
+    local FarmConn = nil
+    local SpearFarmConn = nil
+
     task.spawn(function()
         while true do
             task.wait(5)
@@ -6028,19 +6031,19 @@ if Tabs.AutoFarm then
                         if newWeapon == "Blade" then
                             if G.AutoThunderSpear then
                                 if Options and Options.AutoThunderSpearToggle then
-                                    Options.AutoThunderSpearToggle:SetValue(false)
+                                    pcall(function() Options.AutoThunderSpearToggle:SetValue(false) end)
                                 end
                                 if Options and Options.AutoFarmBlade then
-                                    Options.AutoFarmBlade:SetValue(true)
+                                    pcall(function() Options.AutoFarmBlade:SetValue(true) end)
                                 end
                             end
                         elseif newWeapon == "Thunder Spear" then
                             if G.AutoFarmBlade then
                                 if Options and Options.AutoFarmBlade then
-                                    Options.AutoFarmBlade:SetValue(false)
+                                    pcall(function() Options.AutoFarmBlade:SetValue(false) end)
                                 end
                                 if Options and Options.AutoThunderSpearToggle then
-                                    Options.AutoThunderSpearToggle:SetValue(true)
+                                    pcall(function() Options.AutoThunderSpearToggle:SetValue(true) end)
                                 end
                             end
                         end
@@ -6118,12 +6121,6 @@ if Tabs.AutoFarm then
         Callback = function(val)
             if syncingWeapon then return end
             G.FarmMode = val
-            if PendingFarmStart and G.AutoFarmBlade and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
-                if updateFarmObjectivesStatus() then
-                    G.Farm = true
-                    PendingFarmStart = false
-                end
-            end
         end
     })
 
@@ -6137,7 +6134,6 @@ if Tabs.AutoFarm then
         Callback=function(val) if not syncingWeapon then G.HoverHeight = val end end
     })
 
-    -- เพิ่ม Slider Kill Hits
     BladeTab:AddSlider("KillHitsSlider", {
         Text="Kill Hits", Default=1, Min=1, Max=9, Rounding=0,
         Callback=function(val)
@@ -6149,17 +6145,23 @@ if Tabs.AutoFarm then
         Text="Auto Farm Blade", Default=false,
         Callback=function(v)
             if syncingWeapon then return end
-            if v then task.wait(1) end
-            waitForUI()
             if v then
+                -- หน่วงเวลา 0.5 วินาทีให้ UI และ Config โหลดเสร็จ
+                task.wait(0.5)
+                
                 if G.AutoThunderSpear then
                     if isThunderSpear() then
-                        task.wait(0.05)
                         pcall(function()
                             if Options and Options.AutoThunderSpearToggle then
                                 Options.AutoThunderSpearToggle:SetValue(false)
                             end
                         end)
+                        pcall(function()
+                            if Options and Options.AutoFarmBlade then
+                                Options.AutoFarmBlade:SetValue(false)
+                            end
+                        end)
+                        Library:Notify("⚠️ Cannot enable Blade because Thunder Spear is active!", 3)
                         return
                     else
                         G.AutoThunderSpear = false
@@ -6172,28 +6174,66 @@ if Tabs.AutoFarm then
                 end
                 
                 if not G.FarmMode or (G.FarmMode ~= "Tween" and G.FarmMode ~= "Teleport") then
-                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
                     pcall(function()
                         if Options and Options.AutoFarmBlade then
                             Options.AutoFarmBlade:SetValue(false)
                         end
                     end)
+                    Library:Notify("⚠️ Please select Farm Mode (Tween/Teleport) first!", 3)
                     return
                 end
                 
                 G.AutoFarmBlade = true
-                if updateFarmObjectivesStatus() then
-                    G.Farm = true
-                else
-                    G.Farm = false
-                end
+                G.Farm = true
+                G.FarmStartTime = tick()
                 PendingFarmStart = false
+                CurrentEntry = nil
+                LastAttackTime = tick()
+                
+                -- สร้าง Farm Loop ทันที
+                if not FarmConn then
+                    CreateFarmLoop()
+                end
+                Library:Notify("▶️ Auto Farm Blade started!", 2)
             else
                 G.AutoFarmBlade = false
                 G.Farm = false
                 PendingFarmStart = false
-                CleanupSmoothMovement()
                 CurrentEntry = nil
+                if FarmConn then
+                    FarmConn:Disconnect()
+                    FarmConn = nil
+                end
+                CleanupSmoothMovement()
+                if CharRef then
+                    for _, part in ipairs(CharParts) do
+                        if part and part.Parent then
+                            pcall(function()
+                                part.CanCollide = true
+                            end)
+                        end
+                    end
+                    CharParts = {}
+                    CharRef = nil
+                end
+                NapeCache = setmetatable({}, {__mode = "k"})
+                LastTitanPosition = nil
+                local char = Player.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        pcall(function()
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            hrp.AssemblyAngularVelocity = Vector3.zero
+                        end)
+                    end
+                end
+                pcall(function()
+                    if Options and Options.AutoFarmBlade then
+                        Options.AutoFarmBlade:SetValue(false)
+                    end
+                end)
+                Library:Notify("⏹️ Auto Farm Blade stopped.", 2)
             end
         end
     })
@@ -6230,17 +6270,23 @@ if Tabs.AutoFarm then
         Default = false,
         Callback = function(v)
             if syncingWeapon then return end
-            if v then task.wait(1) end
-            waitForUI()
             if v then
+                -- หน่วงเวลา 0.5 วินาทีให้ UI และ Config โหลดเสร็จ
+                task.wait(0.5)
+                
                 if G.AutoFarmBlade then
                     if isBlade() then
-                        task.wait(0.05)
+                        pcall(function()
+                            if Options and Options.AutoFarmBlade then
+                                Options.AutoFarmBlade:SetValue(false)
+                            end
+                        end)
                         pcall(function()
                             if Options and Options.AutoThunderSpearToggle then
                                 Options.AutoThunderSpearToggle:SetValue(false)
                             end
                         end)
+                        Library:Notify("⚠️ Cannot enable Thunder Spear because Blade is active!", 3)
                         return
                     else
                         G.AutoFarmBlade = false
@@ -6255,8 +6301,58 @@ if Tabs.AutoFarm then
                 end
                 
                 G.AutoThunderSpear = true
+                G.SpearFarm = true
+                G.FarmStartTime = tick()
+                SpearCurrentEntry = nil
+                LastSpearAttackTime = tick()
+                
+                if not SpearFarmConn then
+                    CreateSpearFarmLoop()
+                end
+                Library:Notify("▶️ Auto Thunder Spear started!", 2)
             else
                 G.AutoThunderSpear = false
+                G.SpearFarm = false
+                SpearCurrentEntry = nil
+                if SpearFarmConn then
+                    SpearFarmConn:Disconnect()
+                    SpearFarmConn = nil
+                end
+                CleanupSmoothMovement()
+                if CharRef then
+                    for _, part in ipairs(CharParts) do
+                        if part and part.Parent then
+                            pcall(function()
+                                part.CanCollide = true
+                            end)
+                        end
+                    end
+                    CharParts = {}
+                    CharRef = nil
+                end
+                NapeCache = setmetatable({}, {__mode = "k"})
+                if type(ActiveTitans) == "table" then
+                    table.clear(ActiveTitans)
+                else
+                    ActiveTitans = {}
+                end
+                LastTitanPosition = nil
+                local char = Player.Character
+                if char then
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    if hrp then
+                        pcall(function()
+                            hrp.AssemblyLinearVelocity = Vector3.zero
+                            hrp.AssemblyAngularVelocity = Vector3.zero
+                        end)
+                    end
+                end
+                pcall(function()
+                    if Options and Options.AutoThunderSpearToggle then
+                        Options.AutoThunderSpearToggle:SetValue(false)
+                    end
+                end)
+                Library:Notify("⏹️ Auto Thunder Spear stopped.", 2)
             end
         end
     })
@@ -6281,14 +6377,30 @@ if Tabs.AutoFarm then
         Callback=function(v) if not syncingWeapon then G.ThunderSpearHoverHeight = v end end
     })
 
+    -- Loop ตรวจสอบสถานะ Farm ให้ทำงานทันทีเมื่อมีไททัน
     task.spawn(function()
         while true do
-            task.wait(0.5)
+            task.wait(0.1)
             pcall(function()
-                resolveConflictingToggles()
-                if G.AutoFarmBlade and not G.Farm and not PendingFarmStart then
-                    if updateFarmObjectivesStatus() and G.FarmMode and (G.FarmMode == "Tween" or G.FarmMode == "Teleport") then
-                        G.Farm = true
+                local G = getgenv()
+                -- ถ้าเปิด AutoFarmBlade แต่ Farm ยังไม่ทำงาน ให้เริ่มทันที
+                if G.AutoFarmBlade and not G.Farm then
+                    G.Farm = true
+                    G.FarmStartTime = tick()
+                    CurrentEntry = nil
+                    LastAttackTime = tick()
+                    if not FarmConn then
+                        CreateFarmLoop()
+                    end
+                end
+                -- ถ้าเปิด AutoThunderSpear แต่ SpearFarm ยังไม่ทำงาน ให้เริ่มทันที
+                if G.AutoThunderSpear and not G.SpearFarm then
+                    G.SpearFarm = true
+                    G.FarmStartTime = tick()
+                    SpearCurrentEntry = nil
+                    LastSpearAttackTime = tick()
+                    if not SpearFarmConn then
+                        CreateSpearFarmLoop()
                     end
                 end
             end)
@@ -6349,7 +6461,7 @@ if Tabs.AutoFarm then
         teleportAttempts = teleportAttempts + 1
         pcall(function() TeleportService:Teleport(MAIN_MENU_ID, Player) end)
         if teleportAttempts >= maxAttempts then
-            game:Shutdown()
+            pcall(function() game:Shutdown() end)
         end
     end
 
@@ -6357,22 +6469,24 @@ if Tabs.AutoFarm then
         teleportAttempts = teleportAttempts + 1
         pcall(function() TeleportService:Teleport(LOBBY_ID, Player) end)
         if teleportAttempts >= maxAttempts then
-            game:Shutdown()
+            pcall(function() game:Shutdown() end)
         end
     end
 
     local function performKillCharacter()
         local player = game.Players.LocalPlayer
-        if player.Character and player.Character:FindFirstChild("Humanoid") then
-            player.Character.Humanoid.Health = 0
+        if player and player.Character and player.Character:FindFirstChild("Humanoid") then
+            pcall(function() player.Character.Humanoid.Health = 0 end)
         end
     end
 
     local function getSelectedActionsList()
         local list = {}
-        for actionName, isSelected in pairs(selectedActions) do
-            if isSelected then
-                table.insert(list, actionName)
+        if type(selectedActions) == "table" then
+            for actionName, isSelected in pairs(selectedActions) do
+                if isSelected then
+                    table.insert(list, actionName)
+                end
             end
         end
         return list
@@ -6392,7 +6506,7 @@ if Tabs.AutoFarm then
             elseif action == "Kill Character" then
                 performKillCharacter()
             elseif action == "AUTO Leave Game" then
-                game:Shutdown()
+                pcall(function() game:Shutdown() end)
             end
             task.wait(0.2)
         end
@@ -6451,7 +6565,6 @@ if Tabs.AutoFarm then
             if v then
                 local actionsToRun = getSelectedActionsList()
                 if #actionsToRun == 0 then
-                    Library:Notify("Please select at least one action first!", 3)
                     pcall(function()
                         if Options and Options.CombinedActionToggle then
                             Options.CombinedActionToggle:SetValue(false)
@@ -6467,10 +6580,26 @@ if Tabs.AutoFarm then
     })
 end
 
--- ===== ส่วนนี้คือโค้ดที่อยู่นอก Tabs.AutoFarm =====
--- หมายเหตุ: โค้ดส่วนนี้จะต่อจาก end ของ if Tabs.AutoFarm แล้ว
+-- ===== ส่วนของ Titans และ Farm Core =====
 
-local TitansFolder = workspace:FindFirstChild("Titans")
+local function SafeGetTitansFolder()
+    local success, folder = pcall(function()
+        return workspace:FindFirstChild("Titans")
+    end)
+    if success and folder then
+        return folder
+    end
+    local success2, newFolder = pcall(function()
+        local f = Instance.new("Folder")
+        f.Name = "Titans"
+        f.Parent = workspace
+        return f
+    end)
+    if success2 then return newFolder end
+    return nil
+end
+
+local TitansFolder = SafeGetTitansFolder()
 
 local function IsInCutscene()
     local ok, result = pcall(function()
@@ -6488,69 +6617,28 @@ end
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
 if not TitansFolder then
-    TitansFolder = workspace:FindFirstChild("Titans")
-    if not TitansFolder then
-        TitansFolder = Instance.new("Folder")
-        TitansFolder.Name = "Titans"
-        TitansFolder.Parent = workspace
+    TitansFolder = SafeGetTitansFolder()
+end
+
+-- ฟังก์ชัน safe clear table
+local function safeClearTable(tbl)
+    if type(tbl) == "table" then
+        table.clear(tbl)
+        return tbl
     end
-end
-
-local TitansFolder = workspace:FindFirstChild("Titans")
-
-local function IsInCutscene()
-    local ok, result = pcall(function()
-        local gui = Player:FindFirstChild("PlayerGui")
-        if not gui then return false end
-        local Interface = gui:FindFirstChild("Interface")
-        if not Interface then return false end
-        local skip = Interface:FindFirstChild("Skip")
-        local skipWarning = Interface:FindFirstChild("Skip_Warning")
-        return (skip and skip.Visible) or (skipWarning and skipWarning.Visible) or false
-    end)
-    return ok and result or false
-end
-
-if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
-
-if not TitansFolder then
-    TitansFolder = workspace:FindFirstChild("Titans")
-    if not TitansFolder then
-        TitansFolder = Instance.new("Folder")
-        TitansFolder.Name = "Titans"
-        TitansFolder.Parent = workspace
-    end
-end
-local TitansFolder = workspace:FindFirstChild("Titans")
-
-local function IsInCutscene()
-    local ok, result = pcall(function()
-        local gui = Player:FindFirstChild("PlayerGui")
-        if not gui then return false end
-        local Interface = gui:FindFirstChild("Interface")
-        if not Interface then return false end
-        local skip = Interface:FindFirstChild("Skip")
-        local skipWarning = Interface:FindFirstChild("Skip_Warning")
-        return (skip and skip.Visible) or (skipWarning and skipWarning.Visible) or false
-    end)
-    return ok and result or false
-end
-
-if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
-
-if not TitansFolder then
-    TitansFolder = workspace:FindFirstChild("Titans")
-    if not TitansFolder then
-        TitansFolder = Instance.new("Folder")
-        TitansFolder.Name = "Titans"
-        TitansFolder.Parent = workspace
-    end
+    return {}
 end
 
 local function isObjectivesActiveForCore()
-    local player = game:GetService("Players").LocalPlayer
-    local playerGui = player:FindFirstChild("PlayerGui")
-    if not playerGui then return false end
+    local success, player = pcall(function()
+        return game:GetService("Players").LocalPlayer
+    end)
+    if not success or not player then return false end
+    
+    local success2, playerGui = pcall(function()
+        return player:FindFirstChild("PlayerGui")
+    end)
+    if not success2 or not playerGui then return false end
     
     local function IsActuallyVisible(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
@@ -6564,7 +6652,12 @@ local function isObjectivesActiveForCore()
         return true
     end
     
-    for _, v in ipairs(playerGui:GetDescendants()) do
+    local success3, descendants = pcall(function()
+        return playerGui:GetDescendants()
+    end)
+    if not success3 then return false end
+    
+    for _, v in ipairs(descendants) do
         if v.Name == "Objectives" then
             if IsActuallyVisible(v) then
                 return true
@@ -6585,31 +6678,40 @@ local function isSlayObjectiveVisible()
     end
     slayCacheTime = now
     
-    local player = game:GetService("Players").LocalPlayer
-    local targetGui = player.PlayerGui:FindFirstChild("Interface")
-    if targetGui then
-        targetGui = targetGui:FindFirstChild("HUD")
-        if targetGui then
-            targetGui = targetGui:FindFirstChild("Objectives")
-            if targetGui then
-                targetGui = targetGui:FindFirstChild("Main")
-                if targetGui then
-                    targetGui = targetGui:FindFirstChild("Slay")
-                    if targetGui and targetGui:IsA("TextLabel") then
-                        local visible = true
-                        local current = targetGui
-                        while current do
-                            if current:IsA("GuiObject") and not current.Visible then visible = false break end
-                            if current:IsA("ScreenGui") and not current.Enabled then visible = false break end
-                            current = current.Parent
-                        end
-                        if visible and targetGui.AbsoluteSize.X > 0 and targetGui.AbsoluteSize.Y > 0 then
-                            slayCache = true
-                            return true
-                        end
+    local success, player = pcall(function()
+        return game:GetService("Players").LocalPlayer
+    end)
+    if not success or not player then return false end
+    
+    local success2, targetGui = pcall(function()
+        local gui = player.PlayerGui:FindFirstChild("Interface")
+        if gui then
+            gui = gui:FindFirstChild("HUD")
+            if gui then
+                gui = gui:FindFirstChild("Objectives")
+                if gui then
+                    gui = gui:FindFirstChild("Main")
+                    if gui then
+                        gui = gui:FindFirstChild("Slay")
+                        return gui
                     end
                 end
             end
+        end
+        return nil
+    end)
+    
+    if success2 and targetGui and targetGui:IsA("TextLabel") then
+        local visible = true
+        local current = targetGui
+        while current do
+            if current:IsA("GuiObject") and not current.Visible then visible = false break end
+            if current:IsA("ScreenGui") and not current.Enabled then visible = false break end
+            current = current.Parent
+        end
+        if visible and targetGui.AbsoluteSize.X > 0 and targetGui.AbsoluteSize.Y > 0 then
+            slayCache = true
+            return true
         end
     end
     slayCache = false
@@ -6652,14 +6754,29 @@ end
 local function checkProtectHQ()
     if not isShiganshinaBreachMission then return end
     
-    local player = game:GetService("Players").LocalPlayer
-    local protect = player.PlayerGui:FindFirstChild("Interface") and 
-                    player.PlayerGui.Interface:FindFirstChild("HUD") and
-                    player.PlayerGui.Interface.HUD:FindFirstChild("Objectives") and
-                    player.PlayerGui.Interface.HUD.Objectives:FindFirstChild("Main") and
-                    player.PlayerGui.Interface.HUD.Objectives.Main:FindFirstChild("Protect_HQ")
+    local success, player = pcall(function()
+        return game:GetService("Players").LocalPlayer
+    end)
+    if not success or not player then return end
     
-    if protect and protect:IsA("TextLabel") and protect.Visible then
+    local success2, protect = pcall(function()
+        local gui = player.PlayerGui:FindFirstChild("Interface")
+        if gui then
+            gui = gui:FindFirstChild("HUD")
+            if gui then
+                gui = gui:FindFirstChild("Objectives")
+                if gui then
+                    gui = gui:FindFirstChild("Main")
+                    if gui then
+                        return gui:FindFirstChild("Protect_HQ")
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    
+    if success2 and protect and protect:IsA("TextLabel") and protect.Visible then
         if not isProtectHQActive then
             isProtectHQActive = true
             protectHQCompleted = false
@@ -6683,8 +6800,10 @@ end
 
 task.spawn(function()
     while true do
-        updateMissionInfo()
-        checkProtectHQ()
+        pcall(function()
+            updateMissionInfo()
+            checkProtectHQ()
+        end)
         task.wait(1)
     end
 end)
@@ -6705,19 +6824,29 @@ local LastTitanPosition = nil
 local LastTitanHoverHeight = 120
 
 local function IsTitanAlive(t)
-    local h = t:FindFirstChildWhichIsA("Humanoid")
-    return h and h.Health > 10
+    if not t then return false end
+    local success, h = pcall(function()
+        return t:FindFirstChildWhichIsA("Humanoid")
+    end)
+    return success and h and h.Health > 10
 end
 
 local function GetNape(t)
+    if not t then return nil end
     local c = NapeCache[t]
     if c then return c end
-    local hitboxes = t:FindFirstChild("Hitboxes")
-    if hitboxes then
-        local hit = hitboxes:FindFirstChild("Hit")
-        if hit then
-            local nape = hit:FindFirstChild("Nape")
-            if nape and nape:IsA("BasePart") then
+    local success, hitboxes = pcall(function()
+        return t:FindFirstChild("Hitboxes")
+    end)
+    if success and hitboxes then
+        local success2, hit = pcall(function()
+            return hitboxes:FindFirstChild("Hit")
+        end)
+        if success2 and hit then
+            local success3, nape = pcall(function()
+                return hit:FindFirstChild("Nape")
+            end)
+            if success3 and nape and nape:IsA("BasePart") then
                 NapeCache[t] = nape
                 return nape
             end
@@ -6730,18 +6859,31 @@ local function ScanTitans()
     local now = tick()
     if now - LastScan < SCAN_RATE then return end
     LastScan = now
-    local titansFolder = workspace:FindFirstChild("Titans")
-    if not titansFolder then
-        table.clear(ActiveTitans)
+    local success, titansFolder = pcall(function()
+        return workspace:FindFirstChild("Titans")
+    end)
+    if not success or not titansFolder then
+        ActiveTitans = safeClearTable(ActiveTitans)
         return
     end
-    table.clear(ActiveTitans)
+    ActiveTitans = safeClearTable(ActiveTitans)
     local attackFound = false
-    for _, t in ipairs(titansFolder:GetChildren()) do
+    local success2, children = pcall(function()
+        return titansFolder:GetChildren()
+    end)
+    if not success2 then return end
+    for _, t in ipairs(children) do
         if t:IsA("Model") and IsTitanAlive(t) then
-            local JaMe = t:FindFirstChild("JaMe")
-            if JaMe and JaMe:FindFirstChild("Collision") and not JaMe.Collision.CanCollide then
-                continue
+            local success3, JaMe = pcall(function()
+                return t:FindFirstChild("JaMe")
+            end)
+            if success3 and JaMe then
+                local success4, collision = pcall(function()
+                    return JaMe:FindFirstChild("Collision")
+                end)
+                if success4 and collision and not collision.CanCollide then
+                    -- skip
+                end
             end
             local nape = GetNape(t)
             if nape then
@@ -6760,6 +6902,7 @@ local function ScanTitans()
 end
 
 local function GetBestTarget(hrpPos)
+    if not hrpPos then return nil end
     local now = tick()
     local attackReady = true
     if attackTitanSpawnTime then
@@ -6770,6 +6913,7 @@ local function GetBestTarget(hrpPos)
     for _, entry in ipairs(ActiveTitans) do
         if entry.titanName == "Attack_Titan" and not attackReady then continue end
         local n = entry.nape
+        if not n then continue end
         local dx = hrpPos.X - n.Position.X
         local dz = hrpPos.Z - n.Position.Z
         local distSq = dx*dx + dz*dz
@@ -6785,20 +6929,29 @@ end
 local CharParts = {}
 local CharRef = nil
 local function NoclipOn()
-    local char = Player.Character
-    if not char then return end
+    local success, char = pcall(function()
+        return Player.Character
+    end)
+    if not success or not char then return end
     if char ~= CharRef then
         CharRef = char
         CharParts = {}
-        for _, v in ipairs(char:GetDescendants()) do
-            if v:IsA("BasePart") then
-                CharParts[#CharParts + 1] = v
+        local success2, descendants = pcall(function()
+            return char:GetDescendants()
+        end)
+        if success2 then
+            for _, v in ipairs(descendants) do
+                if v:IsA("BasePart") then
+                    CharParts[#CharParts + 1] = v
+                end
             end
         end
     end
     for i = 1, #CharParts do
         if CharParts[i] and CharParts[i].Parent then
-            CharParts[i].CanCollide = false
+            pcall(function()
+                CharParts[i].CanCollide = false
+            end)
         end
     end
 end
@@ -6807,45 +6960,62 @@ local bodyPos = nil
 local bodyGyro = nil
 
 local function InitSmoothMovement(hrp)
+    if not hrp then return end
     if not bodyPos or not bodyPos.Parent then
-        if bodyPos then bodyPos:Destroy() end
-        bodyPos = Instance.new("BodyPosition")
-        bodyPos.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-        bodyPos.P = 3500
-        bodyPos.D = 700
-        bodyPos.Parent = hrp
+        if bodyPos then pcall(function() bodyPos:Destroy() end) end
+        local success, newPos = pcall(function()
+            local b = Instance.new("BodyPosition")
+            b.MaxForce = Vector3.new(1e5, 1e5, 1e5)
+            b.P = 3500
+            b.D = 700
+            b.Parent = hrp
+            return b
+        end)
+        if success then bodyPos = newPos end
     end
     if not bodyGyro or not bodyGyro.Parent then
-        if bodyGyro then bodyGyro:Destroy() end
-        bodyGyro = Instance.new("BodyGyro")
-        bodyGyro.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-        bodyGyro.P = 6000
-        bodyGyro.D = 1200
-        bodyGyro.Parent = hrp
+        if bodyGyro then pcall(function() bodyGyro:Destroy() end) end
+        local success, newGyro = pcall(function()
+            local g = Instance.new("BodyGyro")
+            g.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
+            g.P = 6000
+            g.D = 1200
+            g.Parent = hrp
+            return g
+        end)
+        if success then bodyGyro = newGyro end
     end
 end
 
-local function CleanupSmoothMovement()
-    if bodyPos then bodyPos:Destroy(); bodyPos = nil end
-    if bodyGyro then bodyGyro:Destroy(); bodyGyro = nil end
+CleanupSmoothMovement = function()
+    if bodyPos then pcall(function() bodyPos:Destroy() end); bodyPos = nil end
+    if bodyGyro then pcall(function() bodyGyro:Destroy() end); bodyGyro = nil end
 end
 
 local function MoveSmooth(hrp, targetPos, targetLookDir)
-    if not hrp then return end
+    if not hrp or not targetPos then return end
     InitSmoothMovement(hrp)
-    bodyPos.Position = targetPos
-    if targetLookDir then
-        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetLookDir)
-    else
-        bodyGyro.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
+    if bodyPos then
+        pcall(function() bodyPos.Position = targetPos end)
+    end
+    if bodyGyro then
+        pcall(function()
+            if targetLookDir then
+                bodyGyro.CFrame = CFrame.lookAt(targetPos, targetLookDir)
+            else
+                bodyGyro.CFrame = CFrame.lookAt(targetPos, targetPos + Vector3.new(0, 0, -1))
+            end
+        end)
     end
 end
 
 local function MoveStableTeleport(hrp, targetPos)
-    if not hrp then return end
-    hrp.CFrame = CFrame.new(targetPos)
-    hrp.AssemblyLinearVelocity = Vector3.zero
-    hrp.AssemblyAngularVelocity = Vector3.zero
+    if not hrp or not targetPos then return end
+    pcall(function()
+        hrp.CFrame = CFrame.new(targetPos)
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
     CleanupSmoothMovement()
 end
 
@@ -6861,12 +7031,18 @@ local function HoverInPlace(hrp)
     
     local currentY = hrp.Position.Y
     if math.abs(currentY - targetY) > 2 then
-        hrp.AssemblyLinearVelocity = Vector3.new(0, (targetY - currentY) * 5, 0)
+        pcall(function()
+            hrp.AssemblyLinearVelocity = Vector3.new(0, (targetY - currentY) * 5, 0)
+        end)
     else
-        hrp.AssemblyLinearVelocity = Vector3.zero
-        hrp.CFrame = CFrame.new(hrp.Position.X, targetY, hrp.Position.Z)
+        pcall(function()
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.CFrame = CFrame.new(hrp.Position.X, targetY, hrp.Position.Z)
+        end)
     end
-    hrp.AssemblyAngularVelocity = Vector3.zero
+    pcall(function()
+        hrp.AssemblyAngularVelocity = Vector3.zero
+    end)
 end
 
 local CurrentEntry = nil
@@ -6874,10 +7050,14 @@ local isDead = false
 local IdleHoverY = 80
 
 local function IsRewardsUIVisible()
-    local interface = Player.PlayerGui:FindFirstChild("Interface")
-    if interface then
-        local rewards = interface:FindFirstChild("Rewards")
-        if rewards and rewards.Visible then return true end
+    local success, interface = pcall(function()
+        return Player.PlayerGui:FindFirstChild("Interface")
+    end)
+    if success and interface then
+        local success2, rewards = pcall(function()
+            return interface:FindFirstChild("Rewards")
+        end)
+        if success2 and rewards and rewards.Visible then return true end
     end
     return false
 end
@@ -6886,37 +7066,60 @@ local function OnDeath()
     isDead = true
     CurrentEntry = nil
     NapeCache = setmetatable({}, {__mode = "k"})
-    ActiveTitans = {}
+    ActiveTitans = safeClearTable(ActiveTitans)
     CharRef = nil
     CharParts = {}
     CleanupSmoothMovement()
 end
 
 local function OnSpawn(char)
+    if not char then return end
     isDead = false
     CharRef = nil
     CleanupSmoothMovement()
-    local hum = char:FindFirstChildOfClass("Humanoid")
-    if hum then hum.Died:Connect(OnDeath) end
+    local success, hum = pcall(function()
+        return char:FindFirstChildOfClass("Humanoid")
+    end)
+    if success and hum then
+        pcall(function() hum.Died:Connect(OnDeath) end)
+    end
 end
 
 if Player.Character then OnSpawn(Player.Character) end
 Player.CharacterAdded:Connect(OnSpawn)
 
+-- ประกาศตัวแปร FarmConn และ SpearFarmConn เป็น local ที่นี่ (ถ้ายังไม่ได้ประกาศ)
 local FarmConn = nil
+local SpearFarmConn = nil
 local FARM_ATTACK_INTERVAL = 0.05
 local LastAttackTime = 0
 
 local waveWaiting = false
 local lastDefendText = ""
 local function getWaveProgress()
-    local player = game:GetService("Players").LocalPlayer
-    local defend = player.PlayerGui:FindFirstChild("Interface") and 
-                   player.PlayerGui.Interface:FindFirstChild("HUD") and
-                   player.PlayerGui.Interface.HUD:FindFirstChild("Objectives") and
-                   player.PlayerGui.Interface.HUD.Objectives:FindFirstChild("Main") and
-                   player.PlayerGui.Interface.HUD.Objectives.Main:FindFirstChild("Defend")
-    if defend and defend:IsA("TextLabel") and defend.Visible then
+    local success, player = pcall(function()
+        return game:GetService("Players").LocalPlayer
+    end)
+    if not success or not player then return nil, nil, nil end
+    
+    local success2, defend = pcall(function()
+        local gui = player.PlayerGui:FindFirstChild("Interface")
+        if gui then
+            gui = gui:FindFirstChild("HUD")
+            if gui then
+                gui = gui:FindFirstChild("Objectives")
+                if gui then
+                    gui = gui:FindFirstChild("Main")
+                    if gui then
+                        return gui:FindFirstChild("Defend")
+                    end
+                end
+            end
+        end
+        return nil
+    end)
+    
+    if success2 and defend and defend:IsA("TextLabel") and defend.Visible then
         local text = defend.Text
         local current, max = text:match("(%d+)/(%d+)")
         if current and max then
@@ -6927,34 +7130,52 @@ local function getWaveProgress()
 end
 
 local function NeedReload()
-    local char = workspace:FindFirstChild("Characters")
-    if not char then return false end
-    local playerChar = char:FindFirstChild(Player.Name)
-    if not playerChar then return false end
-    local rig = playerChar:FindFirstChild("Rig_" .. Player.Name)
-    if not rig then return false end
+    local success, char = pcall(function()
+        return workspace:FindFirstChild("Characters")
+    end)
+    if not success or not char then return false end
+    local success2, playerChar = pcall(function()
+        return char:FindFirstChild(Player.Name)
+    end)
+    if not success2 or not playerChar then return false end
+    local success3, rig = pcall(function()
+        return playerChar:FindFirstChild("Rig_" .. Player.Name)
+    end)
+    if not success3 or not rig then return false end
 
-    local leftHand = rig:FindFirstChild("LeftHand")
-    local rightHand = rig:FindFirstChild("RightHand")
+    local success4, leftHand = pcall(function()
+        return rig:FindFirstChild("LeftHand")
+    end)
+    local success5, rightHand = pcall(function()
+        return rig:FindFirstChild("RightHand")
+    end)
 
-    if leftHand then
-        local blade = leftHand:FindFirstChild("Blade_1")
-        if blade and blade.Transparency == 1 then return true end
+    if success4 and leftHand then
+        local success6, blade = pcall(function()
+            return leftHand:FindFirstChild("Blade_1")
+        end)
+        if success6 and blade and blade.Transparency == 1 then return true end
     end
 
-    if rightHand then
-        local blade = rightHand:FindFirstChild("Blade_1")
-        if blade and blade.Transparency == 1 then return true end
+    if success5 and rightHand then
+        local success7, blade = pcall(function()
+            return rightHand:FindFirstChild("Blade_1")
+        end)
+        if success7 and blade and blade.Transparency == 1 then return true end
     end
 
     return false
 end
 
--- ===== ฟังก์ชัน GetTargets (เพิ่มใหม่) =====
+-- ===== ฟังก์ชัน GetTargets =====
 local function GetTargets(limit)
     if #ActiveTitans == 0 then return {} end
-    local hrp = Player.Character and Player.Character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return {} end
+    local success, hrp = pcall(function()
+        local char = Player.Character
+        if char then return char:FindFirstChild("HumanoidRootPart") end
+        return nil
+    end)
+    if not success or not hrp then return {} end
     local pos = hrp.Position
     local sorted = {}
     for _, entry in ipairs(ActiveTitans) do
@@ -6984,7 +7205,7 @@ local function AttackAllTitans()
     local G = getgenv()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 60)
-    local killHits = G.KillHits or 1   -- ใช้ค่าจาก Slider
+    local killHits = G.KillHits or 1
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
@@ -7064,10 +7285,12 @@ local function AttackAllTitans()
     end
 end
 
+-- ===== Blade FarmUpdate =====
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
         
+        -- ถ้า AutoFarmBlade ถูกปิดให้หยุดทันที
         if not G.AutoFarmBlade then
             if G.Farm then
                 G.Farm = false
@@ -7075,7 +7298,12 @@ local function FarmUpdate()
             return
         end
         
-        if not G.Farm or isDead then return end
+        -- ถ้า Farm ถูกปิดให้หยุด
+        if not G.Farm then
+            return
+        end
+        
+        if isDead then return end
         
         if NeedReload() then
             local char = Player.Character
@@ -7088,16 +7316,13 @@ local function FarmUpdate()
             return
         end
         
-        if G.AutoFarmBlade and not G.Farm then
-            G.Farm = true
-            G.FarmStartTime = tick()
-        end
-        
         if IsRewardsUIVisible() then
             G.Farm = false
-            if Options and Options.AutoFarmBlade then
-                Options.AutoFarmBlade:SetValue(false)
-            end
+            pcall(function()
+                if Options and Options.AutoFarmBlade then
+                    Options.AutoFarmBlade:SetValue(false)
+                end
+            end)
             return
         end
 
@@ -7119,6 +7344,7 @@ local function FarmUpdate()
             return
         end
 
+        -- Scan หาไททัน
         ScanTitans()
 
         local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
@@ -7174,13 +7400,265 @@ local function FarmUpdate()
     end)
 end
 
-local function CreateFarmLoop()
-    if FarmConn then FarmConn:Disconnect() end
+CreateFarmLoop = function()
+    if FarmConn then
+        pcall(function() FarmConn:Disconnect() end)
+        FarmConn = nil
+    end
     FarmConn = RunService.Heartbeat:Connect(FarmUpdate)
 end
+-- ===== Spear Farming =====
+local SpearCurrentEntry = nil
+local LastSpearAttackTime = 0
+local SPEAR_ATTACK_INTERVAL = 0.2
+local CurrentFirePower = 8
+local EXPLODE_RADIUS = 0.14
+getgenv().SpearFarm = getgenv().SpearFarm or false
 
-CreateFarmLoop()
+local cachedSpearRefill = nil
+local lastSpearRefillCheck = 0
 
+local function FindRefillObject()
+    local now = tick()
+    if cachedSpearRefill and (now - lastSpearRefillCheck < 3) then
+        if pcall(function() return cachedSpearRefill.Parent end) then
+            return cachedSpearRefill
+        end
+    end
+    lastSpearRefillCheck = now
+
+    local paths = {
+        "Climbable._Walls.Gate.GasTanks.Refill",
+        "Climbable._Walls.Gate:GetChildren()[50].Refill",
+        "Unclimbable.Props.HQ.GasTanks.Refill"
+    }
+    for _, path in ipairs(paths) do
+        local success, obj = pcall(function()
+            if path:find(":GetChildren") then
+                local gate = workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate")
+                if gate then
+                    local children = gate:GetChildren()
+                    if children[50] then return children[50]:FindFirstChild("Refill") end
+                end
+                return nil
+            else
+                local parts = {}
+                for part in string.gmatch(path, "[^.]+") do table.insert(parts, part) end
+                local obj = workspace
+                for _, p in ipairs(parts) do obj = obj and obj:FindFirstChild(p) if not obj then break end end
+                return obj
+            end
+        end)
+        if success and obj then
+            cachedSpearRefill = obj
+            return obj
+        end
+    end
+    local success, refill = pcall(function() return workspace:FindFirstChild("Refill", true) end)
+    if success and refill then
+        cachedSpearRefill = refill
+        return refill
+    end
+    cachedSpearRefill = nil
+    return nil
+end
+
+local function ReloadSpears()
+    local refill = FindRefillObject()
+    if refill then
+        pcall(function() POST:FireServer("Attacks", "Reload", refill) end)
+    end
+    CurrentFirePower = 8
+end
+
+local function FireSpear()
+    if CurrentFirePower <= 0 then
+        ReloadSpears()
+        task.wait(0.15)
+        if CurrentFirePower == 0 then return end
+    end
+    pcall(function()
+        GET:InvokeServer("Spears", "S_Fire", tostring(CurrentFirePower))
+        CurrentFirePower = CurrentFirePower - 1
+    end)
+end
+
+local function ThunderAOEAttack()
+    local activeList = ActiveTitans
+    for _, entry in ipairs(activeList) do
+        local nape = entry.nape
+        if nape then
+            pcall(function()
+                POST:FireServer("Spears", "S_Explode", Vector3.new(nape.Position.X, nape.Position.Y, nape.Position.Z), EXPLODE_RADIUS)
+            end)
+        end
+    end
+end
+
+local function ThunderAttackAllTitans()
+    if #ActiveTitans == 0 then return end
+    if not isObjectivesActiveForCore() then return end
+    
+    if getgenv().IsReloading or getgenv().IsRefilling then
+        return
+    end
+
+    local G = getgenv()
+    local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
+    local safe = elapsed >= (G.SafetyTime or 60)
+
+    if safe then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+
+    if isShiganshinaBreachMission and not protectHQCompleted then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+
+    local currentWave, maxWave = getWaveProgress()
+    if currentWave and maxWave and currentWave < maxWave then
+        local nearComplete = (currentWave >= maxWave - 2)
+        if nearComplete then
+            if elapsed < (G.SafetyTime or 60) then
+                if not waveWaiting then
+                    waveWaiting = true
+                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
+                end
+                return
+            else
+                if waveWaiting then
+                    waveWaiting = false
+                    Library:Notify("Safety timer reached, resuming attack!", 2)
+                end
+            end
+        else
+            waveWaiting = false
+        end
+    elseif currentWave and currentWave == maxWave then
+        waveWaiting = false
+    elseif not currentWave then
+        waveWaiting = false
+    end
+
+    local slayVisible = isSlayObjectiveVisible()
+    
+    if not slayVisible then
+        FireSpear()
+        ThunderAOEAttack()
+        return
+    end
+    
+    local stopAt = G.StopAtTitansLeft or 1
+    if not safe and #ActiveTitans <= stopAt then
+        return
+    end
+
+    FireSpear()
+    ThunderAOEAttack()
+end
+
+local function SpearFarmUpdate()
+    pcall(function()
+        local G = getgenv()
+        
+        if not G.AutoThunderSpear then
+            if G.SpearFarm then G.SpearFarm = false end
+            return
+        end
+        
+        if not G.SpearFarm or isDead then return end
+        
+        if G.IsReloading or G.IsRefilling then return end
+        
+        if G.AutoThunderSpear and not G.SpearFarm then
+            G.SpearFarm = true
+            G.FarmStartTime = tick()
+        end
+        
+        if IsRewardsUIVisible() then
+            G.SpearFarm = false
+            if Options and Options.AutoThunderSpearToggle then
+                Options.AutoThunderSpearToggle:SetValue(false)
+            end
+            return
+        end
+
+        local char = Player.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum or hum.Health <= 0 then
+            OnDeath()
+            return
+        end
+
+        hrp.AssemblyAngularVelocity = Vector3.zero
+
+        if hrp.Position.Y < -50 then
+            hrp.CFrame = CFrame.new(hrp.Position.X, IdleHoverY, hrp.Position.Z)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            CleanupSmoothMovement()
+            return
+        end
+
+        ScanTitans()
+
+        if #ActiveTitans == 0 then
+            SpearCurrentEntry = nil
+            NoclipOn()
+            CleanupSmoothMovement()
+            local dy = IdleHoverY - hrp.Position.Y
+            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
+            return
+        end
+
+        if not SpearCurrentEntry or not IsTitanAlive(SpearCurrentEntry.titan) then
+            SpearCurrentEntry = GetBestTarget(hrp.Position)
+        end
+        if not SpearCurrentEntry then return end
+
+        local nape = SpearCurrentEntry.nape
+        if not nape then
+            SpearCurrentEntry = nil
+            return
+        end
+
+        local hoverHeight = G.ThunderSpearHoverHeight or G.HoverHeight or 120
+        local hoverSpeed = G.ThunderSpearHoverSpeed or G.HoverSpeed or 120
+        local targetHeight = nape.Position.Y + hoverHeight
+        local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
+        local lookDir = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z - 5)
+
+        NoclipOn()
+
+        local farmMode = G.ThunderSpearFarmMode or G.FarmMode or "Tween"
+        if farmMode == "Teleport" then
+            MoveStableTeleport(hrp, targetPos)
+        else
+            MoveSmooth(hrp, targetPos, lookDir)
+        end
+
+        local now = tick()
+        if now - LastSpearAttackTime >= SPEAR_ATTACK_INTERVAL then
+            LastSpearAttackTime = now
+            ThunderAttackAllTitans()
+        end
+    end)
+end
+
+CreateSpearFarmLoop = function()
+    if SpearFarmConn then
+        pcall(function() SpearFarmConn:Disconnect() end)
+        SpearFarmConn = nil
+    end
+    SpearFarmConn = RunService.Heartbeat:Connect(SpearFarmUpdate)
+end
+
+-- ===== สร้าง loop ตรวจสอบสถานะ (ปรับให้หยุดเมื่อปิด) =====
 task.spawn(function()
     while true do
         task.wait(0.1)
@@ -7191,207 +7669,73 @@ task.spawn(function()
                 G.FarmStartTime = tick()
                 CurrentEntry = nil
                 LastAttackTime = tick()
+                if not FarmConn then
+                    CreateFarmLoop()
+                end
             end
         else
             if G.Farm then
                 G.Farm = false
                 CurrentEntry = nil
                 CleanupSmoothMovement()
+                if FarmConn then
+                    FarmConn:Disconnect()
+                    FarmConn = nil
+                end
             end
+        end
+    end
+end)
+
+task.spawn(function()
+    while true do
+        task.wait(0.1)
+        local G = getgenv()
+        if G.AutoThunderSpear then
+            if not G.SpearFarm then
+                G.SpearFarm = true
+                G.FarmStartTime = tick()
+                SpearCurrentEntry = nil
+                LastSpearAttackTime = tick()
+                if not SpearFarmConn then
+                    CreateSpearFarmLoop()
+                end
+            end
+        else
+            if G.SpearFarm then
+                G.SpearFarm = false
+                SpearCurrentEntry = nil
+                CleanupSmoothMovement()
+                if SpearFarmConn then
+                    SpearFarmConn:Disconnect()
+                    SpearFarmConn = nil
+                end
+            end
+        end
+    end
+end)
+
+-- ===== สร้าง loop เช็คและสร้างใหม่ (เฉพาะเมื่อเปิด) =====
+task.spawn(function()
+    while task.wait(0.15) do
+        local G = getgenv()
+        if G.AutoFarmBlade and (not FarmConn or not FarmConn.Connected) then
+            CreateFarmLoop()
         end
     end
 end)
 
 task.spawn(function()
     while task.wait(0.15) do
-        if not FarmConn or not FarmConn.Connected then
-            CreateFarmLoop()
+        local G = getgenv()
+        if G.AutoThunderSpear and (not SpearFarmConn or not SpearFarmConn.Connected) then
+            CreateSpearFarmLoop()
         end
     end
 end)
-getgenv().AutoReloadBlade = false
 
-task.spawn(function()
-    local Players = game:GetService("Players")
-    local LocalPlayer = Players.LocalPlayer
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-    local COOLDOWN_REFILL = 1.5
-    local COOLDOWN_R_PRESS = 1
-    local FORCE_RELOAD_LOOP_DELAY = 0.1
-    local FORCE_RELOAD_MAX_DURATION = 5
 
-    local lastRefillTime = 0
-    local lastRPressTime = 0
-
-    local validRefills = {}
-    local lastCacheRefresh = 0
-    local CACHE_REFRESH_INTERVAL = 30
-
-    local function getRefillIfExists(pathFunc)
-        local success, obj = pcall(pathFunc)
-        if success and obj and obj:IsA("BasePart") then
-            return obj
-        end
-        return nil
-    end
-
-    local refillPathFunctions = {
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[224] and workspace.Unclimbable.Props.HQ:GetChildren()[224].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[274] and workspace.Unclimbable.Props.HQ:GetChildren()[274].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[276] and workspace.Unclimbable.Props.HQ:GetChildren()[276].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[128] and workspace.Unclimbable.Props.HQ:GetChildren()[128].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[167] and workspace.Unclimbable.Props.HQ:GetChildren()[167].Refill end,
-        function() return workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:GetChildren()[50] and workspace.Climbable._Walls.Gate:GetChildren()[50].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Camps") and workspace.Unclimbable.Camps:FindFirstChild("Camp") and workspace.Unclimbable.Camps.Camp:GetChildren()[55] and workspace.Unclimbable.Camps.Camp:GetChildren()[55].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("World") and workspace.Unclimbable.World:FindFirstChild("Buildings") and workspace.Unclimbable.World.Buildings:FindFirstChild("Hanger") and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19] and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19].Refill end,
-        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves") and workspace.Unclimbable.Objective.Waves:GetChildren()[281] and workspace.Unclimbable.Objective.Waves:GetChildren()[281].Refill end,
-    }
-
-    local function refreshRefillCache()
-        local newCache = {}
-        for _, pathFunc in ipairs(refillPathFunctions) do
-            local ref = getRefillIfExists(pathFunc)
-            if ref then
-                table.insert(newCache, ref)
-            end
-        end
-        if #newCache > 0 then
-            validRefills = newCache
-        end
-        lastCacheRefresh = tick()
-    end
-
-    refreshRefillCache()
-
-    task.spawn(function()
-        while true do
-            task.wait(CACHE_REFRESH_INTERVAL)
-            if getgenv().AutoReloadBlade then
-                refreshRefillCache()
-            end
-        end
-    end)
-
-    local refillIndex = 1
-    local function PerformRefill()
-        local now = tick()
-        if now - lastRefillTime < COOLDOWN_REFILL then
-            return false
-        end
-
-        if #validRefills == 0 then
-            refreshRefillCache()
-            if #validRefills == 0 then
-                return false
-            end
-        end
-
-        lastRefillTime = now
-
-        getgenv().IsRefilling = true
-
-        local target = validRefills[refillIndex]
-        refillIndex = (refillIndex % #validRefills) + 1
-
-        pcall(function()
-            local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
-            POST:FireServer("Attacks", "Reload", target)
-        end)
-
-        task.wait(1.5)
-        getgenv().IsRefilling = false
-        return true
-    end
-
-    local function PressR()
-        local now = tick()
-        if now - lastRPressTime < COOLDOWN_R_PRESS then
-            return
-        end
-        lastRPressTime = now
-
-        getgenv().IsReloading = true
-
-        pcall(function()
-            local VIM = game:GetService("VirtualInputManager")
-            VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
-            task.wait(0.02)
-            VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
-        end)
-
-                task.wait(0.3)
-
-                if getgenv().AutoReloadBlade and NeedReload() then
-            local startLoop = tick()
-            while getgenv().AutoReloadBlade and NeedReload() and (tick() - startLoop < FORCE_RELOAD_MAX_DURATION) do
-                pcall(function()
-                    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-                    GET:InvokeServer("Blades", "Reload")
-                end)
-                task.wait(FORCE_RELOAD_LOOP_DELAY)
-            end
-        end
-
-        task.wait(0.2)
-        getgenv().IsReloading = false
-    end
-
-    local function NeedReload()
-        local char = workspace:FindFirstChild("Characters")
-        if not char then return false end
-        local playerChar = char:FindFirstChild(LocalPlayer.Name)
-        if not playerChar then return false end
-        local rig = playerChar:FindFirstChild("Rig_" .. LocalPlayer.Name)
-        if not rig then return false end
-
-        local leftHand = rig:FindFirstChild("LeftHand")
-        local rightHand = rig:FindFirstChild("RightHand")
-
-        if leftHand then
-            local blade = leftHand:FindFirstChild("Blade_1")
-            if blade and blade.Transparency == 1 then return true end
-        end
-
-        if rightHand then
-            local blade = rightHand:FindFirstChild("Blade_1")
-            if blade and blade.Transparency == 1 then return true end
-        end
-
-        return false
-    end
-
-    local function isZeroThree()
-        local success, text = pcall(function()
-            local sets = LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
-            if sets and sets:IsA("TextLabel") then
-                return sets.Text
-            end
-            return ""
-        end)
-        if success then
-            local clean = text:gsub("%s+", "")
-            return clean == "0/3"
-        end
-        return false
-    end
-
-    while true do
-        if getgenv().AutoReloadBlade then
-            local needReload = NeedReload()
-            local zeroThree = isZeroThree()
-
-            if needReload and zeroThree then
-                PerformRefill()
-                task.wait(0.5)
-            elseif needReload then
-                PressR()
-                task.wait(0.5)
-            end
-        end
-        task.wait(0.1)
-    end
-end)
 if ({[MAIN_MENU_ID]=true,[LOBBY_ID]=true})[game.PlaceId] then return end
 
 local SpearCurrentEntry = nil
@@ -7793,6 +8137,189 @@ if Tabs.AutoFarm then
 end
 
 
+getgenv().AutoReloadBlade = false
+
+task.spawn(function()
+    local Players = game:GetService("Players")
+    local LocalPlayer = Players.LocalPlayer
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+    local COOLDOWN_REFILL = 1.5
+    local COOLDOWN_R_PRESS = 1
+    local FORCE_RELOAD_LOOP_DELAY = 0.1
+    local FORCE_RELOAD_MAX_DURATION = 5
+
+    local lastRefillTime = 0
+    local lastRPressTime = 0
+
+    local validRefills = {}
+    local lastCacheRefresh = 0
+    local CACHE_REFRESH_INTERVAL = 30
+
+    local function getRefillIfExists(pathFunc)
+        local success, obj = pcall(pathFunc)
+        if success and obj and obj:IsA("BasePart") then
+            return obj
+        end
+        return nil
+    end
+
+    local refillPathFunctions = {
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[224] and workspace.Unclimbable.Props.HQ:GetChildren()[224].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[274] and workspace.Unclimbable.Props.HQ:GetChildren()[274].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[276] and workspace.Unclimbable.Props.HQ:GetChildren()[276].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[128] and workspace.Unclimbable.Props.HQ:GetChildren()[128].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Props") and workspace.Unclimbable.Props:FindFirstChild("HQ") and workspace.Unclimbable.Props.HQ:GetChildren()[167] and workspace.Unclimbable.Props.HQ:GetChildren()[167].Refill end,
+        function() return workspace:FindFirstChild("Climbable") and workspace.Climbable:FindFirstChild("_Walls") and workspace.Climbable._Walls:FindFirstChild("Gate") and workspace.Climbable._Walls.Gate:GetChildren()[50] and workspace.Climbable._Walls.Gate:GetChildren()[50].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Camps") and workspace.Unclimbable.Camps:FindFirstChild("Camp") and workspace.Unclimbable.Camps.Camp:GetChildren()[55] and workspace.Unclimbable.Camps.Camp:GetChildren()[55].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("World") and workspace.Unclimbable.World:FindFirstChild("Buildings") and workspace.Unclimbable.World.Buildings:FindFirstChild("Hanger") and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19] and workspace.Unclimbable.World.Buildings.Hanger:GetChildren()[19].Refill end,
+        function() return workspace:FindFirstChild("Unclimbable") and workspace.Unclimbable:FindFirstChild("Objective") and workspace.Unclimbable.Objective:FindFirstChild("Waves") and workspace.Unclimbable.Objective.Waves:GetChildren()[281] and workspace.Unclimbable.Objective.Waves:GetChildren()[281].Refill end,
+    }
+
+    local function refreshRefillCache()
+        local newCache = {}
+        for _, pathFunc in ipairs(refillPathFunctions) do
+            local ref = getRefillIfExists(pathFunc)
+            if ref then
+                table.insert(newCache, ref)
+            end
+        end
+        if #newCache > 0 then
+            validRefills = newCache
+        end
+        lastCacheRefresh = tick()
+    end
+
+    refreshRefillCache()
+
+    task.spawn(function()
+        while true do
+            task.wait(CACHE_REFRESH_INTERVAL)
+            if getgenv().AutoReloadBlade then
+                refreshRefillCache()
+            end
+        end
+    end)
+
+    local refillIndex = 1
+    local function PerformRefill()
+        local now = tick()
+        if now - lastRefillTime < COOLDOWN_REFILL then
+            return false
+        end
+
+        if #validRefills == 0 then
+            refreshRefillCache()
+            if #validRefills == 0 then
+                return false
+            end
+        end
+
+        lastRefillTime = now
+
+        getgenv().IsRefilling = true
+
+        local target = validRefills[refillIndex]
+        refillIndex = (refillIndex % #validRefills) + 1
+
+        pcall(function()
+            local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
+            POST:FireServer("Attacks", "Reload", target)
+        end)
+
+        task.wait(1.5)
+        getgenv().IsRefilling = false
+        return true
+    end
+
+    local function PressR()
+        local now = tick()
+        if now - lastRPressTime < COOLDOWN_R_PRESS then
+            return
+        end
+        lastRPressTime = now
+
+        getgenv().IsReloading = true
+
+        pcall(function()
+            local VIM = game:GetService("VirtualInputManager")
+            VIM:SendKeyEvent(true, Enum.KeyCode.R, false, game)
+            task.wait(0.02)
+            VIM:SendKeyEvent(false, Enum.KeyCode.R, false, game)
+        end)
+
+                task.wait(0.3)
+
+                if getgenv().AutoReloadBlade and NeedReload() then
+            local startLoop = tick()
+            while getgenv().AutoReloadBlade and NeedReload() and (tick() - startLoop < FORCE_RELOAD_MAX_DURATION) do
+                pcall(function()
+                    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    GET:InvokeServer("Blades", "Reload")
+                end)
+                task.wait(FORCE_RELOAD_LOOP_DELAY)
+            end
+        end
+
+        task.wait(0.2)
+        getgenv().IsReloading = false
+    end
+
+    local function NeedReload()
+        local char = workspace:FindFirstChild("Characters")
+        if not char then return false end
+        local playerChar = char:FindFirstChild(LocalPlayer.Name)
+        if not playerChar then return false end
+        local rig = playerChar:FindFirstChild("Rig_" .. LocalPlayer.Name)
+        if not rig then return false end
+
+        local leftHand = rig:FindFirstChild("LeftHand")
+        local rightHand = rig:FindFirstChild("RightHand")
+
+        if leftHand then
+            local blade = leftHand:FindFirstChild("Blade_1")
+            if blade and blade.Transparency == 1 then return true end
+        end
+
+        if rightHand then
+            local blade = rightHand:FindFirstChild("Blade_1")
+            if blade and blade.Transparency == 1 then return true end
+        end
+
+        return false
+    end
+
+    local function isZeroThree()
+        local success, text = pcall(function()
+            local sets = LocalPlayer.PlayerGui.Interface.HUD.Main.Top["7"].Blades.Sets
+            if sets and sets:IsA("TextLabel") then
+                return sets.Text
+            end
+            return ""
+        end)
+        if success then
+            local clean = text:gsub("%s+", "")
+            return clean == "0/3"
+        end
+        return false
+    end
+
+    while true do
+        if getgenv().AutoReloadBlade then
+            local needReload = NeedReload()
+            local zeroThree = isZeroThree()
+
+            if needReload and zeroThree then
+                PerformRefill()
+                task.wait(0.5)
+            elseif needReload then
+                PressR()
+                task.wait(0.5)
+            end
+        end
+        task.wait(0.1)
+    end
+end)
 if Tabs.Webhook then
     local WebhookGroup = Tabs.Webhook:AddLeftGroupbox("Discord Webhook")
     
@@ -7817,7 +8344,7 @@ if Tabs.Webhook then
         writefile(gamesPlayedPath, tostring(gamesPlayed))
     end
     
-        local ItemsModule = nil
+    local ItemsModule = nil
     local IconToNameMap = {}
     
     local function loadItemsModule()
@@ -7922,16 +8449,208 @@ if Tabs.Webhook then
         return findUIElements()
     end
     
-        local function getAllRewards()
+    -- ===== ฟังก์ชันจัดรูปแบบตัวเลข (ตัดทศนิยม) =====
+    local function formatNumberWithComma(num)
+        if type(num) == "string" then
+            local clean = num:gsub("[^%d.]", "")
+            num = tonumber(clean) or 0
+        end
+        if type(num) ~= "number" then return tostring(num) end
+        num = math.floor(num)  -- ตัดทศนิยมทิ้ง
+        local str = tostring(num)
+        local formatted = ""
+        local len = #str
+        for i = 1, len do
+            formatted = formatted .. str:sub(i, i)
+            if (len - i) % 3 == 0 and i < len then
+                formatted = formatted .. ","
+            end
+        end
+        return formatted
+    end
+    
+    -- ===== ฟังก์ชันดึงข้อมูล Reward แบบเรียลไทม์ =====
+    local function getRealTimeRewardData()
+        local success, result = pcall(function()
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            return GET:InvokeServer("S_Rewards", "Get")
+        end)
+        if not success or not result then return nil end
+        if type(result) == "table" then
+            if result.Obtained or result.Stats then
+                return result
+            end
+            if #result > 0 and type(result[1]) == "table" then
+                return result[1]
+            end
+        end
+        return nil
+    end
+    
+    -- ===== ฟังก์ชันส่ง Reward Webhook =====
+    local function sendRewardWebhook()
+        if webhookURL == "" then return end
+        incrementGamesPlayed()
+        
+        if not ItemsModule or #IconToNameMap == 0 then
+            loadItemsModule()
+        end
+        
+        local player = game:GetService("Players").LocalPlayer
+        local executor = identifyexecutor and identifyexecutor() or "Unknown"
+        
+        local totalData = { Level = 1, Gold = 0, Gems = 0 }
+        pcall(function()
+            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+            local mapData = GET:InvokeServer("Data", "Copy")
+            local slotIndex = player:GetAttribute("Slot") or "A"
+            if mapData and mapData.Slots and mapData.Slots[slotIndex] then
+                local slot = mapData.Slots[slotIndex]
+                if slot.Currency then
+                    totalData.Gold = slot.Currency.Gold or 0
+                    totalData.Gems = slot.Currency.Gems or 0
+                end
+                if slot.Progression then
+                    totalData.Level = slot.Progression.Level or 1
+                end
+            end
+        end)
+        
+        local rewardData = getRealTimeRewardData()
+        
+        if not rewardData then
+            -- Fallback: ใช้ข้อมูลจาก UI
+            local statsFrame, _ = findUIElements()
+            local stats = {}
+            if statsFrame then
+                for _, v in ipairs(statsFrame:GetChildren()) do
+                    if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
+                        local statName = string.gsub(v.Name, "_", " ")
+                        stats[statName] = v.Amount.Text
+                    end
+                end
+            end
+            
+            local rewardsUI = getAllRewards()
+            local kills = stats["Kills"] or 0
+            local crits = stats["Crits"] or 0
+            local damage = stats["Damage"] or "0"
+            local damageNum = tonumber(damage:gsub("[^%d.]", "")) or 0
+            
+            local xp, gold, gems, shards = 0, 0, 0, 0
+            for _, item in ipairs(rewardsUI) do
+                if item.name == "XP" then xp = tonumber(item.qty:match("%d+")) or 0 end
+                if item.name == "Gold" then gold = tonumber(item.qty:match("%d+")) or 0 end
+                if item.name == "Gems" then gems = tonumber(item.qty:match("%d+")) or 0 end
+                if item.name == "Shards" then shards = tonumber(item.qty:match("%d+")) or 0 end
+            end
+            
+            local perksList = "None"
+            local isCompleted, isClaimed = true, true
+            local statusTitle = "COMPLETED ✅"
+            local color = 0x00ff00
+            
+            local pingContent = nil
+            if webhookPingMode == "Everyone" then
+                pingContent = "@everyone"
+            elseif webhookPingMode == "Here" then
+                pingContent = "@here"
+            end
+            
+            local payload = {
+                content = pingContent,
+                embeds = {{
+                    title = string.format("[%s] %s", statusTitle, player.Name),
+                    color = color,
+                    fields = {
+                        { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damageNum)), inline = false },
+                        { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
+                        { name = "PERKS", value = perksList, inline = false },
+                        { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
+                    },
+                    footer = { text = "JaMeTest • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                    timestamp = DateTime.now():ToIsoDate()
+                }}
+            }
+            pcall(function()
+                request({ Url = webhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode(payload) })
+            end)
+            return
+        end
+        
+        -- ===== ใช้ข้อมูลจาก S_Rewards Get =====
+        local kills = rewardData.Stats and rewardData.Stats.Kills or 0
+        local crits = rewardData.Stats and rewardData.Stats.Crits or 0
+        local damage = rewardData.Stats and rewardData.Stats.Damage or 0
+        
+        local xp = rewardData.Obtained and rewardData.Obtained.XP or 0
+        local gold = rewardData.Obtained and rewardData.Obtained.Gold or 0
+        local gems = rewardData.Obtained and rewardData.Obtained.Gems or 0
+        local shards = rewardData.Obtained and rewardData.Obtained.Shards or 0
+        
+        local perksList = "None"
+        if rewardData.Obtained and rewardData.Obtained.Perks and #rewardData.Obtained.Perks > 0 then
+            perksList = "• " .. table.concat(rewardData.Obtained.Perks, "\n• ")
+        end
+        
+        local isCompleted = rewardData.Completed or false
+        local isClaimed = rewardData.Claimed or false
+        local statusTitle = "IN PROGRESS"
+        local color = 0xffaa00
+        if isCompleted and isClaimed then
+            statusTitle = "COMPLETED ✅"
+            color = 0x00ff00
+        elseif isCompleted and not isClaimed then
+            statusTitle = "COMPLETED ⏳"
+            color = 0x00aaff
+        end
+        
+        local pingContent = nil
+        if webhookPingMode == "Everyone" then
+            pingContent = "@everyone"
+        elseif webhookPingMode == "Here" then
+            pingContent = "@here"
+        end
+        
+        local payload = {
+            content = pingContent,
+            embeds = {{
+                title = string.format("[%s] %s", statusTitle, player.Name),
+                color = color,
+                fields = {
+                    { name = "STATS", value = string.format("Kills: %s\nCrits: %s\nDamage: %s", kills, crits, formatNumberWithComma(damage)), inline = false },
+                    { name = "REWARDS", value = string.format("XP: %s\nGold: %s\nGems: %s\nShards: %s", formatNumberWithComma(xp), formatNumberWithComma(gold), formatNumberWithComma(gems), formatNumberWithComma(shards)), inline = false },
+                    { name = "PERKS", value = perksList, inline = false },
+                    { name = "INFO", value = string.format("User: %s\nExecutor: %s\nGames Played: %d\nGold: %s\nGems: %s", player.Name, executor, gamesPlayed, formatNumberWithComma(totalData.Gold), formatNumberWithComma(totalData.Gems)), inline = false }
+                },
+                footer = { text = "JaMeTest • " .. os.date("%Y-%m-%d %H:%M:%S") },
+                timestamp = DateTime.now():ToIsoDate()
+            }}
+        }
+        
+        pcall(function()
+            request({ 
+                Url = webhookURL, 
+                Method = "POST", 
+                Headers = { ["Content-Type"] = "application/json" }, 
+                Body = game:GetService("HttpService"):JSONEncode(payload) 
+            })
+            print("📤 Webhook sent successfully!")
+        end)
+    end
+    
+    -- ===== ฟังก์ชัน getAllRewards (ใช้ในกรณี fallback) =====
+    local function getAllRewards()
         local player = game:GetService("Players").LocalPlayer
         local mainInfo = player.PlayerGui.Interface.Rewards.Main.Info.Main
-        local rewardsList = {}         
-                local function extractFromFrame(frame)
+        local rewardsList = {}
+        
+        local function extractFromFrame(frame)
             local qtyText = nil
             local itemName = nil
             local isRare = false
             
-                        local mainObj = frame:FindFirstChild("Main")
+            local mainObj = frame:FindFirstChild("Main")
             local inner = mainObj and mainObj:FindFirstChild("Inner")
             if inner then
                 local qtyObj = inner:FindFirstChild("Quantity")
@@ -7939,7 +8658,7 @@ if Tabs.Webhook then
                     qtyText = qtyObj.Text
                     local num = tonumber(qtyText:match("%d+"))
                     if num and num > 0 then
-                                                local icon = inner:FindFirstChild("Icon")
+                        local icon = inner:FindFirstChild("Icon")
                         if icon and icon:IsA("ImageLabel") and icon.Image then
                             local assetId = tostring(icon.Image):match("rbxassetid://(%d+)") or tostring(icon.Image):match("^(%d+)$")
                             if assetId and IconToNameMap[assetId] then
@@ -7957,7 +8676,7 @@ if Tabs.Webhook then
                                 end
                             end
                         end
-                                                local rarity = inner:FindFirstChild("Rarity")
+                        local rarity = inner:FindFirstChild("Rarity")
                         if rarity and rarity.BackgroundColor3 == Color3.fromRGB(255, 0, 0) then
                             isRare = true
                         end
@@ -7982,135 +8701,23 @@ if Tabs.Webhook then
             return false
         end
         
-                local function scanAll(obj)
+        local function scanAll(obj)
             for _, child in ipairs(obj:GetChildren()) do
                 if child:IsA("Frame") then
                     if extractFromFrame(child) then
-                                            else
+                        -- found
+                    else
                         scanAll(child)
                     end
                 end
             end
         end
         scanAll(mainInfo)
-        
-                local priorityOrder = { "XP", "Gold", "Canes" }
-        local function getPriority(name)
-            for i, p in ipairs(priorityOrder) do
-                if string.lower(name) == string.lower(p) then
-                    return i
-                end
-            end
-            return 999
-        end
-        table.sort(rewardsList, function(a, b)
-            local pa = getPriority(a.name)
-            local pb = getPriority(b.name)
-            if pa ~= pb then return pa < pb end
-            return a.name < b.name
-        end)
-        
         return rewardsList
     end
     
-        local function sendRewardWebhook()
-        if webhookURL == "" then return end
-        incrementGamesPlayed()
-        
-        if not ItemsModule or #IconToNameMap == 0 then
-            loadItemsModule()
-        end
-        
-                local statsFrame, _ = findUIElements()
-        local stats = {}
-        if statsFrame then
-            for _, v in ipairs(statsFrame:GetChildren()) do
-                if v:IsA("Frame") and v:FindFirstChild("Stat") and v:FindFirstChild("Amount") then
-                    local statName = string.gsub(v.Name, "_", " ")
-                    stats[statName] = v.Amount.Text
-                end
-            end
-        end
-        
-                local rewards = getAllRewards()
-        
-                local specials = {}
-        for _, item in ipairs(rewards) do
-            if item.rare then
-                table.insert(specials, item)
-            end
-        end
-        
-                local player = game:GetService("Players").LocalPlayer
-        local total = { Level = 1, Gold = 0, Gems = 0 }
-        pcall(function()
-            local GET = game:GetService("ReplicatedStorage"):WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
-            local mapData = GET:InvokeServer("Data", "Copy")
-            local slotIndex = player:GetAttribute("Slot") or "A"
-            if mapData and mapData.Slots and mapData.Slots[slotIndex] then
-                local slot = mapData.Slots[slotIndex]
-                if slot.Currency then
-                    total.Gold = slot.Currency.Gold or 0
-                    total.Gems = slot.Currency.Gems or 0
-                end
-                if slot.Progression then
-                    total.Level = slot.Progression.Level or 1
-                end
-            end
-        end)
-        
-        local hasSpecial = #specials > 0
-        local executor = identifyexecutor and identifyexecutor() or "Unknown"
-        
-                local pingContent = nil
-        if webhookPingMode == "Everyone" then
-            pingContent = "@everyone"
-        elseif webhookPingMode == "Here" then
-            pingContent = "@here"
-        else
-            pingContent = nil
-        end
-        
-        local function formatTable(tbl)
-            local str = ""
-            for k, v in pairs(tbl) do
-                str = str .. string.format("%s: %s\n", k, tostring(v))
-            end
-            return str ~= "" and str or "None"
-        end
-        
-        local function formatRewardsList(list)
-            if #list == 0 then return "None" end
-            local lines = {}
-            for _, item in ipairs(list) do
-                lines[#lines+1] = string.format("• %s (x%s)", item.name, item.qty)
-            end
-            return table.concat(lines, "\n")
-        end
-        
-        local payload = {
-            content = (hasSpecial and pingContent) or nil,
-            embeds = {{
-                title = "JaMeTest Rewards",
-                color = hasSpecial and 0xff0000 or 0x2b2d31,
-                fields = {
-                    { name = "Information", value = string.format("\nUser: %s\nGames Played: %d\nExecutor: %s\n", player.Name, gamesPlayed, executor), inline = true },
-                    { name = "Total Stats", value = string.format("\nLevel : %s\nGold  : %s\nGems  : %s\n", total.Level, total.Gold, total.Gems), inline = true },
-                    { name = "Combat", value = "\n" .. formatTable(stats) .. "\n", inline = true },
-                    { name = "Rewards", value = "\n" .. formatRewardsList(rewards) .. "\n", inline = false },
-                    { name = "Special", value = "\n" .. (hasSpecial and formatRewardsList(specials) or "None") .. "\n", inline = false }
-                },
-                footer = { text = "JaMeTest • " .. os.date("%Y-%m-%d %H:%M:%S") },
-                timestamp = DateTime.now():ToIsoDate()
-            }}
-        }
-        
-        pcall(function()
-            request({ Url = webhookURL, Method = "POST", Headers = { ["Content-Type"] = "application/json" }, Body = game:GetService("HttpService"):JSONEncode(payload) })
-        end)
-    end
-    
-        local filters = {
+    -- ===== ฟังก์ชันอื่นๆ (ส่ง All Data, Mission ฯลฯ) =====
+    local filters = {
         Currency = true,
         Progression = true,
         Loadout = true,
@@ -8248,7 +8855,8 @@ if Tabs.Webhook then
         end)
     end
     
-        task.spawn(function()
+    -- ===== เชื่อมต่อ Event เมื่อ Rewards เปิด =====
+    task.spawn(function()
         local playerGui = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
         local rewards = playerGui.Interface.Rewards
         rewards:GetPropertyChangedSignal("Visible"):Connect(function()
@@ -8274,7 +8882,8 @@ if Tabs.Webhook then
         end)
     end)
     
-        WebhookGroup:AddInput("WebhookURL", {
+    -- ===== UI Components =====
+    WebhookGroup:AddInput("WebhookURL", {
         Default = "", Numeric = false, Finished = true,
         Text = "Discord Webhook URL",
         Placeholder = "https://discord.com/api/webhooks/...",
@@ -8291,7 +8900,7 @@ if Tabs.Webhook then
         Callback = function(v) webhookMode = v end
     })
     
-        WebhookGroup:AddDropdown("WebhookPingMode", {
+    WebhookGroup:AddDropdown("WebhookPingMode", {
         Text = "Ping Mode (For Special Drops)",
         Values = {"None", "@here", "@everyone"},
         Default = "None",
@@ -8352,8 +8961,6 @@ if Tabs.Webhook then
         end)
     end)
 end
-
-
 if IsIngameLobby() and Tabs.Webhook then
     local descGroup = Tabs.Webhook:AddRightGroupbox("Set Description")
 
@@ -8698,4 +9305,3 @@ if Tabs.AutoFarm then
         end
     })
 end
- 
