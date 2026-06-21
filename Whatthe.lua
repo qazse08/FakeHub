@@ -1,26 +1,23 @@
--- ============================================
 -- ระบบเช็คสถานะ GUI และ Auto Teleport เมื่อผิดปกติ
--- ทำงานทันทีโดยไม่ผ่าน UI
--- ============================================
 task.spawn(function()
     local Players = game:GetService("Players")
     local player = Players.LocalPlayer
     if not player then return end
 
     local placeId = game.PlaceId
-    if placeId ~= 14916516914 then return end -- ทำงานเฉพาะ Lobby
+    if placeId ~= 14916516914 then return end 
 
     local playerGui = player:WaitForChild("PlayerGui", 10)
     if not playerGui then return end
 
-    -- รอให้ ReplicatedStorage และ Remote พร้อม
+
     local ReplicatedStorage = game:GetService("ReplicatedStorage")
     local remote = ReplicatedStorage:FindFirstChild("Assets") 
         and ReplicatedStorage.Assets:FindFirstChild("Remotes") 
         and ReplicatedStorage.Assets.Remotes:FindFirstChild("POST")
     
     if not remote then
-        -- ถ้าไม่พบ remote ให้ใช้ TeleportService แทน
+
         local TeleportService = game:GetService("TeleportService")
         if not checkAnyVisible() then
             task.wait(10)
@@ -71,14 +68,10 @@ task.spawn(function()
         end
         return false
     end
-
-    -- เช็คครั้งแรก
     if not checkAnyVisible() then
-        -- รอ 10 วินาที
         task.wait(10)
-        -- เช็คซ้ำ
         if not checkAnyVisible() then
-            -- ใช้ Remote Event Teleport ไป Main Menu
+
             pcall(function()
                 remote:FireServer("Functions", "Teleport", "Menu", nil)
             end)
@@ -301,7 +294,6 @@ if IsIngameLobby() then
     Tabs.AutoFarm = Window:AddTab("Auto Farm")
     Tabs.Webhook = Window:AddTab("Webhook")
 end
-
 if IsMainmenuLobby() then
   
     if not getgenv().SpinState then
@@ -440,6 +432,73 @@ if IsMainmenuLobby() then
         end)
     end
 
+    local function SendSpinFinishedWebhook()
+        local webhookURL = getgenv().WebhookURL or webhookURL
+        if webhookURL == "" then return false end
+
+        local pingMode = getgenv().WebhookPingMode or pingMode
+        local content = nil
+        if pingMode == "Everyone" then content = "@everyone"
+        elseif pingMode == "Here" then content = "@here" end
+
+        local player = game:GetService("Players").LocalPlayer
+        local userName = player.Name
+
+        local body = game:GetService("HttpService"):JSONEncode({
+            content = content,
+            embeds = {{
+                title = "Spin Finished",
+                color = 0xFFFF00,
+                fields = {
+                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
+                    { name = "━━━━━━━━━  STATUS ━━━━━━━━━", value = "No Spins Left", inline = false }
+                },
+                footer = { text = "Spin session ended" },
+                timestamp = DateTime.now():ToIsoDate()
+            }}
+        })
+
+        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+        if not requestFunction then return false end
+        return pcall(function()
+            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
+        end)
+    end
+
+    local function SendSpinStopWebhook(spinsLeft)
+        local webhookURL = getgenv().WebhookURL or webhookURL
+        if webhookURL == "" then return false end
+
+        local pingMode = getgenv().WebhookPingMode or pingMode
+        local content = nil
+        if pingMode == "Everyone" then content = "@everyone"
+        elseif pingMode == "Here" then content = "@here" end
+
+        local player = game:GetService("Players").LocalPlayer
+        local userName = player.Name
+
+        local body = game:GetService("HttpService"):JSONEncode({
+            content = content,
+            embeds = {{
+                title = "Auto Spin Stopped",
+                color = 0x00BFFF,
+                fields = {
+                    { name = "━━━━━━━━━  PLAYER ━━━━━━━━━", value = "Username : @" .. userName, inline = false },
+                    { name = "━━━━━━━━━  SPINS LEFT ━━━━━━━━━", value = tostring(spinsLeft), inline = false },
+                    { name = "━━━━━━━━━  STATUS ━━━━━━━━━", value = "Stopped by spin limit", inline = false }
+                },
+                footer = { text = "Spin limit reached" },
+                timestamp = DateTime.now():ToIsoDate()
+            }}
+        })
+
+        local requestFunction = (syn and syn.request) or (http and http.request) or http_request or request
+        if not requestFunction then return false end
+        return pcall(function()
+            requestFunction({ Url = webhookURL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = body })
+        end)
+    end
+
     local autoNotifyEnabled = false
     local lastSentFamily = nil
     local lastSentSpins = nil
@@ -492,10 +551,6 @@ if IsMainmenuLobby() then
                     lastSentFamily = currentFamily
                     lastSentSpins = currentSpins
                     SendTargetWebhook(currentFamily, currentSpins)
-                    local rarity = GetFamilyRarity(currentFamily)
-                    local colorCodes = {Common="\27[90m", Rare="\27[94m", Epic="\27[95m", Legendary="\27[93m", Mythic="\27[91m"}
-                    local code = colorCodes[rarity] or "\27[97m"
-                    print(code .. "TARGET FAMILY DETECTED: " .. currentFamily .. " (" .. rarity .. ")\27[0m")
                 end
             else
                 if lastSentFamily ~= nil then
@@ -536,26 +591,25 @@ if IsMainmenuLobby() then
             if v then
                 lastSentFamily = nil
                 lastSentSpins = nil
-                print("[Webhook] Monitoring started (checking Slot A). Will send when family changes to target and spins are known.")
-            else
-                print("[Webhook] Monitoring stopped.")
             end
         end
     })
 
     local SpinGroup = Tabs.Webhook:AddRightGroupbox("Auto Spin")
+    local StopSpinGroup = Tabs.Webhook:AddRightGroupbox("Stop at Spin Left")
 
     local selectedFamilies = {}
     local rollDelay = 0.01
     local autoActive = false
     local spinTask = nil
     local waitingForSlot = false
+    local stopAtSpinLimitEnabled = false
+    local stopAtSpinLimitValue = 0
 
     local player = game:GetService("Players").LocalPlayer
     local playerGui = player:WaitForChild("PlayerGui")
     local Event = game:GetService("ReplicatedStorage").Assets.Remotes.GET
 
-    -- FIXED: Extract spins from first non‑zero among first two returns, family from third return
     local function performRoll()
         local maxRetries = 3
         local retryDelay = 0.3
@@ -566,23 +620,19 @@ if IsMainmenuLobby() then
             end)
             
             if success then
-                local spinsLeft = nil
+                local spinsLeft = 0
                 local familyGot = nil
                 
-                -- Spins is the first non‑zero number among the first two returns
-                if type(ret1) == "number" and ret1 > 0 then
+                if type(ret1) == "number" then
                     spinsLeft = ret1
-                elseif type(ret2) == "number" and ret2 > 0 then
-                    spinsLeft = ret2
-                else
-                    spinsLeft = 0
+                end
+                if type(ret2) == "number" then
+                    spinsLeft = spinsLeft + ret2
                 end
                 
-                -- Family is always the third return (string)
                 if type(ret3) == "string" and ret3 ~= "" then
                     familyGot = ret3
                 else
-                    -- Fallback: scan for any string
                     for _, v in ipairs({ret1, ret2, ret3, ret4, ret5}) do
                         if type(v) == "string" and v ~= "" then
                             familyGot = v
@@ -720,11 +770,13 @@ if IsMainmenuLobby() then
     local function startAutoSpin()
         if spinTask then return end
         spinTask = task.spawn(function()
+            local notifiedSpinFinished = false
+            local notifiedSpinStop = false
             while autoActive do
                 if not slotReady then
                     if not waitingForSlot then
                         waitingForSlot = true
-                        Library:Notify("Waiting for Slot A to appear...", 2)
+                        Library:Notify("Waiting for Title_Slot A to Start...", 2)
                     end
                     task.wait(1)
                     continue
@@ -741,10 +793,25 @@ if IsMainmenuLobby() then
                 local spinsLeft, familyGot = performRoll()
                 if familyGot then
                     local display = FormatFamilyDisplay(familyGot)
-                    Library:Notify(string.format("Rolled: %s | Spins left: %d", display, spinsLeft), 2)
+                    Library:Notify(string.format("Roll: %s | Spins left: %d", display, spinsLeft), 2)
                     updateUIFamily(familyGot)
+                    
+                    if spinsLeft == 0 and not notifiedSpinFinished then
+                        notifiedSpinFinished = true
+                        SendSpinFinishedWebhook()
+                        Library:Notify("Spins finished! Webhook sent.", 3)
+                        break
+                    end
+                    
+                    if stopAtSpinLimitEnabled and stopAtSpinLimitValue > 0 and spinsLeft <= stopAtSpinLimitValue and not notifiedSpinStop then
+                        notifiedSpinStop = true
+                        SendSpinStopWebhook(spinsLeft)
+                        Library:Notify(string.format("Stopped at Spins left: %d", spinsLeft), 3)
+                        break
+                    end
+                    
                     if isTargetFamily(familyGot, selectedFamilies) then
-                        Library:Notify(string.format("TARGET Found! %s | Spins left: %d", display, spinsLeft), 10)
+                        Library:Notify(string.format("Found! %s | Spins left: %d", display, spinsLeft), 10)
                         break
                     end
                 else
@@ -823,12 +890,44 @@ if IsMainmenuLobby() then
                     Options.AutoSpinToggle:SetValue(false)
                     return
                 end
+
+                local spinState = getgenv().SpinState
+                if stopAtSpinLimitEnabled and stopAtSpinLimitValue > 0 and spinState and spinState.hasRolled and spinState.storedSpins <= stopAtSpinLimitValue then
+                    Library:Notify("Cannot Roll: spins already limit", 3)
+                    Options.AutoSpinToggle:SetValue(false)
+                    return
+                end
+
                 autoActive = true
                 startAutoSpin()
             else
                 autoActive = false
                 if spinTask then task.cancel(spinTask); spinTask = nil end
                 waitingForSlot = false
+            end
+        end
+    })
+
+    StopSpinGroup:AddToggle("StopAtSpinLimitToggle", {
+        Text = "Enable Stop at Spin Left",
+        Default = false,
+        Callback = function(v)
+            stopAtSpinLimitEnabled = v
+        end
+    })
+
+    StopSpinGroup:AddInput("StopAtSpinLimitInput", {
+        Text = "Stop when spins < Left",
+        Default = "0",
+        Numeric = true,
+        Finished = true,
+        Placeholder = "0 - 100000",
+        Callback = function(v)
+            local num = tonumber(v)
+            if num then
+                stopAtSpinLimitValue = math.clamp(num, 0, 100000)
+            else
+                stopAtSpinLimitValue = 0
             end
         end
     })
@@ -880,21 +979,27 @@ if IsMainmenuLobby() then
     local popupGui = nil
     local updateConnection = nil
     local glowConnection = nil
+    local rainbowConnection = nil
     local currentScale = 1.0
+    local rainbowActive = false
 
     local Players = game:GetService("Players")
     local LocalPlayer = Players.LocalPlayer
     local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
     local RunService = game:GetService("RunService")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
 
-    local getSlotAFamily = getCurrentFamilyFromSlotA or function()
+    local function getSlotAFamily()
         local success, label = pcall(function()
             return PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
         end)
         if success and label and label:IsA("TextLabel") and label.Visible then
             local text = label.Text
             local family = text:match("^([^,]+)")
-            if family then return family:gsub("%s+$", "") end
+            if family then
+                return family:gsub("%s+$", "")
+            end
         end
         return nil
     end
@@ -921,6 +1026,38 @@ if IsMainmenuLobby() then
         elseif rarity == "Legendary" then return Color3.fromHex("#FFD700")
         elseif rarity == "Mythic" then return Color3.fromHex("#FF3366")
         else return Color3.fromHex("#FFFFFF") end
+    end
+
+    local function GetRainbowColor(offset)
+        local hue = (offset % 1) * 360
+        local r, g, b = Color3.fromHSV(hue / 360, 1.0, 1.0)
+        return Color3.new(r, g, b)
+    end
+
+    local function StartRainbowBorder(innerBorder, outerGlow)
+        if rainbowConnection then rainbowConnection:Disconnect() end
+        rainbowActive = true
+        local startTime = tick()
+        local cycleDuration = 20
+        rainbowConnection = RunService.RenderStepped:Connect(function()
+            if not popupEnabled or not popupGui or not innerBorder or not outerGlow then return end
+            local elapsed = (tick() - startTime) / cycleDuration
+            local hue = elapsed % 1
+            local color = GetRainbowColor(hue)
+            innerBorder.Color = color
+            outerGlow.Color = color
+            innerBorder.Thickness = 3
+            outerGlow.Thickness = 6
+            outerGlow.Transparency = 0.3
+        end)
+    end
+
+    local function StopRainbowBorder()
+        if rainbowConnection then
+            rainbowConnection:Disconnect()
+            rainbowConnection = nil
+        end
+        rainbowActive = false
     end
 
     local function getBrightColor(baseColor)
@@ -954,6 +1091,8 @@ if IsMainmenuLobby() then
         local pulseSpeed = 1.2
         glowConnection = RunService.RenderStepped:Connect(function(deltaTime)
             if not popupEnabled or not popupGui then return end
+            local spins = GetTotalSpins()
+            if spins == "0" then return end
             time = time + deltaTime * pulseSpeed
             local intensity = (math.sin(time) + 1) / 2
             local currentColor = Color3.new(
@@ -975,6 +1114,8 @@ if IsMainmenuLobby() then
     local function CreatePopupUI()
         if popupGui then popupGui:Destroy() end
         if glowConnection then glowConnection:Disconnect() end
+        if rainbowConnection then rainbowConnection:Disconnect() end
+        rainbowActive = false
 
         local screenGui = Instance.new("ScreenGui")
         screenGui.Name = "JaMeTestRealTimePopup"
@@ -1036,6 +1177,7 @@ if IsMainmenuLobby() then
         closeBtn.MouseButton1Click:Connect(function()
             if popupGui then popupGui:Destroy() end
             if glowConnection then glowConnection:Disconnect() end
+            if rainbowConnection then rainbowConnection:Disconnect() end
             if Options and Options.PopupRealTimeToggle then
                 Options.PopupRealTimeToggle:SetValue(false)
             end
@@ -1070,8 +1212,8 @@ if IsMainmenuLobby() then
         spinLabel.Position = UDim2.new(0, 12, 0, 86)
         spinLabel.BackgroundTransparency = 1
         spinLabel.Text = "Total Spins: ?"
-        spinLabel.Font = Enum.Font.GothamMedium
-        spinLabel.TextSize = 11
+        spinLabel.Font = Enum.Font.GothamBold
+        spinLabel.TextSize = 14
         spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
         spinLabel.TextXAlignment = Enum.TextXAlignment.Left
         spinLabel.Parent = mainFrame
@@ -1103,12 +1245,41 @@ if IsMainmenuLobby() then
             titleLabel.TextColor3 = baseColor
             closeBtn.BackgroundColor3 = baseColor
             closeBtn.TextColor3 = (rarity == "Legendary" or rarity == "Mythic") and Color3.fromHex("#111111") or Color3.new(1,1,1)
-            spinLabel.Text = "Total Spins: " .. spins
 
-            if currentRarity ~= rarity then
-                currentRarity = rarity
-                currentBaseColor = baseColor
-                StartSmoothPulse(innerBorder, outerGlow, baseColor)
+            if spins == "0" then
+                spinLabel.Text = "No Spins Left"
+                spinLabel.TextColor3 = Color3.fromHex("#FF6B6B")
+                spinLabel.TextSize = 16
+                if not rainbowActive then
+                    StartRainbowBorder(innerBorder, outerGlow)
+                end
+                innerBorder.Thickness = 3
+                outerGlow.Thickness = 6
+            else
+                spinLabel.Text = "Total Spins: " .. spins
+                spinLabel.TextColor3 = Color3.fromHex("#AAAAAA")
+                spinLabel.TextSize = 14
+                if rainbowActive then
+                    StopRainbowBorder()
+                    innerBorder.Color = baseColor
+                    outerGlow.Color = baseColor
+                    innerBorder.Thickness = 2.5
+                    outerGlow.Thickness = 5
+                    outerGlow.Transparency = 0.55
+                end
+            end
+
+            if spins ~= "0" then
+                if currentRarity ~= rarity then
+                    currentRarity = rarity
+                    currentBaseColor = baseColor
+                    StartSmoothPulse(innerBorder, outerGlow, baseColor)
+                end
+            else
+                if glowConnection then
+                    glowConnection:Disconnect()
+                    glowConnection = nil
+                end
             end
         end
 
@@ -1134,7 +1305,7 @@ if IsMainmenuLobby() then
     })
 
     PopupGroup:AddToggle("PopupRealTimeToggle", {
-        Text = "Show Family Popup",
+        Text = "Show Family",
         Default = false,
         Callback = function(v)
             popupEnabled = v
@@ -1143,12 +1314,36 @@ if IsMainmenuLobby() then
             else
                 if updateConnection then updateConnection:Disconnect() end
                 if glowConnection then glowConnection:Disconnect() end
+                if rainbowConnection then rainbowConnection:Disconnect() end
                 if popupGui then popupGui:Destroy() end
             end
         end
     })
-end
 
+    PopupGroup:AddButton("Deposit Family", function()
+        local currentFamily = getSlotAFamily()
+        if not currentFamily then
+            Library:Notify("No family detected to deposit.", 3)
+            return
+        end
+
+        local success, result, depositedFamily, newFamily = pcall(function()
+            return GET:InvokeServer("Family", "Store")
+        end)
+
+        if success and result == true then
+            local deposited = depositedFamily or "Unknown"
+            local received = newFamily or "Unknown"
+            local label = PlayerGui.Interface.Title_Screen.Slots.A.Details.Label
+            if label and label:IsA("TextLabel") then
+                label.Text = received
+            end
+            Library:Notify("Deposit successful! You deposited " .. deposited .. " and received " .. received, 5)
+        else
+            Library:Notify("Deposit failed! " .. currentFamily .. " could not be deposited", 3)
+        end
+    end)
+end
 
 
 
@@ -6146,7 +6341,6 @@ if Tabs.AutoFarm then
         Callback=function(v)
             if syncingWeapon then return end
             if v then
-                -- หน่วงเวลา 0.5 วินาทีให้ UI และ Config โหลดเสร็จ
                 task.wait(0.5)
                 
                 if G.AutoThunderSpear then
@@ -6190,11 +6384,9 @@ if Tabs.AutoFarm then
                 CurrentEntry = nil
                 LastAttackTime = tick()
                 
-                -- สร้าง Farm Loop ทันที
                 if not FarmConn then
                     CreateFarmLoop()
                 end
-                Library:Notify("▶️ Auto Farm Blade started!", 2)
             else
                 G.AutoFarmBlade = false
                 G.Farm = false
@@ -6233,7 +6425,6 @@ if Tabs.AutoFarm then
                         Options.AutoFarmBlade:SetValue(false)
                     end
                 end)
-                Library:Notify("⏹️ Auto Farm Blade stopped.", 2)
             end
         end
     })
@@ -6271,7 +6462,6 @@ if Tabs.AutoFarm then
         Callback = function(v)
             if syncingWeapon then return end
             if v then
-                -- หน่วงเวลา 0.5 วินาทีให้ UI และ Config โหลดเสร็จ
                 task.wait(0.5)
                 
                 if G.AutoFarmBlade then
@@ -6309,7 +6499,6 @@ if Tabs.AutoFarm then
                 if not SpearFarmConn then
                     CreateSpearFarmLoop()
                 end
-                Library:Notify("▶️ Auto Thunder Spear started!", 2)
             else
                 G.AutoThunderSpear = false
                 G.SpearFarm = false
@@ -6352,7 +6541,6 @@ if Tabs.AutoFarm then
                         Options.AutoThunderSpearToggle:SetValue(false)
                     end
                 end)
-                Library:Notify("⏹️ Auto Thunder Spear stopped.", 2)
             end
         end
     })
@@ -6377,13 +6565,11 @@ if Tabs.AutoFarm then
         Callback=function(v) if not syncingWeapon then G.ThunderSpearHoverHeight = v end end
     })
 
-    -- Loop ตรวจสอบสถานะ Farm ให้ทำงานทันทีเมื่อมีไททัน
     task.spawn(function()
         while true do
             task.wait(0.1)
             pcall(function()
                 local G = getgenv()
-                -- ถ้าเปิด AutoFarmBlade แต่ Farm ยังไม่ทำงาน ให้เริ่มทันที
                 if G.AutoFarmBlade and not G.Farm then
                     G.Farm = true
                     G.FarmStartTime = tick()
@@ -6393,7 +6579,6 @@ if Tabs.AutoFarm then
                         CreateFarmLoop()
                     end
                 end
-                -- ถ้าเปิด AutoThunderSpear แต่ SpearFarm ยังไม่ทำงาน ให้เริ่มทันที
                 if G.AutoThunderSpear and not G.SpearFarm then
                     G.SpearFarm = true
                     G.FarmStartTime = tick()
@@ -6580,7 +6765,7 @@ if Tabs.AutoFarm then
     })
 end
 
--- ===== ส่วนของ Titans และ Farm Core =====
+-- ===== ส่วนของ Titans และ Farm Core (ปรับปรุงให้ยิงเร็วขึ้น) =====
 
 local function SafeGetTitansFolder()
     local success, folder = pcall(function()
@@ -6620,7 +6805,6 @@ if not TitansFolder then
     TitansFolder = SafeGetTitansFolder()
 end
 
--- ฟังก์ชัน safe clear table
 local function safeClearTable(tbl)
     if type(tbl) == "table" then
         table.clear(tbl)
@@ -6629,16 +6813,32 @@ local function safeClearTable(tbl)
     return {}
 end
 
+local objectivesCache = false
+local objectivesCacheTime = 0
+local OBJECTIVES_CACHE_DURATION = 0.05
+
 local function isObjectivesActiveForCore()
+    local now = tick()
+    if now - objectivesCacheTime < OBJECTIVES_CACHE_DURATION then
+        return objectivesCache
+    end
+    objectivesCacheTime = now
+    
     local success, player = pcall(function()
         return game:GetService("Players").LocalPlayer
     end)
-    if not success or not player then return false end
+    if not success or not player then 
+        objectivesCache = false
+        return false 
+    end
     
     local success2, playerGui = pcall(function()
         return player:FindFirstChild("PlayerGui")
     end)
-    if not success2 or not playerGui then return false end
+    if not success2 or not playerGui then 
+        objectivesCache = false
+        return false 
+    end
     
     local function IsActuallyVisible(gui)
         if not gui or not gui:IsA("GuiObject") then return false end
@@ -6655,21 +6855,26 @@ local function isObjectivesActiveForCore()
     local success3, descendants = pcall(function()
         return playerGui:GetDescendants()
     end)
-    if not success3 then return false end
+    if not success3 then 
+        objectivesCache = false
+        return false 
+    end
     
     for _, v in ipairs(descendants) do
         if v.Name == "Objectives" then
             if IsActuallyVisible(v) then
+                objectivesCache = true
                 return true
             end
         end
     end
+    objectivesCache = false
     return false
 end
 
 local slayCache = false
 local slayCacheTime = 0
-local SLAY_CACHE_DURATION = 0.1
+local SLAY_CACHE_DURATION = 0.05
 
 local function isSlayObjectiveVisible()
     local now = tick()
@@ -6681,7 +6886,10 @@ local function isSlayObjectiveVisible()
     local success, player = pcall(function()
         return game:GetService("Players").LocalPlayer
     end)
-    if not success or not player then return false end
+    if not success or not player then 
+        slayCache = false
+        return false 
+    end
     
     local success2, targetGui = pcall(function()
         local gui = player.PlayerGui:FindFirstChild("Interface")
@@ -6722,10 +6930,12 @@ local isShiganshinaBreachMission = false
 local isProtectHQActive = false
 local protectHQCompleted = false
 local lastMissionCheck = 0
+local protectHQCheckTimer = 0
+local protectHQCheckInterval = 0.1
 
 local function updateMissionInfo()
     local now = tick()
-    if now - lastMissionCheck < 3 then return end
+    if now - lastMissionCheck < 5 then return end
     lastMissionCheck = now
     
     pcall(function()
@@ -6737,14 +6947,14 @@ local function updateMissionInfo()
             if mapName == "Shiganshina" and objective == "Breach" then
                 if not isShiganshinaBreachMission then
                     isShiganshinaBreachMission = true
-                    Library:Notify("[DEBUG] Shiganshina Breach mission detected - Slay check disabled until Protect_HQ appears", 4)
+                    Library:Notify("Shiganshina Breach mission detected - Slay check disabled until Protect_HQ appears", 4)
                 end
             else
                 if isShiganshinaBreachMission then
                     isShiganshinaBreachMission = false
                     isProtectHQActive = false
                     protectHQCompleted = false
-                    Library:Notify("[DEBUG] Not Shiganshina Breach - Returning to normal mode", 3)
+                    Library:Notify("Not Shiganshina Breach - Returning to normal mode", 3)
                 end
             end
         end
@@ -6754,13 +6964,12 @@ end
 local function checkProtectHQ()
     if not isShiganshinaBreachMission then return end
     
-    local success, player = pcall(function()
-        return game:GetService("Players").LocalPlayer
-    end)
-    if not success or not player then return end
+    local now = tick()
+    if now - protectHQCheckTimer < protectHQCheckInterval then return end
+    protectHQCheckTimer = now
     
-    local success2, protect = pcall(function()
-        local gui = player.PlayerGui:FindFirstChild("Interface")
+    local success, protect = pcall(function()
+        local gui = Player.PlayerGui:FindFirstChild("Interface")
         if gui then
             gui = gui:FindFirstChild("HUD")
             if gui then
@@ -6776,11 +6985,11 @@ local function checkProtectHQ()
         return nil
     end)
     
-    if success2 and protect and protect:IsA("TextLabel") and protect.Visible then
+    if success and protect and protect:IsA("TextLabel") and protect.Visible then
         if not isProtectHQActive then
             isProtectHQActive = true
             protectHQCompleted = false
-            Library:Notify("[DEBUG] Protect_HQ appeared - Slay check will be re-enabled after completing Protect_HQ", 3)
+            Library:Notify("Protect_HQ appeared - Slay check will be re-enabled after completing Protect_HQ", 3)
         end
         
         local text = protect.Text
@@ -6788,7 +6997,7 @@ local function checkProtectHQ()
         if current and max then
             if tonumber(current) >= tonumber(max) and not protectHQCompleted then
                 protectHQCompleted = true
-                Library:Notify("[DEBUG] Protect_HQ completed ("..current.."/"..max..") - Re-enabling Slay check", 3)
+                Library:Notify("Protect_HQ completed ("..current.."/"..max..") - Re-enabling Slay check", 3)
             end
         end
     else
@@ -6804,7 +7013,7 @@ task.spawn(function()
             updateMissionInfo()
             checkProtectHQ()
         end)
-        task.wait(1)
+        task.wait()
     end
 end)
 
@@ -6817,7 +7026,7 @@ local attackTitanSpawnTime = nil
 
 local ActiveTitans = {}
 local LastScan = 0
-local SCAN_RATE = 0.1
+local SCAN_RATE = 0.03
 local NapeCache = setmetatable({}, {__mode = "k"})
 
 local LastTitanPosition = nil
@@ -6859,6 +7068,7 @@ local function ScanTitans()
     local now = tick()
     if now - LastScan < SCAN_RATE then return end
     LastScan = now
+    
     local success, titansFolder = pcall(function()
         return workspace:FindFirstChild("Titans")
     end)
@@ -6866,23 +7076,22 @@ local function ScanTitans()
         ActiveTitans = safeClearTable(ActiveTitans)
         return
     end
+    
     ActiveTitans = safeClearTable(ActiveTitans)
     local attackFound = false
+    
     local success2, children = pcall(function()
         return titansFolder:GetChildren()
     end)
     if not success2 then return end
-    for _, t in ipairs(children) do
+    
+    for i = 1, #children do
+        local t = children[i]
         if t:IsA("Model") and IsTitanAlive(t) then
-            local success3, JaMe = pcall(function()
-                return t:FindFirstChild("JaMe")
-            end)
-            if success3 and JaMe then
-                local success4, collision = pcall(function()
-                    return JaMe:FindFirstChild("Collision")
-                end)
-                if success4 and collision and not collision.CanCollide then
-                    -- skip
+            local JaMe = t:FindFirstChild("JaMe")
+            if JaMe then
+                local collision = JaMe:FindFirstChild("Collision")
+                if collision and not collision.CanCollide then              
                 end
             end
             local nape = GetNape(t)
@@ -6894,6 +7103,7 @@ local function ScanTitans()
             end
         end
     end
+    
     if attackFound then
         if not attackTitanSpawnTime then attackTitanSpawnTime = now end
     else
@@ -6903,14 +7113,19 @@ end
 
 local function GetBestTarget(hrpPos)
     if not hrpPos then return nil end
+    if #ActiveTitans == 0 then return nil end
+    
     local now = tick()
     local attackReady = true
     if attackTitanSpawnTime then
-        attackReady = (now - attackTitanSpawnTime) >= 5
+        attackReady = (now - attackTitanSpawnTime) >= 3
     end
+    
     local bestBoss, bestBossDist = nil, math.huge
     local bestNormal, bestNormalDist = nil, math.huge
-    for _, entry in ipairs(ActiveTitans) do
+    
+    for i = 1, #ActiveTitans do
+        local entry = ActiveTitans[i]
         if entry.titanName == "Attack_Titan" and not attackReady then continue end
         local n = entry.nape
         if not n then continue end
@@ -6940,7 +7155,8 @@ local function NoclipOn()
             return char:GetDescendants()
         end)
         if success2 then
-            for _, v in ipairs(descendants) do
+            for i = 1, #descendants do
+                local v = descendants[i]
                 if v:IsA("BasePart") then
                     CharParts[#CharParts + 1] = v
                 end
@@ -6966,8 +7182,8 @@ local function InitSmoothMovement(hrp)
         local success, newPos = pcall(function()
             local b = Instance.new("BodyPosition")
             b.MaxForce = Vector3.new(1e5, 1e5, 1e5)
-            b.P = 3500
-            b.D = 700
+            b.P = 5000
+            b.D = 1000
             b.Parent = hrp
             return b
         end)
@@ -6978,8 +7194,8 @@ local function InitSmoothMovement(hrp)
         local success, newGyro = pcall(function()
             local g = Instance.new("BodyGyro")
             g.MaxTorque = Vector3.new(1e6, 1e6, 1e6)
-            g.P = 6000
-            g.D = 1200
+            g.P = 8000
+            g.D = 1600
             g.Parent = hrp
             return g
         end)
@@ -7032,7 +7248,7 @@ local function HoverInPlace(hrp)
     local currentY = hrp.Position.Y
     if math.abs(currentY - targetY) > 2 then
         pcall(function()
-            hrp.AssemblyLinearVelocity = Vector3.new(0, (targetY - currentY) * 5, 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, (targetY - currentY) * 8, 0)
         end)
     else
         pcall(function()
@@ -7088,15 +7304,21 @@ end
 if Player.Character then OnSpawn(Player.Character) end
 Player.CharacterAdded:Connect(OnSpawn)
 
--- ประกาศตัวแปร FarmConn และ SpearFarmConn เป็น local ที่นี่ (ถ้ายังไม่ได้ประกาศ)
 local FarmConn = nil
 local SpearFarmConn = nil
 local FARM_ATTACK_INTERVAL = 0.05
 local LastAttackTime = 0
 
 local waveWaiting = false
-local lastDefendText = ""
+local waveProgressCache = {current = nil, max = nil, text = nil, time = 0}
+local WAVE_CACHE_DURATION = 0.05
+
 local function getWaveProgress()
+    local now = tick()
+    if now - waveProgressCache.time < WAVE_CACHE_DURATION then
+        return waveProgressCache.current, waveProgressCache.max, waveProgressCache.text
+    end
+    
     local success, player = pcall(function()
         return game:GetService("Players").LocalPlayer
     end)
@@ -7123,25 +7345,52 @@ local function getWaveProgress()
         local text = defend.Text
         local current, max = text:match("(%d+)/(%d+)")
         if current and max then
-            return tonumber(current), tonumber(max), text
+            waveProgressCache.current = tonumber(current)
+            waveProgressCache.max = tonumber(max)
+            waveProgressCache.text = text
+            waveProgressCache.time = now
+            return waveProgressCache.current, waveProgressCache.max, waveProgressCache.text
         end
     end
+    waveProgressCache.current = nil
+    waveProgressCache.max = nil
+    waveProgressCache.text = nil
+    waveProgressCache.time = now
     return nil, nil, nil
 end
 
+local reloadCache = false
+local reloadCacheTime = 0
+local RELOAD_CACHE_DURATION = 0.05
+
 local function NeedReload()
+    local now = tick()
+    if now - reloadCacheTime < RELOAD_CACHE_DURATION then
+        return reloadCache
+    end
+    reloadCacheTime = now
+    
     local success, char = pcall(function()
         return workspace:FindFirstChild("Characters")
     end)
-    if not success or not char then return false end
+    if not success or not char then 
+        reloadCache = false
+        return false 
+    end
     local success2, playerChar = pcall(function()
         return char:FindFirstChild(Player.Name)
     end)
-    if not success2 or not playerChar then return false end
+    if not success2 or not playerChar then 
+        reloadCache = false
+        return false 
+    end
     local success3, rig = pcall(function()
         return playerChar:FindFirstChild("Rig_" .. Player.Name)
     end)
-    if not success3 or not rig then return false end
+    if not success3 or not rig then 
+        reloadCache = false
+        return false 
+    end
 
     local success4, leftHand = pcall(function()
         return rig:FindFirstChild("LeftHand")
@@ -7154,20 +7403,26 @@ local function NeedReload()
         local success6, blade = pcall(function()
             return leftHand:FindFirstChild("Blade_1")
         end)
-        if success6 and blade and blade.Transparency == 1 then return true end
+        if success6 and blade and blade.Transparency == 1 then 
+            reloadCache = true
+            return true 
+        end
     end
 
     if success5 and rightHand then
         local success7, blade = pcall(function()
             return rightHand:FindFirstChild("Blade_1")
         end)
-        if success7 and blade and blade.Transparency == 1 then return true end
+        if success7 and blade and blade.Transparency == 1 then 
+            reloadCache = true
+            return true 
+        end
     end
 
+    reloadCache = false
     return false
 end
 
--- ===== ฟังก์ชัน GetTargets =====
 local function GetTargets(limit)
     if #ActiveTitans == 0 then return {} end
     local success, hrp = pcall(function()
@@ -7177,43 +7432,46 @@ local function GetTargets(limit)
     end)
     if not success or not hrp then return {} end
     local pos = hrp.Position
+    
     local sorted = {}
-    for _, entry in ipairs(ActiveTitans) do
+    for i = 1, #ActiveTitans do
+        local entry = ActiveTitans[i]
         local nape = entry.nape
         if nape then
-            local dist = (nape.Position - pos).Magnitude
-            table.insert(sorted, {entry = entry, dist = dist})
+            local dx = nape.Position.X - pos.X
+            local dz = nape.Position.Z - pos.Z
+            local distSq = dx*dx + dz*dz
+            sorted[#sorted + 1] = {entry = entry, dist = distSq}
         end
     end
     table.sort(sorted, function(a,b) return a.dist < b.dist end)
+    
     local result = {}
-    for i = 1, math.min(#sorted, limit) do
-        table.insert(result, sorted[i].entry)
+    local count = math.min(#sorted, limit or 9)
+    for i = 1, count do
+        result[i] = sorted[i].entry
     end
     return result
 end
 
--- ===== ปรับปรุงฟังก์ชัน AttackAllTitans =====
 local function AttackAllTitans()
     if #ActiveTitans == 0 then return end
     if not isObjectivesActiveForCore() then return end
-    
-    if NeedReload() then
-        return
-    end
+    if NeedReload() then return end
 
     local G = getgenv()
     local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
     local safe = elapsed >= (G.SafetyTime or 60)
-    local killHits = G.KillHits or 1
+    local killHits = G.KillHits or 9
 
     if safe then
         SafeFire(POST, "Attacks", "Slash", true)
         local targets = GetTargets(killHits)
-        for _, entry in ipairs(targets) do
+        for i = 1, #targets do
+            local entry = targets[i]
             local nape = entry.nape
             if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
+                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
             end
         end
         return
@@ -7222,30 +7480,25 @@ local function AttackAllTitans()
     if isShiganshinaBreachMission and not protectHQCompleted then
         SafeFire(POST, "Attacks", "Slash", true)
         local targets = GetTargets(killHits)
-        for _, entry in ipairs(targets) do
+        for i = 1, #targets do
+            local entry = targets[i]
             local nape = entry.nape
             if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, 9999, 0)
+                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
             end
         end
         return
     end
 
-    local currentWave, maxWave, defendText = getWaveProgress()
+    local currentWave, maxWave = getWaveProgress()
     if currentWave and maxWave and currentWave < maxWave then
         local nearComplete = (currentWave >= maxWave - 2)
         if nearComplete then
             if elapsed < (G.SafetyTime or 60) then
-                if not waveWaiting then
-                    waveWaiting = true
-                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
-                end
+                if not waveWaiting then waveWaiting = true end
                 return
             else
-                if waveWaiting then
-                    waveWaiting = false
-                    Library:Notify("Safety timer reached, resuming attack!", 2)
-                end
+                if waveWaiting then waveWaiting = false end
             end
         else
             waveWaiting = false
@@ -7257,51 +7510,43 @@ local function AttackAllTitans()
     end
 
     local slayVisible = isSlayObjectiveVisible()
-    local dmg = 9999
     local stopAt = G.StopAtTitansLeft or 1
     local targets = GetTargets(killHits)
-    
+
     if not slayVisible then
         SafeFire(POST, "Attacks", "Slash", true)
-        for _, entry in ipairs(targets) do
+        for i = 1, #targets do
+            local entry = targets[i]
             local nape = entry.nape
             if nape and nape.Parent then
-                SafeFire(POST, "Hitboxes", "Register", nape, dmg, 0)
+                SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
             end
         end
         return
     end
-    
-    if not safe and #ActiveTitans <= stopAt then
-        return
-    end
+
+    if not safe and #ActiveTitans <= stopAt then return end
 
     SafeFire(POST, "Attacks", "Slash", true)
-    for _, entry in ipairs(targets) do
+    for i = 1, #targets do
+        local entry = targets[i]
         local nape = entry.nape
         if nape and nape.Parent then
-            SafeFire(POST, "Hitboxes", "Register", nape, dmg, 0)
+            SafeFire(POST, "Hitboxes", "Register", nape, 99999, 0)
         end
     end
 end
 
--- ===== Blade FarmUpdate =====
 local function FarmUpdate()
     pcall(function()
         local G = getgenv()
         
-        -- ถ้า AutoFarmBlade ถูกปิดให้หยุดทันที
         if not G.AutoFarmBlade then
-            if G.Farm then
-                G.Farm = false
-            end
+            if G.Farm then G.Farm = false end
             return
         end
         
-        -- ถ้า Farm ถูกปิดให้หยุด
-        if not G.Farm then
-            return
-        end
+        if not G.Farm then return end
         
         if isDead then return end
         
@@ -7309,9 +7554,7 @@ local function FarmUpdate()
             local char = Player.Character
             if char then
                 local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hrp then
-                    HoverInPlace(hrp)
-                end
+                if hrp then HoverInPlace(hrp) end
             end
             return
         end
@@ -7344,7 +7587,6 @@ local function FarmUpdate()
             return
         end
 
-        -- Scan หาไททัน
         ScanTitans()
 
         local elapsed = (G.FarmStartTime and tick() - G.FarmStartTime) or 0
@@ -7354,7 +7596,6 @@ local function FarmUpdate()
                 return
             else
                 waveWaiting = false
-                Library:Notify("Safety timer reached, resuming attack!", 2)
             end
         end
 
@@ -7407,10 +7648,10 @@ CreateFarmLoop = function()
     end
     FarmConn = RunService.Heartbeat:Connect(FarmUpdate)
 end
--- ===== Spear Farming =====
+
 local SpearCurrentEntry = nil
 local LastSpearAttackTime = 0
-local SPEAR_ATTACK_INTERVAL = 0.2
+local SPEAR_ATTACK_INTERVAL = 0.1
 local CurrentFirePower = 8
 local EXPLODE_RADIUS = 0.14
 getgenv().SpearFarm = getgenv().SpearFarm or false
@@ -7474,7 +7715,7 @@ end
 local function FireSpear()
     if CurrentFirePower <= 0 then
         ReloadSpears()
-        task.wait(0.15)
+        task.wait(0.05)
         if CurrentFirePower == 0 then return end
     end
     pcall(function()
@@ -7485,7 +7726,8 @@ end
 
 local function ThunderAOEAttack()
     local activeList = ActiveTitans
-    for _, entry in ipairs(activeList) do
+    for i = 1, #activeList do
+        local entry = activeList[i]
         local nape = entry.nape
         if nape then
             pcall(function()
@@ -7526,13 +7768,11 @@ local function ThunderAttackAllTitans()
             if elapsed < (G.SafetyTime or 60) then
                 if not waveWaiting then
                     waveWaiting = true
-                    Library:Notify(string.format("Wave nearly complete (%d/%d), waiting for safety timer (%.0f/%.0f sec)", currentWave, maxWave, elapsed, G.SafetyTime or 60), 3)
                 end
                 return
             else
                 if waveWaiting then
                     waveWaiting = false
-                    Library:Notify("Safety timer reached, resuming attack!", 2)
                 end
             end
         else
@@ -7612,7 +7852,7 @@ local function SpearFarmUpdate()
             NoclipOn()
             CleanupSmoothMovement()
             local dy = IdleHoverY - hrp.Position.Y
-            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 5, -50, 50), 0)
+            hrp.AssemblyLinearVelocity = Vector3.new(0, math.clamp(dy * 8, -80, 80), 0)
             return
         end
 
@@ -7628,7 +7868,6 @@ local function SpearFarmUpdate()
         end
 
         local hoverHeight = G.ThunderSpearHoverHeight or G.HoverHeight or 120
-        local hoverSpeed = G.ThunderSpearHoverSpeed or G.HoverSpeed or 120
         local targetHeight = nape.Position.Y + hoverHeight
         local targetPos = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z)
         local lookDir = Vector3.new(nape.Position.X, targetHeight, nape.Position.Z - 5)
@@ -7642,6 +7881,7 @@ local function SpearFarmUpdate()
             MoveSmooth(hrp, targetPos, lookDir)
         end
 
+        -- ยิงเร็วขึ้น
         local now = tick()
         if now - LastSpearAttackTime >= SPEAR_ATTACK_INTERVAL then
             LastSpearAttackTime = now
@@ -7658,10 +7898,10 @@ CreateSpearFarmLoop = function()
     SpearFarmConn = RunService.Heartbeat:Connect(SpearFarmUpdate)
 end
 
--- ===== สร้าง loop ตรวจสอบสถานะ (ปรับให้หยุดเมื่อปิด) =====
+-- ===== สร้าง loop ตรวจสอบสถานะ (เร็วขึ้น) =====
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.03)
         local G = getgenv()
         if G.AutoFarmBlade then
             if not G.Farm then
@@ -7689,7 +7929,7 @@ end)
 
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.03)
         local G = getgenv()
         if G.AutoThunderSpear then
             if not G.SpearFarm then
@@ -7715,9 +7955,9 @@ task.spawn(function()
     end
 end)
 
--- ===== สร้าง loop เช็คและสร้างใหม่ (เฉพาะเมื่อเปิด) =====
+-- ===== loop เช็คและสร้างใหม่ =====
 task.spawn(function()
-    while task.wait(0.15) do
+    while task.wait(0.1) do
         local G = getgenv()
         if G.AutoFarmBlade and (not FarmConn or not FarmConn.Connected) then
             CreateFarmLoop()
@@ -7726,7 +7966,7 @@ task.spawn(function()
 end)
 
 task.spawn(function()
-    while task.wait(0.15) do
+    while task.wait(0.1) do
         local G = getgenv()
         if G.AutoThunderSpear and (not SpearFarmConn or not SpearFarmConn.Connected) then
             CreateSpearFarmLoop()
@@ -9139,34 +9379,36 @@ end
 
 if Tabs.AutoFarm then
     local MiscGroup = Tabs.AutoFarm:AddRightGroupbox("Skip Cutscene")
-    
+
     local skipEnabled = false
     local skipRunning = false
-    
+
     local Players = game:GetService("Players")
     local GuiService = game:GetService("GuiService")
     local VirtualInputManager = game:GetService("VirtualInputManager")
     local lp = Players.LocalPlayer
-    
+
+    local CLICK_DELAY = 1.0
+
     local function clickSkipButton()
         local playerGui = lp:FindFirstChild("PlayerGui")
         if not playerGui then return false end
-        
+
         local interface = playerGui:FindFirstChild("Interface")
         if not interface then return false end
-        
+
         local skipFrame = interface:FindFirstChild("Skip")
         if not skipFrame or not skipFrame.Visible then return false end
-        
+
         local interactBtn = skipFrame:FindFirstChild("Interact")
         if not interactBtn or not interactBtn.Visible then return false end
-        
+
         if GuiService.MenuIsOpen then
             VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Escape, false, game)
             VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Escape, false, game)
             task.wait(0.05)
         end
-        
+
         GuiService.SelectedObject = interactBtn
         task.wait(0.02)
         VirtualInputManager:SendKeyEvent(true, Enum.KeyCode.Return, false, game)
@@ -9174,35 +9416,41 @@ if Tabs.AutoFarm then
         VirtualInputManager:SendKeyEvent(false, Enum.KeyCode.Return, false, game)
         task.wait(0.02)
         GuiService.SelectedObject = nil
-        
+
         return true
     end
-    
+
     task.spawn(function()
         local detectedTime = 0
         local hasClicked = false
-        
+
         while true do
             task.wait(0.1)
-            
+
             if not skipEnabled then
                 detectedTime = 0
                 hasClicked = false
                 continue
             end
-            
+
             local interface = lp.PlayerGui:FindFirstChild("Interface")
             local skip = interface and interface:FindFirstChild("Skip")
-            
+
             if skip and skip.Visible then
-                if not hasClicked then
-                    if detectedTime == 0 then
-                        detectedTime = tick()
-                    elseif tick() - detectedTime >= 0.3 then
-                        clickSkipButton()
-                        hasClicked = true
-                        detectedTime = 0
+                local interactBtn = skip:FindFirstChild("Interact")
+                if interactBtn and interactBtn.Visible then
+                    if not hasClicked then
+                        if detectedTime == 0 then
+                            detectedTime = tick()
+                        elseif tick() - detectedTime >= CLICK_DELAY then
+                            clickSkipButton()
+                            hasClicked = true
+                            detectedTime = 0
+                        end
                     end
+                else
+                    detectedTime = 0
+                    hasClicked = false
                 end
             else
                 detectedTime = 0
@@ -9210,18 +9458,57 @@ if Tabs.AutoFarm then
             end
         end
     end)
-    
+
     MiscGroup:AddToggle("SkipCutSceneToggle", {
-        Text="Skip Cut Scene",
-        Default=false,
-        Callback=function(v)
+        Text = "Skip Cut Scene",
+        Default = false,
+        Callback = function(v)
             skipEnabled = v
             if not v then
                 skipRunning = false
             end
         end
     })
+
+    MiscGroup:AddToggle("SkipForceToggle", {
+        Text = "Skip Fixed",
+        Default = false,
+        Callback = function(v)
+            if v then
+                task.spawn(function()
+                    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+                    local GET = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("GET")
+                    local POST = ReplicatedStorage:WaitForChild("Assets"):WaitForChild("Remotes"):WaitForChild("POST")
+
+                    pcall(function()
+                        GET:InvokeServer("Functions", "Loaded", "Add")
+                    end)
+
+                    local function GetNil(Name, DebugId)
+                        for _, Object in getnilinstances() do
+                            if Object.Name == Name and Object:GetDebugId() == DebugId then
+                                return Object
+                            end
+                        end
+                    end
+
+                    local startObj = GetNil("Start", "1_39502")
+                    if startObj then
+                        pcall(function()
+                            POST:FireServer("Functions", "Finished", startObj)
+                        end)
+                    end
+
+                    if Options and Options.SkipForceToggle then
+                        Options.SkipForceToggle:SetValue(false)
+                    end
+                end)
+            end
+        end
+    })
 end
+
+
 
 if Tabs.AutoFarm then
     local SpearGroup = Tabs.AutoFarm:AddRightGroupbox("Auto Spear Quest")
